@@ -558,7 +558,7 @@ Playwright happy-path e2e covers the full CRUD loop.
           `input`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-3-4: Profiles list page at `/profiles`
+- [x] T-3-4: Profiles list page at `/profiles`
       Goal: A server component listing the current user's profiles
       with links to create / edit and a delete control on each row.
       Touches: `src/app/(app)/profiles/page.tsx`,
