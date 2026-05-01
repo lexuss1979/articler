@@ -133,7 +133,7 @@ ready for use by future API handlers.
           plain and `false` for a wrong password.
         - `pnpm test` runs the new test and it passes.
 
-- [ ] T-1-3: Auth.js v5 config with Credentials provider + route handler
+- [x] T-1-3: Auth.js v5 config with Credentials provider + route handler
       Goal: Wire Auth.js using JWT sessions and a Credentials provider
       that looks up users in the DB and verifies their password via the
       T-1-2 utility.
