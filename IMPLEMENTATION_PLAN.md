@@ -83,7 +83,7 @@ on 13036, plus working lint/typecheck/test commands.
       Acceptance: - `docker compose up -d` exposes web on 18080, db on 13036. - `psql postgres://articler:articler@localhost:13036/articler -c '\dt'`
       connects (empty result is fine).
 
-- [ ] T-0-6: Drizzle ORM wired up with one trivial migration
+- [x] T-0-6: Drizzle ORM wired up with one trivial migration
       Goal: A `users` table exists in the dev DB. `pnpm db:migrate`
       applies migrations.
       Touches: `drizzle.config.ts`, `src/server/db/schema.ts`,
