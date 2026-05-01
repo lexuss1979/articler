@@ -69,7 +69,7 @@ on 13036, plus working lint/typecheck/test commands.
       Touches: `.prettierrc`, `.prettierignore`, `package.json`.
       Acceptance: - `pnpm format:check` exits 0 on a fresh clone.
 
-- [ ] T-0-4: Dockerize the app
+- [x] T-0-4: Dockerize the app
       Goal: A multi-stage Dockerfile builds a production image; image
       runs and serves on container port 3000.
       Touches: `Dockerfile`, `.dockerignore`.
