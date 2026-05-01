@@ -1,6 +1,7 @@
 'use server';
 
 import { AuthError } from 'next-auth';
+import { redirect } from 'next/navigation';
 import { signIn } from '../../../server/auth/config';
 
 export type LoginResult = { ok: false; error: 'invalid_credentials' | 'unknown' } | null;
@@ -13,7 +14,7 @@ export async function loginUser(
   const password = formData.get('password') as string;
 
   try {
-    await signIn('credentials', { email, password, redirectTo: '/dashboard' });
+    await signIn('credentials', { email, password, redirect: false });
   } catch (err) {
     if (err instanceof AuthError) {
       return { ok: false, error: 'invalid_credentials' };
@@ -21,5 +22,5 @@ export async function loginUser(
     throw err;
   }
 
-  return null;
+  redirect('/dashboard');
 }
