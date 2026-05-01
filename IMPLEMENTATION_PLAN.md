@@ -229,7 +229,7 @@ ready for use by future API handlers.
           a subsequent visit to `/dashboard` redirects back to `/login`.
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-1-9: Integration test — register → login → protected access
+- [x] T-1-9: Integration test — register → login → protected access
       Goal: A single integration test exercising the auth happy path
       end-to-end against the running app and a real test DB.
       Touches: `tests/integration/auth-flow.test.ts`,
