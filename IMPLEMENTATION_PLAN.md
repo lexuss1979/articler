@@ -151,7 +151,7 @@ ready for use by future API handlers.
           listing `credentials` when running `pnpm dev`.
         - `pnpm typecheck` exits 0.
 
-- [ ] T-1-4: `requireUser` server helper
+- [x] T-1-4: `requireUser` server helper
       Goal: A single helper for server components, server actions, and
       route handlers to obtain the current user or redirect to `/login`.
       Touches: `src/server/auth/require-user.ts`,
