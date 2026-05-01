@@ -1,0 +1,31 @@
+services:
+  web:
+    build: .
+    ports:
+      - '18080:3000'
+    environment:
+      DATABASE_URL: postgres://articler:articler@db:5432/articler
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    ports:
+      - '13036:5432'
+    environment:
+      POSTGRES_USER: articler
+      POSTGRES_PASSWORD: articler
+      POSTGRES_DB: articler
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U articler -d articler']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db_data:

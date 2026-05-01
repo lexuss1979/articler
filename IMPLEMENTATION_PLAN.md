@@ -76,7 +76,7 @@ on 13036, plus working lint/typecheck/test commands.
       Acceptance: - `docker build -t articler-web .` succeeds. - `docker run -p 18080:3000 articler-web` serves the page on
       `http://localhost:18080`.
 
-- [ ] T-0-5: docker-compose with Postgres
+- [x] T-0-5: docker-compose with Postgres
       Goal: `docker compose up` brings up `web` (host 18080) and
       `db` (host 13036). Web depends on db.
       Touches: `docker-compose.yml`, `.env.example`.
