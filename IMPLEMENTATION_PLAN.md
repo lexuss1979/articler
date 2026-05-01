@@ -61,7 +61,7 @@ on 13036, plus working lint/typecheck/test commands.
         - `pnpm lint` exits 0.
         - `pnpm typecheck` (script wraps `tsc --noEmit`) exits 0.
 
-- [ ] T-0-2: Add Vitest + first smoke test
+- [x] T-0-2: Add Vitest + first smoke test
       Goal: `pnpm test` runs.
       Touches: `vitest.config.ts`, `tests/unit/smoke.test.ts`,
       `package.json` (script).
