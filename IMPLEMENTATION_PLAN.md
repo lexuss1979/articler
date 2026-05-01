@@ -643,7 +643,7 @@ Playwright happy-path e2e covers the full CRUD loop.
           stale data.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-3-8: Install + configure Playwright
+- [x] T-3-8: Install + configure Playwright
       Goal: Add `@playwright/test`, scaffold a config that points at
       `tests/e2e`, and add a `pnpm e2e` script. No real test yet —
       that ships in T-3-9.
