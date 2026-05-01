@@ -602,7 +602,7 @@ Playwright happy-path e2e covers the full CRUD loop.
           repo.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-3-6: Edit profile page + server action
+- [x] T-3-6: Edit profile page + server action
       Goal: `/profiles/[id]/edit` pre-fills the form and updates the
       row on submit; returns 404 when the profile is not owned by the
       current user.
