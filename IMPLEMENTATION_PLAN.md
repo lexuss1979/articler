@@ -6,11 +6,11 @@
 - One epic at a time is **planned in detail** (a checked-list of small,
   individually-implementable tasks). The rest are stubs (`status: TBD`)
   with intent only.
-- The marker `<!-- PLANING_CHECKPOINT -->` separates *planned* epics
-  (above) from *unplanned* epics (below). Exactly one such marker exists
+- The marker `<!-- PLANING_CHECKPOINT -->` separates _planned_ epics
+  (above) from _unplanned_ epics (below). Exactly one such marker exists
   in the document at all times.
 - The **planner agent** (see `prompts/plan_epic.md`) reads this file,
-  finds the checkpoint, expands the *next* epic below it into tasks,
+  finds the checkpoint, expands the _next_ epic below it into tasks,
   and moves the checkpoint past that epic.
 - The **implementer agent** (see `prompts/implement_task.md`) takes the
   next unchecked task from the most recently planned epic and does it.
@@ -56,41 +56,32 @@ on 13036, plus working lint/typecheck/test commands.
       Touches: `package.json`, `next.config.ts`, `tsconfig.json`,
       `src/app/layout.tsx`, `src/app/page.tsx`, `tailwind.config.ts`,
       `postcss.config.mjs`, `.gitignore`, `.eslintrc.*`.
-      Acceptance:
-        - `pnpm install && pnpm dev` serves the default page.
-        - `pnpm lint` exits 0.
-        - `pnpm typecheck` (script wraps `tsc --noEmit`) exits 0.
+      Acceptance: - `pnpm install && pnpm dev` serves the default page. - `pnpm lint` exits 0. - `pnpm typecheck` (script wraps `tsc --noEmit`) exits 0.
 
 - [x] T-0-2: Add Vitest + first smoke test
       Goal: `pnpm test` runs.
       Touches: `vitest.config.ts`, `tests/unit/smoke.test.ts`,
       `package.json` (script).
-      Acceptance:
-        - `pnpm test` runs and the smoke test passes.
+      Acceptance: - `pnpm test` runs and the smoke test passes.
 
-- [ ] T-0-3: Add Prettier
+- [x] T-0-3: Add Prettier
       Goal: `pnpm format` formats; `pnpm format:check` is in CI script.
       Touches: `.prettierrc`, `.prettierignore`, `package.json`.
-      Acceptance:
-        - `pnpm format:check` exits 0 on a fresh clone.
+      Acceptance: - `pnpm format:check` exits 0 on a fresh clone.
 
 - [ ] T-0-4: Dockerize the app
       Goal: A multi-stage Dockerfile builds a production image; image
       runs and serves on container port 3000.
       Touches: `Dockerfile`, `.dockerignore`.
-      Acceptance:
-        - `docker build -t articler-web .` succeeds.
-        - `docker run -p 18080:3000 articler-web` serves the page on
-          `http://localhost:18080`.
+      Acceptance: - `docker build -t articler-web .` succeeds. - `docker run -p 18080:3000 articler-web` serves the page on
+      `http://localhost:18080`.
 
 - [ ] T-0-5: docker-compose with Postgres
       Goal: `docker compose up` brings up `web` (host 18080) and
       `db` (host 13036). Web depends on db.
       Touches: `docker-compose.yml`, `.env.example`.
-      Acceptance:
-        - `docker compose up -d` exposes web on 18080, db on 13036.
-        - `psql postgres://articler:articler@localhost:13036/articler -c '\dt'`
-          connects (empty result is fine).
+      Acceptance: - `docker compose up -d` exposes web on 18080, db on 13036. - `psql postgres://articler:articler@localhost:13036/articler -c '\dt'`
+      connects (empty result is fine).
 
 - [ ] T-0-6: Drizzle ORM wired up with one trivial migration
       Goal: A `users` table exists in the dev DB. `pnpm db:migrate`
@@ -98,9 +89,7 @@ on 13036, plus working lint/typecheck/test commands.
       Touches: `drizzle.config.ts`, `src/server/db/schema.ts`,
       `src/server/db/client.ts`, `drizzle/0000_init.sql`,
       `package.json` (scripts: `db:generate`, `db:migrate`).
-      Acceptance:
-        - `pnpm db:migrate` against the compose DB creates the `users` table.
-        - Re-running is a no-op.
+      Acceptance: - `pnpm db:migrate` against the compose DB creates the `users` table. - Re-running is a no-op.
 
 - [ ] T-0-7: Repository hygiene
       Goal: README with one-command boot instructions, `.env.example`
@@ -108,9 +97,8 @@ on 13036, plus working lint/typecheck/test commands.
       `AUTH_SECRET`, stock API keys), `.gitignore` covers
       `logs/`, `data/`, `.next/`, `node_modules/`.
       Touches: `README.md`, `.env.example`, `.gitignore`.
-      Acceptance:
-        - A fresh clone + `cp .env.example .env && docker compose up`
-          works end-to-end per the README.
+      Acceptance: - A fresh clone + `cp .env.example .env && docker compose up`
+      works end-to-end per the README.
 
 <!-- PLANING_CHECKPOINT -->
 
@@ -173,6 +161,7 @@ with user instruction; live draft pane.
 
 **Status: TBD**
 Intent:
+
 - **Critics**: a critic registry seeded with the built-in personas
   (`editorial`, `audience_fit`, `methodology`, `style`, `structure`,
   `headline`, `seo_discoverability`); a generic `run_critic` stage that
