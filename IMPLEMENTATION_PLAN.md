@@ -262,7 +262,7 @@ helper; one integration test that records a fake call end-to-end.
 
 ### Tasks
 
-- [ ] T-2-1: `MODEL_ROUTING` config + `ModelClass` type
+- [x] T-2-1: `MODEL_ROUTING` config + `ModelClass` type
       Goal: A single source of truth for which OpenRouter model serves
       each model class, plus a typed alias the rest of the LLM layer
       can import.
