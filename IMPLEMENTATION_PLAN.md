@@ -333,7 +333,7 @@ helper; one integration test that records a fake call end-to-end.
       Epic 4 when the `sessions` table is created. `user_id` already
       has a target table so it can take an FK.
 
-- [ ] T-2-4: Thin OpenRouter HTTP client
+- [x] T-2-4: Thin OpenRouter HTTP client
       Goal: A typed `fetch` wrapper for the two OpenRouter endpoints
       we need: chat completions and image generation. No business
       logic, no logging, no fallback.
