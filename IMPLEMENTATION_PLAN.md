@@ -488,7 +488,7 @@ Playwright happy-path e2e covers the full CRUD loop.
 
 ### Tasks
 
-- [ ] T-3-1: `profiles` table — schema + migration
+- [x] T-3-1: `profiles` table — schema + migration
       Goal: Persist platform profiles per user, with all FR-PROF-1
       fields, ready for the Epic 4 `sessions.profile_id` FK to land on
       top.

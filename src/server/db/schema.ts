@@ -1,9 +1,25 @@
-import { integer, numeric, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { integer, jsonb, numeric, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const profiles = pgTable('profiles', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  format: text('format').notNull(),
+  style: text('style').notNull(),
+  audience: text('audience').notNull(),
+  targetVolumeMin: integer('target_volume_min').notNull(),
+  targetVolumeMax: integer('target_volume_max').notNull(),
+  markupRules: jsonb('markup_rules').notNull().default({}),
+  extraPrompt: text('extra_prompt').notNull().default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

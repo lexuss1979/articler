@@ -15,6 +15,13 @@
       "when": 1777666831247,
       "tag": "0001_smooth_albert_cleary",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777668463223,
+      "tag": "0002_lowly_kree",
+      "breakpoints": true
     }
   ]
 }
