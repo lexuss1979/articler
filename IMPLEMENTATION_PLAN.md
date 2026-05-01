@@ -382,7 +382,7 @@ helper; one integration test that records a fake call end-to-end.
         - Unit test asserts a 4xx error is **not** retried.
         - `pnpm typecheck` exits 0.
 
-- [ ] T-2-6: JSONL logger with daily rotation
+- [x] T-2-6: JSONL logger with daily rotation
       Goal: Append-only logger that writes one JSON object per line to
       `logs/runs/YYYY-MM-DD.jsonl`, creating the directory and the
       day's file on demand.
