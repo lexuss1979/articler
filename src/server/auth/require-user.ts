@@ -3,7 +3,7 @@ import { auth } from './config';
 
 export async function requireUser(): Promise<{ id: number; email: string }> {
   const session = await auth();
-  if (!session?.user?.id || !session?.user?.email) {
+  if (!session?.user?.email || !session.user.id) {
     redirect('/login');
   }
   return {

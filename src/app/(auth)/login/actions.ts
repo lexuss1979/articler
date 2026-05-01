@@ -15,14 +15,35 @@ export async function loginUser(
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
 
-  // Verify credentials before calling signIn so we can return a typed error
-  // rather than relying on Auth.js v5 beta's redirect-on-failure behaviour.
+  console.log('[login] attempt', { email, passwordLen: password?.length });
+
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  if (!user || !(await verifyPassword(password, user.passwordHash))) {
+  console.log('[login] db lookup', { found: !!user, userId: user?.id });
+
+  if (!user) {
+    console.log('[login] user not found');
     return { ok: false, error: 'invalid_credentials' };
   }
 
-  // Credentials valid — signIn sets the JWT cookie and redirects to /dashboard.
-  await signIn('credentials', { email, password, redirectTo: '/dashboard' });
+  const valid = await verifyPassword(password, user.passwordHash);
+  console.log('[login] password verify', { valid });
+
+  if (!valid) {
+    return { ok: false, error: 'invalid_credentials' };
+  }
+
+  console.log('[login] calling signIn');
+  try {
+    await signIn('credentials', { email, password, redirectTo: '/dashboard' });
+    console.log('[login] signIn returned (no redirect thrown)');
+  } catch (err) {
+    console.log('[login] signIn threw', {
+      name: (err as Error)?.name,
+      digest: (err as { digest?: string })?.digest,
+      message: (err as Error)?.message,
+    });
+    throw err;
+  }
+
   return null;
 }
