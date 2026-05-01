@@ -49,42 +49,37 @@ describe('wrapWithLogging integration', () => {
     const { wrapWithLogging } = await import('../../src/server/logging/wrap');
     const { getUserCost } = await import('../../src/server/logging/aggregate');
 
-    const result = await wrapWithLogging({
+    await wrapWithLogging({
       stage: 'test',
       task: 'integ-1',
       userId: testUserId,
+      baseDir: tmpDir,
       call: () => routeChat({ messages: [{ role: 'user', content: 'hi' }], class: 'fast' }),
       request: { messages: [{ role: 'user', content: 'hi' }] },
     });
 
-    // (a) JSONL file contains the line with matching fields
-    const jsonlPath = result.runId
-      ? path.join(tmpDir, path.basename(result.runId.toString()))
-      : null;
-    // wrapWithLogging uses process.cwd() by default — read the actual file from payload_path
-    const [dbRow] = await db
-      .select()
-      .from(runs)
-      .where(eq(runs.task, 'integ-1'));
-
+    // (b) runs row exists with expected fields
+    const [dbRow] = await db.select().from(runs).where(eq(runs.task, 'integ-1'));
     expect(dbRow).toBeDefined();
     expect(dbRow.stage).toBe('test');
     expect(dbRow.task).toBe('integ-1');
     expect(dbRow.userId).toBe(testUserId);
     expect(dbRow.payloadPath).toBeTruthy();
 
+    // (a) JSONL file in tmpDir contains exactly one line with expected fields
     const raw = await fs.readFile(dbRow.payloadPath!, 'utf8');
     const jsonlLines = raw.trimEnd().split('\n').filter(Boolean);
-    const lastLine = JSON.parse(jsonlLines[jsonlLines.length - 1]) as Record<string, unknown>;
-    expect(lastLine.stage).toBe('test');
-    expect(lastLine.task).toBe('integ-1');
-    expect(lastLine.model).toBe('anthropic/claude-haiku-4.5');
-    expect(typeof lastLine.cost_usd).toBe('number');
+    expect(jsonlLines).toHaveLength(1);
+    const entry = JSON.parse(jsonlLines[0]) as Record<string, unknown>;
+    expect(entry.stage).toBe('test');
+    expect(entry.task).toBe('integ-1');
+    expect(entry.model).toBe('anthropic/claude-haiku-4.5');
+    expect(typeof entry.cost_usd).toBe('number');
 
-    // (b) runs row cost matches JSONL line cost
-    expect(parseFloat(dbRow.costUsd)).toBeCloseTo(lastLine.cost_usd as number, 6);
+    // runs row cost matches JSONL line cost
+    expect(parseFloat(dbRow.costUsd)).toBeCloseTo(entry.cost_usd as number, 6);
 
-    // (c) getUserCost returns a non-zero number matching the row
+    // (c) getUserCost returns the same cost
     const userCost = await getUserCost(testUserId);
     expect(userCost).toBeGreaterThan(0);
     expect(userCost).toBeCloseTo(parseFloat(dbRow.costUsd), 6);

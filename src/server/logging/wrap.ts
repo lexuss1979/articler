@@ -11,24 +11,28 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
   userId?: number;
   call: () => Promise<T>;
   request: unknown;
+  baseDir?: string;
 }): Promise<T & { runId: number }> {
-  const { stage, task, sessionId, userId, call, request } = args;
+  const { stage, task, sessionId, userId, call, request, baseDir } = args;
   const ts = new Date();
 
   let result: T;
   try {
     result = await call();
   } catch (err) {
-    await appendRunLog({
-      ts: ts.toISOString(),
-      user_id: userId,
-      session_id: sessionId,
-      stage,
-      task,
-      error: true,
-      error_message: err instanceof Error ? err.message : String(err),
-      request,
-    }).catch(() => undefined);
+    await appendRunLog(
+      {
+        ts: ts.toISOString(),
+        user_id: userId,
+        session_id: sessionId,
+        stage,
+        task,
+        error: true,
+        error_message: err instanceof Error ? err.message : String(err),
+        request,
+      },
+      { baseDir },
+    ).catch(() => undefined);
     throw err;
   }
 
@@ -37,21 +41,24 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
       ? (IMAGE_PRICES[result.modelUsed]?.perImage ?? 0)
       : costFor(result.modelUsed, result.promptTokens, result.completionTokens);
 
-  const { path: payloadPath } = await appendRunLog({
-    ts: ts.toISOString(),
-    user_id: userId,
-    session_id: sessionId,
-    stage,
-    task,
-    model_class: result.modelClass,
-    model: result.modelUsed,
-    prompt_tokens: result.promptTokens,
-    completion_tokens: result.completionTokens,
-    cost_usd: costUsd,
-    latency_ms: result.latencyMs,
-    request,
-    response: result,
-  });
+  const { path: payloadPath } = await appendRunLog(
+    {
+      ts: ts.toISOString(),
+      user_id: userId,
+      session_id: sessionId,
+      stage,
+      task,
+      model_class: result.modelClass,
+      model: result.modelUsed,
+      prompt_tokens: result.promptTokens,
+      completion_tokens: result.completionTokens,
+      cost_usd: costUsd,
+      latency_ms: result.latencyMs,
+      request,
+      response: result,
+    },
+    { baseDir },
+  );
 
   const [row] = await db
     .insert(runs)
