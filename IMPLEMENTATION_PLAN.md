@@ -100,17 +100,158 @@ on 13036, plus working lint/typecheck/test commands.
       Acceptance: - A fresh clone + `cp .env.example .env && docker compose up`
       works end-to-end per the README.
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic 1 — Auth + user-scoped shell
 
-**Status: TBD**
-Intent: email/password registration + login (Auth.js credentials
-provider, Argon2id), session cookies, a protected `/app` route group, a
-logged-in shell with a placeholder dashboard. Per-request `requireUser`
-helper used in every API handler.
+**Status: planned**
+**Goal:** Email/password registration + login via Auth.js credentials
+provider with Argon2id hashing, JWT session cookies, a protected `(app)`
+route group with a placeholder dashboard, and a `requireUser` helper
+ready for use by future API handlers.
+
+### Tasks
+
+- [x] T-1-1: Install Auth.js v5 + argon2 dependencies
+      Goal: Add the runtime libraries the rest of the epic depends on.
+      Touches: `package.json`, `pnpm-lock.yaml`.
+      Acceptance:
+        - `pnpm install` exits 0.
+        - `package.json` lists `next-auth@^5` (beta is fine) and `argon2`.
+        - `pnpm typecheck` and `pnpm lint` still exit 0.
+      Notes: No code changes yet — dependency-only commit.
+
+- [ ] T-1-2: Argon2id password-hash utility with round-trip test
+      Goal: A small, typed module for hashing and verifying passwords
+      using Argon2id defaults, isolated from Auth.js concerns.
+      Touches: `src/server/auth/password.ts`,
+      `tests/unit/auth/password.test.ts`.
+      Acceptance:
+        - `hashPassword(plain): Promise<string>` returns a string starting
+          with `$argon2id$`.
+        - `verifyPassword(plain, hash)` returns `true` for the matching
+          plain and `false` for a wrong password.
+        - `pnpm test` runs the new test and it passes.
+
+- [ ] T-1-3: Auth.js v5 config with Credentials provider + route handler
+      Goal: Wire Auth.js using JWT sessions and a Credentials provider
+      that looks up users in the DB and verifies their password via the
+      T-1-2 utility.
+      Touches: `src/server/auth/config.ts`,
+      `src/app/api/auth/[...nextauth]/route.ts`,
+      `.env.example` (already has `AUTH_SECRET`, confirm only).
+      Acceptance:
+        - `src/server/auth/config.ts` exports `auth`, `signIn`,
+          `signOut`, and `handlers` from a `NextAuth({...})` call.
+        - The Credentials provider's `authorize` returns `{ id, email }`
+          on success, `null` on failure (wrong password or unknown email).
+        - Session strategy is `jwt`; cookie options include
+          `httpOnly: true`, `sameSite: 'lax'`, `secure` in production.
+        - `GET http://localhost:3000/api/auth/providers` returns JSON
+          listing `credentials` when running `pnpm dev`.
+        - `pnpm typecheck` exits 0.
+
+- [ ] T-1-4: `requireUser` server helper
+      Goal: A single helper for server components, server actions, and
+      route handlers to obtain the current user or redirect to `/login`.
+      Touches: `src/server/auth/require-user.ts`,
+      `tests/unit/auth/require-user.test.ts`.
+      Acceptance:
+        - `requireUser()` returns `{ id: number, email: string }` when a
+          session exists, and triggers a redirect to `/login` otherwise.
+        - Unit test mocks the `auth()` import and asserts both branches
+          (returns user / calls `redirect`).
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-1-5: Registration page + server action
+      Goal: A `/register` page with an email + password form whose server
+      action validates input, hashes the password, inserts a `users`
+      row, and redirects to `/login`.
+      Touches: `src/app/(auth)/register/page.tsx`,
+      `src/app/(auth)/register/actions.ts`,
+      `tests/unit/auth/register-action.test.ts`.
+      Acceptance:
+        - Visiting `/register` (via `pnpm dev`) renders a form with
+          `email` and `password` fields and a submit button.
+        - `registerUser` action: Zod-validates the input
+          (email format, password ≥ 8 chars), inserts a row using the
+          drizzle client and the T-1-2 hash util, and redirects to
+          `/login` on success.
+        - On duplicate email the action returns a typed error
+          (`{ ok: false, error: 'email_taken' }`); test asserts both the
+          happy path (row inserted, redirect called) and the duplicate
+          path against a test DB or a mocked drizzle client.
+        - `pnpm test` exits 0.
+
+- [ ] T-1-6: Login page + signIn server action
+      Goal: A `/login` page that signs the user in via Auth.js and
+      redirects to `/dashboard`.
+      Touches: `src/app/(auth)/login/page.tsx`,
+      `src/app/(auth)/login/actions.ts`.
+      Acceptance:
+        - `/login` renders a form with `email` and `password` fields.
+        - The server action calls `signIn('credentials', { email,
+          password, redirectTo: '/dashboard' })` from the T-1-3 config.
+        - On invalid credentials the page surfaces an error message
+          (returned from the action, not thrown).
+        - Manually verifiable via `pnpm dev`: registering then logging
+          in lands on `/dashboard` (works once T-1-7/T-1-8 land).
+        - `pnpm typecheck` exits 0.
+      Decision needed: Where to send the user after login. Default:
+      `/dashboard`.
+
+- [ ] T-1-7: Protected `(app)` route group with layout-level guard
+      Goal: A route group whose layout calls `requireUser()`, ensuring
+      every page beneath it is reachable only by authenticated users.
+      Touches: `src/app/(app)/layout.tsx`.
+      Acceptance:
+        - `(app)/layout.tsx` is a server component that awaits
+          `requireUser()` and renders `{children}` inside a minimal
+          shell (header with the user's email + a Logout button slot).
+        - Hitting any `(app)`-grouped route while logged out redirects
+          to `/login` (verified manually once T-1-8 lands).
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Notes: No Next middleware in v1 — layout-level guard is enough.
+      Decision needed: middleware vs layout guard. Default: layout guard.
+
+- [ ] T-1-8: Placeholder dashboard at `/dashboard` with logout
+      Goal: A trivial authenticated landing page that proves the loop
+      works end-to-end.
+      Touches: `src/app/(app)/dashboard/page.tsx`,
+      `src/app/(app)/logout-button.tsx`,
+      `src/app/(app)/actions.ts`.
+      Acceptance:
+        - `/dashboard` (under the `(app)` group) renders "Signed in as
+          <email>" using the user from `requireUser()`.
+        - A `LogoutButton` client component invokes a server action that
+          calls `signOut({ redirectTo: '/login' })`.
+        - After clicking Logout the user is redirected to `/login` and
+          a subsequent visit to `/dashboard` redirects back to `/login`.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [ ] T-1-9: Integration test — register → login → protected access
+      Goal: A single integration test exercising the auth happy path
+      end-to-end against the running app and a real test DB.
+      Touches: `tests/integration/auth-flow.test.ts`,
+      `vitest.config.ts` (only if a separate `integration` project is
+      added — otherwise leave untouched).
+      Acceptance:
+        - The test: (a) calls the `registerUser` action with a fresh
+          email, (b) calls the `login` action with the same credentials
+          and captures the resulting session cookie, (c) issues a
+          `fetch` to `/dashboard` with the cookie and asserts a 200,
+          (d) issues the same fetch without the cookie and asserts a
+          redirect to `/login`.
+        - `pnpm test` runs and the test passes against the compose DB.
+        - The test cleans up the user row it created (or runs inside a
+          transaction that rolls back).
+      Notes: If spinning up a real Next server in-process is awkward,
+      this can be a route-handler-level test that mounts the relevant
+      handlers; the four observable assertions above must still hold.
+
+<!-- PLANING_CHECKPOINT -->
+
+---
 
 ## Epic 2 — OpenRouter client, model router, JSONL logger, budget tracker
 
