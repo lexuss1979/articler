@@ -121,7 +121,7 @@ ready for use by future API handlers.
         - `pnpm typecheck` and `pnpm lint` still exit 0.
       Notes: No code changes yet — dependency-only commit.
 
-- [ ] T-1-2: Argon2id password-hash utility with round-trip test
+- [x] T-1-2: Argon2id password-hash utility with round-trip test
       Goal: A small, typed module for hashing and verifying passwords
       using Argon2id defaults, isolated from Auth.js concerns.
       Touches: `src/server/auth/password.ts`,
