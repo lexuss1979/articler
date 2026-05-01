@@ -510,7 +510,7 @@ Playwright happy-path e2e covers the full CRUD loop.
         - Re-running `pnpm db:migrate` is a no-op.
         - `pnpm typecheck` exits 0.
 
-- [ ] T-3-2: Profile validation schema + shared types
+- [x] T-3-2: Profile validation schema + shared types
       Goal: A single Zod schema shared by create and update server
       actions, plus the canonical `format` enum.
       Touches: `src/server/profiles/schema.ts`,
