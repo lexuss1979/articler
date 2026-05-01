@@ -624,7 +624,7 @@ Playwright happy-path e2e covers the full CRUD loop.
           submitting changes the value on `/profiles`.
         - `pnpm typecheck` exits 0.
 
-- [ ] T-3-7: Delete profile server action
+- [x] T-3-7: Delete profile server action
       Goal: A POST-only server action invoked by the list page's
       delete control that removes the row and refreshes the list.
       Touches: `src/app/(app)/profiles/actions.ts`,

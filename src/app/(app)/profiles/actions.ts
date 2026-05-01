@@ -1,8 +1,9 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireUser } from '../../../server/auth/require-user';
-import { createProfile, updateProfile } from '../../../server/profiles/repo';
+import { createProfile, deleteProfile, updateProfile } from '../../../server/profiles/repo';
 import { profileInputSchema } from '../../../server/profiles/schema';
 
 export type ProfileActionState = {
@@ -96,4 +97,10 @@ export async function updateProfileAction(
   redirect('/profiles');
 }
 
-export async function deleteProfileAction(): Promise<void> {}
+export async function deleteProfileAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const id = Number(formData.get('id'));
+  if (!Number.isInteger(id) || id <= 0) return;
+  await deleteProfile(user.id, id);
+  revalidatePath('/profiles');
+}
