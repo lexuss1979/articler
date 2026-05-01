@@ -1,10 +1,12 @@
 'use server';
 
-import { AuthError } from 'next-auth';
-import { redirect } from 'next/navigation';
+import { eq } from 'drizzle-orm';
 import { signIn } from '../../../server/auth/config';
+import { verifyPassword } from '../../../server/auth/password';
+import { db } from '../../../server/db/client';
+import { users } from '../../../server/db/schema';
 
-export type LoginResult = { ok: false; error: 'invalid_credentials' | 'unknown' } | null;
+export type LoginResult = { ok: false; error: 'invalid_credentials' } | null;
 
 export async function loginUser(
   _prevState: LoginResult,
@@ -13,14 +15,14 @@ export async function loginUser(
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
 
-  try {
-    await signIn('credentials', { email, password, redirect: false });
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return { ok: false, error: 'invalid_credentials' };
-    }
-    throw err;
+  // Verify credentials before calling signIn so we can return a typed error
+  // rather than relying on Auth.js v5 beta's redirect-on-failure behaviour.
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    return { ok: false, error: 'invalid_credentials' };
   }
 
-  redirect('/dashboard');
+  // Credentials valid — signIn sets the JWT cookie and redirects to /dashboard.
+  await signIn('credentials', { email, password, redirectTo: '/dashboard' });
+  return null;
 }
