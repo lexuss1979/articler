@@ -433,7 +433,7 @@ helper; one integration test that records a fake call end-to-end.
           with the matching thin row.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-2-8: Cost aggregation helpers
+- [x] T-2-8: Cost aggregation helpers
       Goal: SQL-backed read helpers for the running cost of a session
       and a user, used later by the UI header and budget enforcement.
       Touches: `src/server/logging/aggregate.ts`,
