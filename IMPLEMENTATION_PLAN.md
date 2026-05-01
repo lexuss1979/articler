@@ -404,7 +404,7 @@ helper; one integration test that records a fake call end-to-end.
           two valid JSON lines in order.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-2-7: `wrapWithLogging` — JSONL line + `runs` row
+- [x] T-2-7: `wrapWithLogging` — JSONL line + `runs` row
       Goal: A decorator over a router call that, on success, writes
       the full request/response pair to JSONL **and** inserts a thin
       `runs` row.
