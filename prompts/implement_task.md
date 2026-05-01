@@ -63,12 +63,27 @@ Read these files in this order:
    Stage only the files you actually changed plus the plan checkbox
    tick. Never use `git add -A` or `git add .`.
 
-9. Output a short summary to the user (≤10 lines):
-   - Which task you completed.
-   - Files changed.
-   - Tests added.
-   - Any deviation from `Touches:` and why.
-   - Commit SHA (short).
+9. Spawn a **code-reviewer** subagent (via the Agent tool with
+   `subagent_type: "code-reviewer"`) to review the commit just made.
+   Brief it with:
+   - The task ID and one-line goal.
+   - The list of files changed.
+   - The acceptance criteria from the task block.
+   - The commit SHA.
+   Ask it to focus on correctness, security, and adherence to the
+   task scope. **Wait for its result before continuing.**
+   If the reviewer surfaces a blocking issue (bug, security hole,
+   acceptance criterion not met), fix it and commit a follow-up before
+   moving on. If the findings are non-blocking suggestions, include
+   them in your final summary so they can become future tasks.
+
+10. Output a short summary to the user (≤12 lines):
+    - Which task you completed.
+    - Files changed.
+    - Tests added.
+    - Any deviation from `Touches:` and why.
+    - Commit SHA (short).
+    - Code-review verdict (clean / fixed / suggestions noted).
 
 ## Hard rules
 
