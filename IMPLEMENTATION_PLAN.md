@@ -450,7 +450,7 @@ helper; one integration test that records a fake call end-to-end.
           (including the 0-rows case).
         - `pnpm typecheck` exits 0.
 
-- [ ] T-2-9: Integration test — fake call recorded end-to-end
+- [x] T-2-9: Integration test — fake call recorded end-to-end
       Goal: One integration test that drives `wrapWithLogging` around
       a stubbed router, against the real test DB and a temp log dir,
       and verifies the JSONL line, the `runs` row, and the cost
