@@ -359,7 +359,7 @@ helper; one integration test that records a fake call end-to-end.
           `OpenRouterError` with `status === 500`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-2-5: Model router (`routeChat` / `routeSearch` / `routeImage`)
+- [x] T-2-5: Model router (`routeChat` / `routeSearch` / `routeImage`)
       Goal: A class-aware wrapper around the T-2-4 client that picks
       the model from `MODEL_ROUTING` and retries the fallback on
       transient failure.
