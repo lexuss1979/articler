@@ -476,15 +476,227 @@ helper; one integration test that records a fake call end-to-end.
       router → logger → DB → aggregator is wired correctly; later
       stages reuse the same plumbing.
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic 3 — Platform Profile CRUD
 
-**Status: TBD**
-Intent: schema, server actions, list/create/edit/delete UI under
-`/app/profiles`, validation with Zod, e2e Playwright happy path.
+**Status: planned**
+**Goal:** A logged-in user can create, view, edit, and delete platform
+profiles under `/profiles`. Profiles are persisted in the `profiles`
+table with strict per-user isolation. All inputs are Zod-validated. A
+Playwright happy-path e2e covers the full CRUD loop.
+
+### Tasks
+
+- [ ] T-3-1: `profiles` table — schema + migration
+      Goal: Persist platform profiles per user, with all FR-PROF-1
+      fields, ready for the Epic 4 `sessions.profile_id` FK to land on
+      top.
+      Touches: `src/server/db/schema.ts`, `drizzle/0002_*.sql`
+      (generated).
+      Acceptance:
+        - `schema.ts` adds a `profiles` table with columns:
+          `id` (serial PK), `user_id` (integer NOT NULL, FK to
+          `users.id`, ON DELETE CASCADE), `name` (text NOT NULL),
+          `format` (text NOT NULL), `style` (text NOT NULL),
+          `audience` (text NOT NULL), `target_volume_min` (integer
+          NOT NULL), `target_volume_max` (integer NOT NULL),
+          `markup_rules` (jsonb NOT NULL DEFAULT `'{}'::jsonb`),
+          `extra_prompt` (text NOT NULL DEFAULT `''`),
+          `created_at` (timestamp default now NOT NULL).
+        - `pnpm db:generate` produces a new SQL migration that, applied
+          via `pnpm db:migrate` against the compose DB, creates the
+          table.
+        - Re-running `pnpm db:migrate` is a no-op.
+        - `pnpm typecheck` exits 0.
+
+- [ ] T-3-2: Profile validation schema + shared types
+      Goal: A single Zod schema shared by create and update server
+      actions, plus the canonical `format` enum.
+      Touches: `src/server/profiles/schema.ts`,
+      `tests/unit/profiles/schema.test.ts`.
+      Acceptance:
+        - Exports `PROFILE_FORMATS` as a `readonly` tuple
+          `['long_read', 'listicle', 'news', 'tutorial']` and a
+          `ProfileFormat` union derived from it.
+        - Exports `profileInputSchema` (Zod) requiring:
+          `name` (1..120 chars), `format` (enum from `PROFILE_FORMATS`),
+          `style` (1..200 chars), `audience` (1..500 chars),
+          `targetVolumeMin` (positive int), `targetVolumeMax` (positive
+          int with `>= targetVolumeMin`), `markupRules` (a `z.record(
+          z.string(), z.unknown())`), `extraPrompt` (string, default
+          `''`).
+        - The `targetVolumeMax >= targetVolumeMin` cross-field rule
+          attaches its error to the `targetVolumeMax` path.
+        - Exports `ProfileInput = z.infer<typeof profileInputSchema>`.
+        - Unit test asserts: a valid payload parses; `max < min`
+          fails with the error on `targetVolumeMax`; a missing
+          required field fails with an error on that field's path; an
+          unknown `format` value fails.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-3-3: User-scoped Profile repository helpers
+      Goal: A small repo module that always filters by `userId`, so
+      cross-user reads/writes are impossible by construction.
+      Touches: `src/server/profiles/repo.ts`,
+      `tests/unit/profiles/repo.test.ts`.
+      Acceptance:
+        - Exports `listProfiles(userId: number)`,
+          `getProfile(userId: number, id: number)`,
+          `createProfile(userId: number, input: ProfileInput)`,
+          `updateProfile(userId: number, id: number, input:
+          ProfileInput)`, `deleteProfile(userId: number, id: number)`.
+        - `getProfile`, `updateProfile`, and `deleteProfile` resolve
+          to `null` / no row affected when the target row is not
+          owned by `userId` — they always filter by both `id` AND
+          `user_id` in the same query.
+        - `createProfile` binds `user_id` from the argument, never
+          from the input.
+        - Unit test mocks the drizzle client and asserts each helper
+          builds a `where` that includes the `user_id` predicate;
+          `createProfile` ignores any `userId` field smuggled into
+          `input`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-3-4: Profiles list page at `/profiles`
+      Goal: A server component listing the current user's profiles
+      with links to create / edit and a delete control on each row.
+      Touches: `src/app/(app)/profiles/page.tsx`,
+      `src/app/(app)/profiles/delete-button.tsx`.
+      Acceptance:
+        - `/profiles` is a server component that awaits
+          `requireUser()` and `listProfiles(user.id)`, then renders a
+          table (or list) showing each profile's `name`, `format`, and
+          `target_volume_min..target_volume_max` range.
+        - Each row links to `/profiles/[id]/edit` and exposes a delete
+          control (form posting to the T-3-7 action with the row id).
+        - A header link "New profile" points to `/profiles/new`.
+        - Hitting `/profiles` while logged out redirects to `/login`
+          (already enforced by the `(app)` layout guard).
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [ ] T-3-5: Create profile page + server action
+      Goal: `/profiles/new` renders a form whose server action
+      validates and inserts a row, then redirects to `/profiles`.
+      Touches: `src/app/(app)/profiles/new/page.tsx`,
+      `src/app/(app)/profiles/actions.ts`,
+      `tests/unit/profiles/create-action.test.ts`.
+      Acceptance:
+        - `/profiles/new` renders a form with inputs for every field
+          in `profileInputSchema`: `name` (text), `format` (select
+          backed by `PROFILE_FORMATS`), `style` (text), `audience`
+          (text), `targetVolumeMin` and `targetVolumeMax` (number),
+          `markupRules` (textarea holding JSON, parsed in the action),
+          `extraPrompt` (textarea).
+        - `createProfileAction` (server action) reads `FormData`,
+          parses `markupRules` from JSON, validates with
+          `profileInputSchema`, calls `createProfile(user.id, input)`,
+          and `redirect('/profiles')` on success.
+        - On validation or JSON-parse failure, the action returns
+          `{ ok: false, error: 'validation', issues: ... }`; the page
+          surfaces the error message above the form (no throw).
+        - Unit test mocks `requireUser` and `createProfile` and
+          asserts: happy path calls `createProfile` with the user id
+          and validated input; invalid payload returns
+          `{ ok: false, error: 'validation' }` and does not call the
+          repo.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-3-6: Edit profile page + server action
+      Goal: `/profiles/[id]/edit` pre-fills the form and updates the
+      row on submit; returns 404 when the profile is not owned by the
+      current user.
+      Touches: `src/app/(app)/profiles/[id]/edit/page.tsx`,
+      `src/app/(app)/profiles/actions.ts`.
+      Acceptance:
+        - The page calls `getProfile(user.id, id)`; when the helper
+          returns `null` the page calls Next's `notFound()` (renders
+          the 404 page).
+        - The form fields are pre-filled with the current row's
+          values; the form posts to `updateProfileAction` with the id
+          in a hidden field.
+        - `updateProfileAction` validates with `profileInputSchema`,
+          calls `updateProfile(user.id, id, input)`, and
+          `redirect('/profiles')` on success; validation errors return
+          `{ ok: false, error: 'validation', issues: ... }` like
+          T-3-5.
+        - Manually verifiable via `pnpm dev`: editing a name and
+          submitting changes the value on `/profiles`.
+        - `pnpm typecheck` exits 0.
+
+- [ ] T-3-7: Delete profile server action
+      Goal: A POST-only server action invoked by the list page's
+      delete control that removes the row and refreshes the list.
+      Touches: `src/app/(app)/profiles/actions.ts`,
+      `tests/unit/profiles/delete-action.test.ts`.
+      Acceptance:
+        - `deleteProfileAction` reads `id` from `FormData`, coerces it
+          to a positive integer (rejects otherwise), calls
+          `deleteProfile(user.id, id)`, then calls
+          `revalidatePath('/profiles')` and returns.
+        - Unit test mocks `requireUser` and `deleteProfile` and
+          asserts: a valid id calls `deleteProfile` with the current
+          user's id and the parsed id; a non-numeric id does not call
+          the repo.
+        - Manually verifiable via `pnpm dev`: clicking Delete on the
+          list removes the row without a full page reload's worth of
+          stale data.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-3-8: Install + configure Playwright
+      Goal: Add `@playwright/test`, scaffold a config that points at
+      `tests/e2e`, and add a `pnpm e2e` script. No real test yet —
+      that ships in T-3-9.
+      Touches: `package.json`, `pnpm-lock.yaml`,
+      `playwright.config.ts`, `tests/e2e/.gitkeep`, `.gitignore`.
+      Acceptance:
+        - `pnpm install` adds `@playwright/test` to `devDependencies`.
+        - `playwright.config.ts` exists, sets `testDir: 'tests/e2e'`,
+          `use.baseURL: 'http://localhost:3000'`, and a `webServer`
+          entry that launches `pnpm dev` with
+          `reuseExistingServer: !process.env.CI`.
+        - `package.json` exposes `pnpm e2e` invoking
+          `playwright test`.
+        - `.gitignore` covers `test-results/` and
+          `playwright-report/`.
+        - `pnpm e2e` exits 0 (no tests collected yet is fine — the
+          binary must run).
+        - `pnpm typecheck` and `pnpm lint` still exit 0.
+      Decision needed: dev server vs prod build for the test web
+      server. Default: `pnpm dev` with `reuseExistingServer` for fast
+      local iteration; switching to `pnpm build && pnpm start` in CI
+      can be a follow-up.
+
+- [ ] T-3-9: Playwright happy-path e2e for profile CRUD
+      Goal: One e2e test that registers a user, logs in, and walks
+      through create / edit / delete on `/profiles`.
+      Touches: `tests/e2e/profiles.spec.ts`.
+      Acceptance:
+        - The spec uses a unique random email per run
+          (e.g., `e2e-${Date.now()}-${rand}@example.com`) to avoid
+          collisions on the shared compose DB.
+        - Steps, asserted in order: (a) `/register` form submission
+          succeeds and redirects to `/login`; (b) `/login` form
+          submission succeeds and lands on `/dashboard`; (c)
+          navigating to `/profiles` shows an empty (or pre-existing)
+          list; (d) clicking "New profile", filling the form, and
+          submitting redirects to `/profiles` and the new row appears
+          (assert by `name`); (e) clicking the row's edit link,
+          changing the name, and submitting reflects the updated name
+          on `/profiles`; (f) clicking Delete removes the row from
+          `/profiles`.
+        - `pnpm e2e` runs against the compose DB (web on host port
+          18080) and passes locally. The spec uses
+          `process.env.E2E_BASE_URL ?? 'http://localhost:18080'` to
+          override the default `webServer` `baseURL` when running
+          against compose.
+        - The test does not need to clean up the registered user —
+          the random email guarantees no future collision.
+      Notes: If the compose web takes time to come up before Playwright
+      attaches, prefer running against `pnpm dev` via the
+      `webServer` config; both modes must be supported.
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 4 — Session shell + state machine + SSE bus
 
