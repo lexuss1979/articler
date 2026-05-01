@@ -200,7 +200,7 @@ ready for use by future API handlers.
       Decision needed: Where to send the user after login. Default:
       `/dashboard`.
 
-- [ ] T-1-7: Protected `(app)` route group with layout-level guard
+- [x] T-1-7: Protected `(app)` route group with layout-level guard
       Goal: A route group whose layout calls `requireUser()`, ensuring
       every page beneath it is reachable only by authenticated users.
       Touches: `src/app/(app)/layout.tsx`.
