@@ -91,7 +91,7 @@ on 13036, plus working lint/typecheck/test commands.
       `package.json` (scripts: `db:generate`, `db:migrate`).
       Acceptance: - `pnpm db:migrate` against the compose DB creates the `users` table. - Re-running is a no-op.
 
-- [ ] T-0-7: Repository hygiene
+- [x] T-0-7: Repository hygiene
       Goal: README with one-command boot instructions, `.env.example`
       with all required keys (`DATABASE_URL`, `OPENROUTER_API_KEY`,
       `AUTH_SECRET`, stock API keys), `.gitignore` covers
