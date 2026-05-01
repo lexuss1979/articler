@@ -183,7 +183,7 @@ ready for use by future API handlers.
           path against a test DB or a mocked drizzle client.
         - `pnpm test` exits 0.
 
-- [ ] T-1-6: Login page + signIn server action
+- [x] T-1-6: Login page + signIn server action
       Goal: A `/login` page that signs the user in via Auth.js and
       redirects to `/dashboard`.
       Touches: `src/app/(auth)/login/page.tsx`,
