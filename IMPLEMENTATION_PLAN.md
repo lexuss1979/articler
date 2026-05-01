@@ -214,7 +214,7 @@ ready for use by future API handlers.
       Notes: No Next middleware in v1 — layout-level guard is enough.
       Decision needed: middleware vs layout guard. Default: layout guard.
 
-- [ ] T-1-8: Placeholder dashboard at `/dashboard` with logout
+- [x] T-1-8: Placeholder dashboard at `/dashboard` with logout
       Goal: A trivial authenticated landing page that proves the loop
       works end-to-end.
       Touches: `src/app/(app)/dashboard/page.tsx`,
