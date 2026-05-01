@@ -249,18 +249,236 @@ ready for use by future API handlers.
       this can be a route-handler-level test that mounts the relevant
       handlers; the four observable assertions above must still hold.
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic 2 — OpenRouter client, model router, JSONL logger, budget tracker
 
-**Status: TBD**
-Intent: `src/server/llm/openrouter.ts` thin client; `MODEL_ROUTING`
+**Status: planned**
+**Goal:** `src/server/llm/openrouter.ts` thin client; `MODEL_ROUTING`
 config; `routeChat`, `routeSearch`, `routeImage` typed helpers; pricing
 table; `wrapWithLogging` decorator producing JSONL lines under
 `logs/runs/`; `runs` table populated; per-session/user cost aggregation
 helper; one integration test that records a fake call end-to-end.
+
+### Tasks
+
+- [ ] T-2-1: `MODEL_ROUTING` config + `ModelClass` type
+      Goal: A single source of truth for which OpenRouter model serves
+      each model class, plus a typed alias the rest of the LLM layer
+      can import.
+      Touches: `src/server/llm/models.ts`,
+      `tests/unit/llm/models.test.ts`.
+      Acceptance:
+        - `models.ts` exports `MODEL_ROUTING` matching the table in
+          `ARCHITECTURE.md` §6 (`smart`, `fast`, `search`, `image` keys
+          with `primary` and optional `fallback`/`secondary` strings).
+        - `models.ts` exports a `ModelClass` union type
+          (`'smart' | 'fast' | 'search' | 'image'`).
+        - `models.ts` exports a helper `modelsFor(cls: ModelClass):
+          string[]` returning `[primary, ...fallbacks]` in order.
+        - Unit test asserts each class resolves to a non-empty list and
+          that `modelsFor('image')` returns both NanoBanana and Image 2.
+        - `pnpm typecheck` and `pnpm test` exit 0.
+
+- [ ] T-2-2: Pricing table + cost calculator
+      Goal: A pure function that, given a model name and token counts,
+      returns the USD cost of a single call.
+      Touches: `src/server/llm/pricing.ts`,
+      `tests/unit/llm/pricing.test.ts`.
+      Acceptance:
+        - `pricing.ts` exports `MODEL_PRICES` keyed by the model
+          strings used in `MODEL_ROUTING`, each with
+          `{ promptPerMTok: number, completionPerMTok: number }`.
+        - Exports `costFor(model: string, prompt: number, completion:
+          number): number` returning USD as a `number` (not a string),
+          rounded to 6 decimals.
+        - Returns `0` and logs a single warning if the model is
+          unknown — never throws (unknown models must not break a
+          logging path).
+        - Unit test asserts: a known model returns a non-zero cost
+          matching a hand-computed value, and an unknown model returns
+          `0` without throwing.
+        - `pnpm test` exits 0.
+      Decision needed: exact USD rates per model. Default: use the
+      current OpenRouter list prices as of 2026-05-01 (Opus 4.7
+      \$15/\$75 per Mtok, Haiku 4.5 \$1/\$5, Sonar Pro \$3/\$15, GPT-5
+      \$10/\$30, GPT-5-mini \$0.60/\$2.40, image models priced
+      per-image — leave token rates at 0 and add a separate
+      `IMAGE_PRICES` map keyed by model with `perImage: number`).
+      Treat the numbers as approximate and add a `// TODO: refresh`
+      comment.
+
+- [ ] T-2-3: `runs` table — schema + migration
+      Goal: Persist a thin row per LLM call so cost aggregation can be
+      computed by SQL aggregation.
+      Touches: `src/server/db/schema.ts`, `drizzle/0001_*.sql`
+      (generated).
+      Acceptance:
+        - `schema.ts` adds a `runs` table with the columns from
+          `ARCHITECTURE.md` §4: `id` (serial PK), `session_id`
+          (integer, nullable for now — sessions table arrives in
+          Epic 4), `user_id` (integer, nullable, FK to `users.id` when
+          present), `stage` (text), `task` (text), `model_class`
+          (text), `model_name` (text), `prompt_tokens` (integer),
+          `completion_tokens` (integer), `cost_usd` (numeric(12,6)),
+          `latency_ms` (integer), `ts` (timestamp default now),
+          `payload_path` (text).
+        - `pnpm db:generate` produces a new SQL migration that, when
+          applied via `pnpm db:migrate` against the compose DB, creates
+          the table.
+        - Re-running `pnpm db:migrate` is a no-op.
+        - `pnpm typecheck` exits 0.
+      Decision needed: should `session_id` be a FK now or later?
+      Default: nullable integer with no FK — the FK is added in
+      Epic 4 when the `sessions` table is created. `user_id` already
+      has a target table so it can take an FK.
+
+- [ ] T-2-4: Thin OpenRouter HTTP client
+      Goal: A typed `fetch` wrapper for the two OpenRouter endpoints
+      we need: chat completions and image generation. No business
+      logic, no logging, no fallback.
+      Touches: `src/server/llm/openrouter.ts`,
+      `tests/unit/llm/openrouter.test.ts`.
+      Acceptance:
+        - Exports `openrouterChat({ model, messages, ... })` posting
+          to `https://openrouter.ai/api/v1/chat/completions` with
+          `Authorization: Bearer ${OPENROUTER_API_KEY}` and returning
+          a typed `{ id, model, choices, usage: { prompt_tokens,
+          completion_tokens } }` shape.
+        - Exports `openrouterImage({ model, prompt, ... })` posting
+          to `/api/v1/images/generations` returning `{ data: [{ url |
+          b64_json }] }`.
+        - Throws a typed `OpenRouterError` (subclass of `Error`,
+          carrying `status` and `body`) on non-2xx responses.
+        - Reads the API key from `process.env.OPENROUTER_API_KEY`;
+          throws synchronously at call time (not import time) when the
+          key is missing.
+        - Unit test mocks `global.fetch` and asserts: (a) the
+          authorization header is set, (b) a 200 chat response is
+          parsed into the typed shape, (c) a 500 chat response throws
+          `OpenRouterError` with `status === 500`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-2-5: Model router (`routeChat` / `routeSearch` / `routeImage`)
+      Goal: A class-aware wrapper around the T-2-4 client that picks
+      the model from `MODEL_ROUTING` and retries the fallback on
+      transient failure.
+      Touches: `src/server/llm/router.ts`,
+      `tests/unit/llm/router.test.ts`.
+      Acceptance:
+        - Exports `routeChat({ messages, ... })` (uses class `smart`
+          unless `class: 'fast'` is passed), `routeSearch({ messages,
+          ... })` (class `search`), `routeImage({ prompt, ... })`
+          (class `image`).
+        - Each helper returns
+          `{ result, modelUsed, modelClass, promptTokens,
+          completionTokens, latencyMs }`.
+        - On a thrown `OpenRouterError` with `status >= 500` or a
+          network error, retries the next model from `modelsFor(cls)`
+          exactly once; non-transient errors (4xx) are not retried.
+        - Unit test injects a fake `openrouterChat` that fails 5xx on
+          the primary and succeeds on the fallback, and asserts the
+          returned `modelUsed` equals the fallback string.
+        - Unit test asserts a 4xx error is **not** retried.
+        - `pnpm typecheck` exits 0.
+
+- [ ] T-2-6: JSONL logger with daily rotation
+      Goal: Append-only logger that writes one JSON object per line to
+      `logs/runs/YYYY-MM-DD.jsonl`, creating the directory and the
+      day's file on demand.
+      Touches: `src/server/logging/jsonl.ts`,
+      `tests/unit/logging/jsonl.test.ts`.
+      Acceptance:
+        - Exports `appendRunLog(entry: object, opts?: { now?: Date,
+          baseDir?: string }): Promise<{ path: string }>` returning
+          the absolute file path written to.
+        - Default `baseDir` is `logs/runs` resolved against
+          `process.cwd()`.
+        - File name uses UTC `YYYY-MM-DD` derived from `now ?? new
+          Date()`.
+        - Each call writes exactly one line ending in `\n`. Two calls
+          on the same UTC day append to the same file; calls on
+          different days write to different files.
+        - Unit test uses `os.tmpdir()` as `baseDir`, writes two
+          entries on the same fake `now`, asserts the file contains
+          two valid JSON lines in order.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-2-7: `wrapWithLogging` — JSONL line + `runs` row
+      Goal: A decorator over a router call that, on success, writes
+      the full request/response pair to JSONL **and** inserts a thin
+      `runs` row.
+      Touches: `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts`.
+      Acceptance:
+        - Exports `wrapWithLogging<T extends RouterResult>(args: {
+          stage: string; task: string; sessionId?: number; userId?:
+          number; call: () => Promise<T>; request: unknown }):
+          Promise<T & { runId: number }>`.
+        - On success: (1) calls `appendRunLog` with
+          `{ ts, run_id (uuid), user_id, session_id, stage, task,
+          model_class, model, prompt_tokens, completion_tokens,
+          cost_usd, latency_ms, request, response }`, (2) inserts a
+          row into `runs` with the same fields **minus** `request`
+          and `response`, but **plus** `payload_path` set to the
+          file returned by `appendRunLog`, (3) returns the original
+          router result enriched with `runId`.
+        - On thrown error: still writes a JSONL line tagged
+          `error: true` with the error message and inserts no `runs`
+          row; the error is re-thrown.
+        - Cost is computed via `costFor` / `IMAGE_PRICES` from T-2-2.
+        - Unit test stubs the router call, the JSONL writer, and a
+          drizzle-style `db.insert` chain; asserts the writer was
+          called with the expected fields and the insert was called
+          with the matching thin row.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-2-8: Cost aggregation helpers
+      Goal: SQL-backed read helpers for the running cost of a session
+      and a user, used later by the UI header and budget enforcement.
+      Touches: `src/server/logging/aggregate.ts`,
+      `tests/unit/logging/aggregate.test.ts`.
+      Acceptance:
+        - Exports `getSessionCost(sessionId: number): Promise<number>`
+          and `getUserCost(userId: number): Promise<number>` — each
+          returns the `SUM(cost_usd)` of the matching rows, or `0`
+          when none exist.
+        - Both helpers go through `db` from `src/server/db/client.ts`
+          and use Drizzle's typed query builder (no raw SQL strings).
+        - Unit test mocks the drizzle client to return canned aggregate
+          results and asserts the helpers unwrap them to plain numbers
+          (including the 0-rows case).
+        - `pnpm typecheck` exits 0.
+
+- [ ] T-2-9: Integration test — fake call recorded end-to-end
+      Goal: One integration test that drives `wrapWithLogging` around
+      a stubbed router, against the real test DB and a temp log dir,
+      and verifies the JSONL line, the `runs` row, and the cost
+      aggregator agree.
+      Touches: `tests/integration/llm-logging.test.ts`.
+      Acceptance:
+        - The test sets `process.env.LOGS_DIR` (or passes a `baseDir`
+          option) to a fresh temp directory, stubs `openrouterChat` to
+          return a deterministic `{ usage, choices }`, and invokes
+          `wrapWithLogging` with `stage: 'test'`, `task: 'integ-1'`,
+          a known `userId`.
+        - After the call: (a) the JSONL file in the temp dir contains
+          exactly one line with the expected `stage`, `task`, `model`,
+          and `cost_usd`; (b) `SELECT * FROM runs WHERE task =
+          'integ-1'` returns exactly one row with the matching cost
+          and `payload_path` pointing at that file; (c)
+          `getUserCost(userId)` returns the same cost number.
+        - The test cleans up the inserted `runs` row and the temp
+          directory afterward.
+        - `pnpm test` runs the test against the compose DB and it
+          passes.
+      Notes: This test is the canary that the chain
+      router → logger → DB → aggregator is wired correctly; later
+      stages reuse the same plumbing.
+
+<!-- PLANING_CHECKPOINT -->
+
+---
 
 ## Epic 3 — Platform Profile CRUD
 
