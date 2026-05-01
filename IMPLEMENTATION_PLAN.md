@@ -575,7 +575,7 @@ Playwright happy-path e2e covers the full CRUD loop.
           (already enforced by the `(app)` layout guard).
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-3-5: Create profile page + server action
+- [x] T-3-5: Create profile page + server action
       Goal: `/profiles/new` renders a form whose server action
       validates and inserts a row, then redirects to `/profiles`.
       Touches: `src/app/(app)/profiles/new/page.tsx`,
