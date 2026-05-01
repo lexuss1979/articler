@@ -308,7 +308,7 @@ helper; one integration test that records a fake call end-to-end.
       Treat the numbers as approximate and add a `// TODO: refresh`
       comment.
 
-- [ ] T-2-3: `runs` table — schema + migration
+- [x] T-2-3: `runs` table — schema + migration
       Goal: Persist a thin row per LLM call so cost aggregation can be
       computed by SQL aggregation.
       Touches: `src/server/db/schema.ts`, `drizzle/0001_*.sql`

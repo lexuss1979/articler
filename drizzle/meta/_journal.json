@@ -8,6 +8,13 @@
       "when": 1777652502070,
       "tag": "0000_soft_mockingbird",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777666831247,
+      "tag": "0001_smooth_albert_cleary",
+      "breakpoints": true
     }
   ]
 }
