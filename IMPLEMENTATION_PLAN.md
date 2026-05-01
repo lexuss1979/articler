@@ -163,7 +163,7 @@ ready for use by future API handlers.
           (returns user / calls `redirect`).
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-1-5: Registration page + server action
+- [x] T-1-5: Registration page + server action
       Goal: A `/register` page with an email + password form whose server
       action validates input, hashes the password, inserts a `users`
       row, and redirects to `/login`.
