@@ -280,7 +280,7 @@ helper; one integration test that records a fake call end-to-end.
           that `modelsFor('image')` returns both NanoBanana and Image 2.
         - `pnpm typecheck` and `pnpm test` exit 0.
 
-- [ ] T-2-2: Pricing table + cost calculator
+- [x] T-2-2: Pricing table + cost calculator
       Goal: A pure function that, given a model name and token counts,
       returns the USD cost of a single call.
       Touches: `src/server/llm/pricing.ts`,
