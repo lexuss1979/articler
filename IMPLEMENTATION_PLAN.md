@@ -535,7 +535,7 @@ Playwright happy-path e2e covers the full CRUD loop.
           unknown `format` value fails.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-3-3: User-scoped Profile repository helpers
+- [x] T-3-3: User-scoped Profile repository helpers
       Goal: A small repo module that always filters by `userId`, so
       cross-user reads/writes are impossible by construction.
       Touches: `src/server/profiles/repo.ts`,
