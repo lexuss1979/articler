@@ -667,7 +667,7 @@ Playwright happy-path e2e covers the full CRUD loop.
       local iteration; switching to `pnpm build && pnpm start` in CI
       can be a follow-up.
 
-- [ ] T-3-9: Playwright happy-path e2e for profile CRUD
+- [x] T-3-9: Playwright happy-path e2e for profile CRUD
       Goal: One e2e test that registers a user, logs in, and walks
       through create / edit / delete on `/profiles`.
       Touches: `tests/e2e/profiles.spec.ts`.
