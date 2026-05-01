@@ -5,6 +5,7 @@ services:
       - '18080:3000'
     environment:
       DATABASE_URL: postgres://articler:articler@db:5432/articler
+      AUTH_URL: http://localhost:18080
     env_file:
       - .env
     depends_on:
