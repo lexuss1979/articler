@@ -1385,7 +1385,7 @@ Eval fixtures are captured for the four new stages.
       is plain text — no Postgres enum; the Zod schemas in T-6-2 are
       the source of truth for allowed values.
 
-- [ ] T-6-2: Source / hypothesis / query Zod schemas
+- [x] T-6-2: Source / hypothesis / query Zod schemas
       Goal: Typed shapes for the outputs of the four research stages
       and for source rows.
       Touches: `src/server/sessions/sources.ts`,
