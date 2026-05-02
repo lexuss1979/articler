@@ -1020,7 +1020,7 @@ wire them into the harness.
           `url` path.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-5-2: Plan + angle Zod schemas + types
+- [x] T-5-2: Plan + angle Zod schemas + types
       Goal: Typed shapes for the angle/methodology candidates from
       `propose_angles` and the structured plan from `build_plan`.
       Touches: `src/server/sessions/plan.ts`,
