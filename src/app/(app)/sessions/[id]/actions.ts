@@ -1,5 +1,6 @@
 'use server';
 
+import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { requireUser } from '../../../../server/auth/require-user';
 import {
@@ -11,7 +12,11 @@ import {
 import { briefSchema } from '../../../../server/sessions/brief';
 import { planSchema } from '../../../../server/sessions/plan';
 import type { ZodIssue } from 'zod';
-import { startRunner } from '../../../../server/pipeline/runner';
+import { startRunner, resolveUserInput } from '../../../../server/pipeline/runner';
+import {
+  setSourceStatus,
+  setSourceSection,
+} from '../../../../server/sessions/sources-repo';
 
 export async function startSessionAction(sessionId: number): Promise<void> {
   const user = await requireUser();
@@ -54,6 +59,51 @@ export async function submitBriefAction(
   void startRunner(sessionId, user.id);
   revalidatePath(`/sessions/${sessionId}`);
   return null;
+}
+
+export async function acceptSourceAction(
+  sessionId: number,
+  sourceId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await setSourceStatus(user.id, sourceId, 'accepted');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function rejectSourceAction(
+  sessionId: number,
+  sourceId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await setSourceStatus(user.id, sourceId, 'rejected');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function assignSourceSectionAction(
+  sessionId: number,
+  sourceId: number,
+  sectionId: unknown,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'validation' }> {
+  const user = await requireUser();
+  const parsed = z.string().min(1).max(40).nullable().safeParse(sectionId);
+  if (!parsed.success) return { ok: false, error: 'validation' };
+  const row = await setSourceSection(user.id, sourceId, parsed.data);
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function finishResearchAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'no_pending_research' }> {
+  await requireUser();
+  const resolved = resolveUserInput(sessionId, { action: 'finish' });
+  if (!resolved) return { ok: false, error: 'no_pending_research' };
+  return { ok: true };
 }
 
 export async function savePlanEditsAction(

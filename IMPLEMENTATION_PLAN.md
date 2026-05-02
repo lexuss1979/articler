@@ -1584,7 +1584,7 @@ Eval fixtures are captured for the four new stages.
       v1. A `// TODO: parallelize once budgeting + rate limits land`
       comment marks the spot for revisit.
 
-- [ ] T-6-9: Source review server actions
+- [x] T-6-9: Source review server actions
       Goal: Server actions for accept / reject / section-assign per
       source, plus a `finishResearchAction` that releases the runner's
       `research_done` park.
