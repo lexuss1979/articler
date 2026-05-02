@@ -110,6 +110,8 @@ export async function routeJsonChat<T>(args: {
 
   let validated = schema.safeParse(parsed);
   if (!validated.success) {
+    console.error('[routeJsonChat] schema error (attempt 1):', JSON.stringify(validated.error.issues, null, 2));
+    console.error('[routeJsonChat] parsed (attempt 1):', JSON.stringify(parsed, null, 2));
     const issueLines = validated.error.issues
       .map((i) => `- ${i.path.join('.')}: ${i.message}`)
       .join('\n');
@@ -120,7 +122,11 @@ export async function routeJsonChat<T>(args: {
     parsed = tryParse(chatResult.content);
     if (parsed === undefined) throw new JsonChatParseError(chatResult.content);
     validated = schema.safeParse(parsed);
-    if (!validated.success) throw new JsonChatSchemaError(validated.error.issues);
+    if (!validated.success) {
+      console.error('[routeJsonChat] schema error after retry:', JSON.stringify(validated.error.issues, null, 2));
+      console.error('[routeJsonChat] parsed content:', JSON.stringify(parsed, null, 2));
+      throw new JsonChatSchemaError(validated.error.issues);
+    }
   }
 
   return {
