@@ -2024,7 +2024,7 @@ for the four new stages.
 
 ### Tasks
 
-- [ ] T-8-1: Review subsystem DB schema + migration
+- [x] T-8-1: Review subsystem DB schema + migration
       Goal: Five new tables back the review subsystem —
       `critique_rounds`, `critique_findings`, `claims`,
       `claim_verdicts`, `claim_evidence`.

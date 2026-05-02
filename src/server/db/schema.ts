@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -102,6 +103,86 @@ export const sectionDrafts = pgTable(
   },
   (t) => [uniqueIndex('section_drafts_session_section_idx').on(t.sessionId, t.sectionId)],
 );
+
+export const critiqueRounds = pgTable(
+  'critique_rounds',
+  {
+    id: serial('id').primaryKey(),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    draftHash: text('draft_hash').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('critique_rounds_session_id_id_idx').on(t.sessionId, t.id)],
+);
+
+export const critiqueFindings = pgTable(
+  'critique_findings',
+  {
+    id: serial('id').primaryKey(),
+    roundId: integer('round_id')
+      .notNull()
+      .references(() => critiqueRounds.id, { onDelete: 'cascade' }),
+    criticId: text('critic_id').notNull(),
+    severity: text('severity').notNull(),
+    span: jsonb('span').notNull(),
+    problem: text('problem').notNull(),
+    suggestedChange: text('suggested_change').notNull(),
+    rationale: text('rationale').notNull(),
+    status: text('status').notNull().default('open'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('critique_findings_round_id_id_idx').on(t.roundId, t.id)],
+);
+
+export const claims = pgTable(
+  'claims',
+  {
+    id: serial('id').primaryKey(),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    roundId: integer('round_id')
+      .notNull()
+      .references(() => critiqueRounds.id, { onDelete: 'cascade' }),
+    span: jsonb('span').notNull(),
+    spanHash: text('span_hash').notNull(),
+    claimText: text('claim_text').notNull(),
+    claimType: text('claim_type').notNull(),
+    checkWorthiness: text('check_worthiness').notNull(),
+    status: text('status').notNull().default('open'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('claims_session_id_span_hash_idx').on(t.sessionId, t.spanHash)],
+);
+
+export const claimVerdicts = pgTable(
+  'claim_verdicts',
+  {
+    id: serial('id').primaryKey(),
+    claimId: integer('claim_id')
+      .notNull()
+      .references(() => claims.id, { onDelete: 'cascade' }),
+    verdict: text('verdict').notNull(),
+    justification: text('justification').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('claim_verdicts_claim_id_id_idx').on(t.claimId, t.id)],
+);
+
+export const claimEvidence = pgTable('claim_evidence', {
+  id: serial('id').primaryKey(),
+  verdictId: integer('verdict_id')
+    .notNull()
+    .references(() => claimVerdicts.id, { onDelete: 'cascade' }),
+  sourceId: integer('source_id').references(() => sources.id, { onDelete: 'set null' }),
+  url: text('url').notNull(),
+  snippet: text('snippet').notNull(),
+  supports: boolean('supports').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
 
 export const runs = pgTable('runs', {
   id: serial('id').primaryKey(),
