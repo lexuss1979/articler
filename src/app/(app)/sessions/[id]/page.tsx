@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../server/auth/require-user';
 import { getSession } from '../../../../server/sessions/repo';
+import { BriefForm } from './brief-form';
 import { ChatPane } from './chat-pane';
 
 export default async function SessionPage({
@@ -17,9 +18,13 @@ export default async function SessionPage({
 
   return (
     <div className="flex h-full gap-4">
-      <div className="flex-1 border rounded p-4">
-        <h2 className="text-sm font-medium text-gray-500 mb-2">Workbench</h2>
-        <p className="text-sm">State: {session.state}</p>
+      <div className="flex-1 border rounded p-4 overflow-y-auto">
+        <h2 className="text-sm font-medium text-gray-500 mb-4">Workbench</h2>
+        {session.state === 'briefing' ? (
+          <BriefForm sessionId={id} isRewrite={session.mode === 'rewrite'} />
+        ) : (
+          <p className="text-sm text-gray-500">State: {session.state}</p>
+        )}
       </div>
       <div className="w-80 flex flex-col border rounded">
         <ChatPane sessionId={id} />

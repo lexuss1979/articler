@@ -1062,7 +1062,7 @@ wire them into the harness.
           row; a non-owned id resolves to `null`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-5-4: Brief form in workbench + submit action
+- [x] T-5-4: Brief form in workbench + submit action
       Goal: When `session.state === 'briefing'`, the workbench renders
       a brief form. Submitting saves the brief, transitions the state
       to `'planning'`, and kicks off the runner.
