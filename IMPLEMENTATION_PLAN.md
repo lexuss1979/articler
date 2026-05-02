@@ -919,7 +919,7 @@ yet — this epic wires the plumbing.
       `ARCHITECTURE.md` §1 ("background jobs deferred"). Multi-replica
       deployment will require a Redis-backed registry; out of scope.
 
-- [ ] T-4-9: `/api/sessions/[id]/respond` + start-session action
+- [x] T-4-9: `/api/sessions/[id]/respond` + start-session action
       Goal: The two endpoints the UI needs to drive a session: one
       that starts the runner for a session, and one that resolves a
       parked `userInput`.
