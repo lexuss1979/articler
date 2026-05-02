@@ -1466,7 +1466,7 @@ Eval fixtures are captured for the four new stages.
           `sectionId` causes the stage to throw `OrphanHypothesisError`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-6-5: `formulate_queries` stage
+- [x] T-6-5: `formulate_queries` stage
       Goal: A `Stage` that converts a single hypothesis into 1..3
       concrete search queries, using the fast model.
       Touches: `src/server/pipeline/stages/formulate-queries.ts`,
