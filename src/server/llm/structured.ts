@@ -1,4 +1,5 @@
 import type { ZodIssue, ZodSchema } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { routeChat, routeSearch } from './router';
 import type { ChatRouterResult } from './router';
 import type { ModelClass } from './models';
@@ -39,18 +40,29 @@ async function callModel(
   modelClass: 'smart' | 'fast' | 'search' | undefined,
   system: string,
   user: string,
+  jsonSchema?: object,
 ): Promise<ChatRouterResult> {
   const messages = [
     { role: 'system' as const, content: system },
     { role: 'user' as const, content: user },
   ];
-  return modelClass === 'search'
-    ? routeSearch({ messages })
-    : routeChat({
-        messages,
-        class: (modelClass ?? 'smart') as 'smart' | 'fast',
-        response_format: { type: 'json_object' },
-      });
+
+  if (modelClass === 'search') {
+    return routeSearch({ messages });
+  }
+
+  const response_format = jsonSchema
+    ? {
+        type: 'json_schema' as const,
+        json_schema: { name: 'response', schema: jsonSchema, strict: true },
+      }
+    : { type: 'json_object' as const };
+
+  return routeChat({
+    messages,
+    class: (modelClass ?? 'smart') as 'smart' | 'fast',
+    response_format,
+  });
 }
 
 export async function routeJsonChat<T>(args: {
@@ -61,13 +73,18 @@ export async function routeJsonChat<T>(args: {
 }): Promise<JsonChatResult<T>> {
   const { system, user, schema, class: modelClass } = args;
 
-  let chatResult = await callModel(modelClass, system, user);
+  const jsonSchema =
+    modelClass !== 'search'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? (zodToJsonSchema(schema as any, { target: 'openApi3' }) as object)
+      : undefined;
+
+  let chatResult = await callModel(modelClass, system, user, jsonSchema);
   let parsed = tryParse(chatResult.content);
 
   if (parsed === undefined) {
-    // Retry once with an explicit JSON-only reminder appended to the user message
     const retryUser = user + '\n\nRespond with valid JSON only. No prose, no markdown fences.';
-    chatResult = await callModel(modelClass, system, retryUser);
+    chatResult = await callModel(modelClass, system, retryUser, jsonSchema);
     parsed = tryParse(chatResult.content);
     if (parsed === undefined) {
       throw new JsonChatParseError(chatResult.content);
@@ -82,7 +99,7 @@ export async function routeJsonChat<T>(args: {
     const retryUser =
       user +
       `\n\nYour previous response had schema validation errors:\n${issueLines}\nPlease correct and respond with valid JSON only.`;
-    chatResult = await callModel(modelClass, system, retryUser);
+    chatResult = await callModel(modelClass, system, retryUser, jsonSchema);
     parsed = tryParse(chatResult.content);
     if (parsed === undefined) throw new JsonChatParseError(chatResult.content);
     validated = schema.safeParse(parsed);

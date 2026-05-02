@@ -67,13 +67,15 @@ describe('routeJsonChat', () => {
     expect(retryCall.messages[1].content).toContain('schema validation errors');
   });
 
-  it('passes response_format json_object to routeChat', async () => {
+  it('passes response_format json_schema to routeChat', async () => {
     mockRouteChat.mockResolvedValue(makeChatResult('{"answer":"ok","score":1}'));
 
     const { routeJsonChat } = await import('../../../src/server/llm/structured');
     await routeJsonChat({ system: 's', user: 'u', schema });
 
     const callArg = mockRouteChat.mock.calls[0][0] as Record<string, unknown>;
-    expect((callArg.response_format as { type: string }).type).toBe('json_object');
+    const rf = callArg.response_format as { type: string; json_schema?: { schema: unknown } };
+    expect(rf.type).toBe('json_schema');
+    expect(rf.json_schema?.schema).toBeDefined();
   });
 });
