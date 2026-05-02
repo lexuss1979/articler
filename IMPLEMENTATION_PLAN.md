@@ -1884,7 +1884,7 @@ is captured.
       consider parallel drafting with a second pass for cohesion`
       comment marks the spot for future revisit.
 
-- [ ] T-7-7: `regenerateSection` helper + server actions
+- [x] T-7-7: `regenerateSection` helper + server actions
       Goal: A non-runner code path for re-drafting a single section
       with an optional user instruction (used while parked at
       `draft_done`), and the matching server actions.

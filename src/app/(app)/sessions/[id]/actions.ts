@@ -13,10 +13,12 @@ import { briefSchema } from '../../../../server/sessions/brief';
 import { planSchema } from '../../../../server/sessions/plan';
 import type { ZodIssue } from 'zod';
 import { startRunner, resolveUserInput } from '../../../../server/pipeline/runner';
+import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
 import {
   setSourceStatus,
   setSourceSection,
 } from '../../../../server/sessions/sources-repo';
+import { regenerateInstructionSchema } from '../../../../server/sessions/draft';
 
 export async function startSessionAction(sessionId: number): Promise<void> {
   const user = await requireUser();
@@ -105,6 +107,39 @@ export async function finishResearchAction(
   if (!session) return { ok: false, error: 'no_pending_research' };
   const resolved = resolveUserInput(sessionId, { action: 'finish' });
   if (!resolved) return { ok: false, error: 'no_pending_research' };
+  return { ok: true };
+}
+
+export async function regenerateSectionAction(
+  sessionId: number,
+  sectionId: unknown,
+  instruction: unknown,
+): Promise<{ ok: true; contentMd: string } | { ok: false; error: 'validation' | 'session_invalid' | 'section_not_found' }> {
+  const user = await requireUser();
+
+  const sectionIdParsed = z.string().min(1).max(40).safeParse(sectionId);
+  if (!sectionIdParsed.success) return { ok: false, error: 'validation' };
+
+  const instructionParsed = regenerateInstructionSchema.optional().or(z.literal('')).safeParse(instruction);
+  if (!instructionParsed.success) return { ok: false, error: 'validation' };
+
+  const result = await regenerateSection({
+    sessionId,
+    userId: user.id,
+    sectionId: sectionIdParsed.data,
+    instruction: instructionParsed.data || undefined,
+  });
+
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function finishDraftAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'no_pending_draft' }> {
+  await requireUser();
+  const resolved = resolveUserInput(sessionId, { action: 'finish' });
+  if (!resolved) return { ok: false, error: 'no_pending_draft' };
   return { ok: true };
 }
 
