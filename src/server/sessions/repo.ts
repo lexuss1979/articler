@@ -63,3 +63,12 @@ export async function updateSessionPlan(userId: number, id: number, plan: Plan) 
     .returning();
   return row ?? null;
 }
+
+export async function updateSessionDraft(userId: number, id: number, draftMd: string) {
+  const [row] = await db
+    .update(sessions)
+    .set({ draftMd, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}

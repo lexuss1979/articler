@@ -191,6 +191,36 @@ describe('updateSessionPlan', () => {
   });
 });
 
+describe('updateSessionDraft', () => {
+  it('includes user_id and id predicates in where clause', async () => {
+    const { updateSessionDraft } = await import('../../../src/server/sessions/repo');
+    const { eq } = await import('drizzle-orm');
+    const { sessions } = await import('../../../src/server/db/schema');
+
+    dbMocks.updateReturning.mockResolvedValue([{ id: 42 }]);
+    await updateSessionDraft(7, 42, '# Draft');
+
+    const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
+    expect(calls.some(([col, val]) => col === sessions.userId && val === 7)).toBe(true);
+    expect(calls.some(([col, val]) => col === sessions.id && val === 42)).toBe(true);
+  });
+
+  it('writes draft_md to the sessions set call', async () => {
+    const { updateSessionDraft } = await import('../../../src/server/sessions/repo');
+    dbMocks.updateReturning.mockResolvedValue([{ id: 42, draftMd: '# Draft' }]);
+    await updateSessionDraft(7, 42, '# Draft');
+
+    const setArg = (dbMocks.updateSet.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(setArg.draftMd).toBe('# Draft');
+  });
+
+  it('returns null when no row matched', async () => {
+    const { updateSessionDraft } = await import('../../../src/server/sessions/repo');
+    dbMocks.updateReturning.mockResolvedValue([]);
+    expect(await updateSessionDraft(7, 99, '# Draft')).toBeNull();
+  });
+});
+
 describe('updateSessionState', () => {
   it('includes user_id and id predicates in where clause', async () => {
     const { updateSessionState } = await import('../../../src/server/sessions/repo');

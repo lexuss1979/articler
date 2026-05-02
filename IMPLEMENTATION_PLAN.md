@@ -1814,7 +1814,7 @@ is captured.
       `// TODO: window prev sections by token budget` comment marks
       where to revisit once we have token-aware windowing.
 
-- [ ] T-7-5: `updateSessionDraft` repo helper
+- [x] T-7-5: `updateSessionDraft` repo helper
       Goal: Persist the concatenated `draft_md` text on
       `sessions.draft_md` whenever the runner finishes (or
       regenerates) a section.
