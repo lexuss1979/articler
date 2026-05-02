@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => {
-  const getSessionFn = vi.fn();
-  const updateSessionStateFn = vi.fn();
-  const emitEventFn = vi.fn();
-  const appendRunLogFn = vi.fn();
-  return { getSessionFn, updateSessionStateFn, emitEventFn, appendRunLogFn };
-});
+const mocks = vi.hoisted(() => ({
+  getSessionFn: vi.fn(),
+  updateSessionStateFn: vi.fn(),
+  emitEventFn: vi.fn(),
+  appendRunLogFn: vi.fn(),
+}));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
   getSession: mocks.getSessionFn,
   updateSessionState: mocks.updateSessionStateFn,
+  updateSessionPlan: vi.fn(),
+}));
+
+vi.mock('../../../src/server/profiles/repo', () => ({
+  getProfile: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../../src/server/events/bus', () => ({
@@ -21,24 +25,27 @@ vi.mock('../../../src/server/logging/jsonl', () => ({
   appendRunLog: mocks.appendRunLogFn,
 }));
 
+vi.mock('../../../src/server/llm/router', () => ({
+  routeChat: vi.fn(),
+  routeSearch: vi.fn(),
+  routeImage: vi.fn(),
+}));
+
+vi.mock('../../../src/server/pipeline/stages/clarify-brief', () => ({
+  clarifyBrief: { run: vi.fn() },
+}));
+
+vi.mock('../../../src/server/pipeline/stages/propose-angles', () => ({
+  proposeAngles: { run: vi.fn() },
+}));
+
+vi.mock('../../../src/server/pipeline/stages/build-plan', () => ({
+  buildPlan: { run: vi.fn() },
+}));
+
 afterEach(() => vi.clearAllMocks());
 
 describe('startRunner', () => {
-  it('emits agent_message and transitions to done for planning state', async () => {
-    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'planning' });
-    mocks.updateSessionStateFn.mockResolvedValue({ id: 10, state: 'done' });
-    mocks.emitEventFn.mockResolvedValue({});
-
-    const { startRunner } = await import('../../../src/server/pipeline/runner');
-    await startRunner(10, 1);
-
-    const emitCalls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
-    const kinds = emitCalls.map(([, kind]) => kind);
-    expect(kinds).toContain('agent_message');
-    expect(kinds).toContain('state_changed');
-    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 10, 'done');
-  });
-
   it('does nothing when session not found', async () => {
     mocks.getSessionFn.mockResolvedValue(null);
     const { startRunner } = await import('../../../src/server/pipeline/runner');
@@ -47,11 +54,23 @@ describe('startRunner', () => {
   });
 
   it('does nothing for an unregistered state', async () => {
-    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'research' });
+    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'research', brief: null, profileId: 1 });
     mocks.emitEventFn.mockResolvedValue({});
     const { startRunner } = await import('../../../src/server/pipeline/runner');
     await startRunner(10, 1);
     expect(mocks.emitEventFn).not.toHaveBeenCalled();
+    expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
+  });
+
+  it('emits agent_message and returns early when planning session has null brief', async () => {
+    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'planning', brief: null, profileId: 1 });
+    mocks.emitEventFn.mockResolvedValue({});
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(10, 1);
+
+    const emitCalls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    expect(emitCalls.some(([, k]) => k === 'agent_message')).toBe(true);
     expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
   });
 });

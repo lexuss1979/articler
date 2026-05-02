@@ -1,6 +1,13 @@
-import type { ZodSchema } from 'zod';
+import { z, type ZodSchema } from 'zod';
 import { emitEvent } from '../events/bus';
-import { getSession, updateSessionState } from '../sessions/repo';
+import { appendRunLog } from '../logging/jsonl';
+import { routeChat, routeSearch, routeImage } from '../llm/router';
+import { getProfile } from '../profiles/repo';
+import { briefSchema } from '../sessions/brief';
+import { getSession, updateSessionPlan, updateSessionState } from '../sessions/repo';
+import { clarifyBrief } from './stages/clarify-brief';
+import { proposeAngles } from './stages/propose-angles';
+import { buildPlan } from './stages/build-plan';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -10,16 +17,86 @@ type Pending = {
 
 const pendingInputs = new Map<number, Pending>();
 
+function makeCtx(sessionId: number, state: string) {
+  return {
+    emit: (kind: Parameters<typeof emitEvent>[1], payload: unknown) =>
+      emitEvent(sessionId, kind, payload),
+    userInput<T>(prompt: string, schema: ZodSchema<T>): Promise<T> {
+      return new Promise<T>((resolve, reject) => {
+        pendingInputs.set(sessionId, {
+          resolve: resolve as (v: unknown) => void,
+          reject,
+          schema: schema as ZodSchema<unknown>,
+        });
+        emitEvent(sessionId, 'awaiting_user', { prompt });
+      });
+    },
+    log: {
+      async append(entry: object) {
+        await appendRunLog({ sessionId, stage: state, ...entry });
+      },
+    },
+    llm: {
+      routeChat: (args: Parameters<typeof routeChat>[0]) => routeChat(args),
+      routeSearch: (args: Parameters<typeof routeSearch>[0]) => routeSearch(args),
+      routeImage: (args: Parameters<typeof routeImage>[0]) => routeImage(args),
+    },
+  };
+}
+
 export async function startRunner(sessionId: number, userId: number): Promise<void> {
   const session = await getSession(userId, sessionId);
   if (!session) return;
 
+  const ctx = makeCtx(sessionId, session.state);
+
   switch (session.state) {
     case 'planning': {
-      // Planning stages wired in T-5-9; placeholder until then
-      await emitEvent(sessionId, 'agent_message', { text: 'Planning stage not yet implemented.' });
-      await updateSessionState(userId, sessionId, 'done');
-      await emitEvent(sessionId, 'state_changed', { state: 'done' });
+      const briefParsed = briefSchema.safeParse(session.brief);
+      if (!briefParsed.success) {
+        await ctx.emit('agent_message', { text: 'Session brief is missing or invalid.' });
+        return;
+      }
+      const brief = briefParsed.data;
+
+      const profile = await getProfile(userId, session.profileId);
+      if (!profile) {
+        await ctx.emit('agent_message', { text: 'Session profile not found.' });
+        return;
+      }
+
+      // Step 1: clarify brief
+      const { questions } = await clarifyBrief.run({ brief, profile }, ctx);
+
+      let clarifications: Array<{ question: string; answer: string }> = [];
+      if (questions.length > 0) {
+        const { answers } = await ctx.userInput(
+          'clarify',
+          z.object({ answers: z.array(z.string().min(1)).length(questions.length) }),
+        );
+        clarifications = questions.map((q, i) => ({ question: q, answer: answers[i]! }));
+      }
+
+      // Step 2: propose angles
+      const { angles } = await proposeAngles.run({ brief, profile, clarifications }, ctx);
+      await ctx.emit('artifact_updated', { kind: 'angles', angles });
+
+      const { index } = await ctx.userInput(
+        'angle_choice',
+        z.object({ index: z.number().int().min(0).max(angles.length - 1) }),
+      );
+      const chosenAngle = angles[index]!;
+
+      // Step 3: build plan
+      const plan = await buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx);
+      await updateSessionPlan(userId, sessionId, plan);
+      await ctx.emit('artifact_updated', { kind: 'plan' });
+
+      // Step 4: await plan lock
+      await ctx.userInput('plan_lock', z.object({ action: z.literal('lock') }));
+
+      await updateSessionState(userId, sessionId, 'research');
+      await ctx.emit('state_changed', { state: 'research' });
       break;
     }
     default:

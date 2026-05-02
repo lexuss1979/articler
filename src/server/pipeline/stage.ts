@@ -1,14 +1,6 @@
 import type { ZodSchema } from 'zod';
 import type { EventKind, PersistedEvent } from '../events/bus';
-
-export type RouterResult = {
-  modelUsed: string;
-  modelClass: string;
-  promptTokens: number;
-  completionTokens: number;
-  latencyMs: number;
-  result: unknown;
-};
+import type { ChatRouterResult, ImageRouterResult } from '../llm/router';
 
 export type StageCtx = {
   emit(kind: EventKind, payload: unknown): Promise<PersistedEvent>;
@@ -17,9 +9,9 @@ export type StageCtx = {
     append(entry: object): Promise<void>;
   };
   llm: {
-    routeChat(args: { messages: unknown[]; class?: string }): Promise<RouterResult>;
-    routeSearch(args: { messages: unknown[] }): Promise<RouterResult>;
-    routeImage(args: { prompt: string }): Promise<RouterResult>;
+    routeChat(args: { messages: unknown[]; class?: 'smart' | 'fast' }): Promise<ChatRouterResult>;
+    routeSearch(args: { messages: unknown[] }): Promise<ChatRouterResult>;
+    routeImage(args: { prompt: string }): Promise<ImageRouterResult>;
   };
 };
 

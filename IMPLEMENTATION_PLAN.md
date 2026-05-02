@@ -1207,7 +1207,7 @@ wire them into the harness.
           emitted events.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-5-9: Runner — wire real LLM into `ctx` and add `planning` orchestration
+- [x] T-5-9: Runner — wire real LLM into `ctx` and add `planning` orchestration
       Goal: Replace the runner's stub `ctx.llm` with the real router,
       then implement the `'planning'` state as a chained call of
       `clarify_brief` → optional clarification parking →
