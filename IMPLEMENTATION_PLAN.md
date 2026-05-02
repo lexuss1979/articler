@@ -1977,7 +1977,7 @@ is captured.
       reviewable; the user can regenerate any unsatisfactory section
       first. The UI surfaces a hint when blocked.
 
-- [ ] T-7-9: Eval fixture for `draft_section`
+- [x] T-7-9: Eval fixture for `draft_section`
       Goal: Capture one input/expected snapshot for `draft_section`
       so the Epic 12 harness can replay it.
       Touches: `tests/eval/fixtures/draft_section/habr-longread-1.json`,

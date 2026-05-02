@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockRouteJsonChat = vi.fn();
 
@@ -182,5 +184,34 @@ describe('draftSection stage', () => {
     const call = mockRouteJsonChat.mock.calls[0][0] as { user: string };
     expect(call.user).toContain('Tighten the intro');
     expect(call.user).toContain('https://original.com/article');
+  });
+});
+
+describe('draftSection stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
+    type Fixture = { input: unknown; expected: { snapshot: unknown } };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/draft_section/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-sonnet',
+      modelClass: 'smart',
+      promptTokens: 200,
+      completionTokens: 300,
+      latencyMs: 400,
+    });
+
+    const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
+    const ctx = makeCtx();
+    const result = await draftSection.run(
+      fixture.input as Parameters<typeof draftSection.run>[0],
+      ctx,
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });
