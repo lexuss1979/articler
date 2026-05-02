@@ -886,7 +886,7 @@ yet — this epic wires the plumbing.
           events appear in order with the expected payload shapes.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-4-8: `runner.ts` — state machine with `userInput` parking
+- [x] T-4-8: `runner.ts` — state machine with `userInput` parking
       Goal: A single in-process orchestrator that, for the current
       session state, runs the matching stage, persists the new state,
       and exposes a registry the respond endpoint can resolve.
