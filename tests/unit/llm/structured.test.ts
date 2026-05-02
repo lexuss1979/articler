@@ -78,4 +78,29 @@ describe('routeJsonChat', () => {
     expect(rf.type).toBe('json_schema');
     expect(rf.json_schema?.schema).toBeDefined();
   });
+
+  it('strips Anthropic-unsupported keywords from json_schema', async () => {
+    mockRouteChat.mockResolvedValue(makeChatResult('{"tags":["a"],"count":1}'));
+
+    const schemaWithConstraints = z.object({
+      tags: z.array(z.string().min(1).max(50)).min(1).max(10),
+      count: z.number().int().min(0).max(100),
+    });
+
+    const { routeJsonChat } = await import('../../../src/server/llm/structured');
+    await routeJsonChat({ system: 's', user: 'u', schema: schemaWithConstraints });
+
+    const callArg = mockRouteChat.mock.calls[0][0] as Record<string, unknown>;
+    const rf = callArg.response_format as { type: string; json_schema?: { schema: unknown } };
+    const schemaStr = JSON.stringify(rf.json_schema?.schema);
+    expect(schemaStr).not.toContain('maxItems');
+    expect(schemaStr).not.toContain('minItems');
+    expect(schemaStr).not.toContain('minLength');
+    expect(schemaStr).not.toContain('maxLength');
+    expect(schemaStr).not.toContain('minimum');
+    expect(schemaStr).not.toContain('maximum');
+    expect(schemaStr).not.toContain('$schema');
+    expect(schemaStr).toContain('"type":"array"');
+    expect(schemaStr).toContain('"type":"integer"');
+  });
 });

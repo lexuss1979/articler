@@ -19,6 +19,24 @@ export class JsonChatSchemaError extends Error {
 
 export type JsonChatResult<T> = Omit<ChatRouterResult, 'content'> & { result: T };
 
+const UNSUPPORTED_KEYWORDS = new Set([
+  '$schema', 'minLength', 'maxLength', 'minItems', 'maxItems',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+  'multipleOf', 'pattern', 'format', 'uniqueItems',
+  'contains', 'minContains', 'maxContains',
+]);
+
+function stripConstraints(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(stripConstraints);
+  if (schema === null || typeof schema !== 'object') return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+    if (UNSUPPORTED_KEYWORDS.has(k)) continue;
+    out[k] = stripConstraints(v);
+  }
+  return out;
+}
+
 function extractJson(content: string): string {
   const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (fenced) return fenced[1]!.trim();
@@ -75,7 +93,7 @@ export async function routeJsonChat<T>(args: {
   const jsonSchema =
     modelClass !== 'search'
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ? ((schema as any).toJSONSchema() as object)
+      ? (stripConstraints((schema as any).toJSONSchema()) as object)
       : undefined;
 
   let chatResult = await callModel(modelClass, system, user, jsonSchema);
