@@ -2004,32 +2004,753 @@ is captured.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 8 — Review: critics + fact-checker
 
-**Status: TBD**
-Intent:
+**Status: planned**
+**Goal:** When the user finishes drafting the session enters
+`'review'`. The workbench swaps to a two-tab review pane. The
+**Critique** tab lets the user run a panel of critic personas
+(built-ins + ad-hoc custom critics) in parallel against the locked
+draft; each round persists as a `critique_round` row with N
+`critique_findings`. Per-finding actions (dismiss / apply verbatim /
+send to drafter for a section-scoped rewrite) keep critics as judges
+only — the drafting agent stays the sole writer to `draft_md`. The
+**Fact-check** tab lets the user run the three-stage pipeline
+(`extract_claims` → `verify_claim` → `adjudicate_claim`); claims and
+verdicts persist with `span_hash` idempotency so repeat runs skip
+unchanged spans unless forced. When the user clicks "Finish review",
+the session transitions to `'decoration'`. Eval fixtures are captured
+for the four new stages.
 
-- **Critics**: a critic registry seeded with the built-in personas
-  (`editorial`, `audience_fit`, `methodology`, `style`, `structure`,
-  `headline`, `seo_discoverability`); a generic `run_critic` stage that
-  takes a `Critic` record + draft and emits typed `Finding[]`; a
-  `review` stage that fans out the session's `active_critics` in
-  parallel and persists a `critique_round` with all findings; a custom
-  ad-hoc critic flow that lets the user provide a prompt fragment;
-  per-finding actions (dismiss / apply verbatim / send to drafter for
-  span-scoped rewrite). Critics never write `draft_md` — only the
-  drafting agent does, invoked via the existing rewrite path.
-- **Fact-checker**: `extract_claims` (smart) → `verify_claim` (search,
-  fan-out over check-worthy claims, reusing accepted `sources` first)
-  → `adjudicate_claim` (smart) producing per-claim verdicts with
-  citations. Idempotency keyed on `span_hash` so repeat runs skip
-  unchanged spans unless the user forces a fresh run.
-- **UI**: review view with two tabs (Critique / Fact-check) inside the
-  workbench pane, span-clicks scrolling the draft, history of rounds
-  preserved.
-- **Eval fixtures** for each critic and for the fact-check pipeline.
+### Tasks
+
+- [ ] T-8-1: Review subsystem DB schema + migration
+      Goal: Five new tables back the review subsystem —
+      `critique_rounds`, `critique_findings`, `claims`,
+      `claim_verdicts`, `claim_evidence`.
+      Touches: `src/server/db/schema.ts`, `drizzle/0009_*.sql`,
+      `drizzle/meta/*`.
+      Acceptance:
+        - Adds the five tables to `src/server/db/schema.ts` with the
+          following columns:
+          - `critiqueRounds`: `id` (serial PK); `session_id` (integer
+            NOT NULL, FK → `sessions.id` ON DELETE CASCADE); `kind`
+            (text NOT NULL, intended values `critique|factcheck`);
+            `draft_hash` (text NOT NULL); `created_at` (timestamp
+            DEFAULT `now()` NOT NULL). Index on `(session_id, id)`.
+          - `critiqueFindings`: `id` (serial PK); `round_id` (integer
+            NOT NULL, FK → `critique_rounds.id` ON DELETE CASCADE);
+            `critic_id` (text NOT NULL); `severity` (text NOT NULL,
+            intended `info|minor|major`); `span` (jsonb NOT NULL);
+            `problem` (text NOT NULL); `suggested_change` (text NOT
+            NULL); `rationale` (text NOT NULL); `status` (text NOT
+            NULL DEFAULT `'open'`, intended
+            `open|dismissed|applied|rewritten`); `created_at`
+            (timestamp DEFAULT `now()` NOT NULL). Index on
+            `(round_id, id)`.
+          - `claims`: `id` (serial PK); `session_id` (integer NOT
+            NULL, FK → `sessions.id` ON DELETE CASCADE); `round_id`
+            (integer NOT NULL, FK → `critique_rounds.id` ON DELETE
+            CASCADE); `span` (jsonb NOT NULL); `span_hash` (text NOT
+            NULL); `claim_text` (text NOT NULL); `claim_type` (text
+            NOT NULL); `check_worthiness` (text NOT NULL); `status`
+            (text NOT NULL DEFAULT `'open'`, intended
+            `open|opinion|dismissed`); `created_at` (timestamp
+            DEFAULT `now()` NOT NULL). Index on `(session_id,
+            span_hash)`.
+          - `claimVerdicts`: `id` (serial PK); `claim_id` (integer
+            NOT NULL, FK → `claims.id` ON DELETE CASCADE); `verdict`
+            (text NOT NULL, intended
+            `verified|contradicted|unverifiable|needs_caveat`);
+            `justification` (text NOT NULL); `created_at` (timestamp
+            DEFAULT `now()` NOT NULL). Index on `(claim_id, id)`.
+          - `claimEvidence`: `id` (serial PK); `verdict_id` (integer
+            NOT NULL, FK → `claim_verdicts.id` ON DELETE CASCADE);
+            `source_id` (integer NULL, FK → `sources.id` ON DELETE
+            SET NULL); `url` (text NOT NULL); `snippet` (text NOT
+            NULL); `supports` (boolean NOT NULL); `created_at`
+            (timestamp DEFAULT `now()` NOT NULL).
+        - A migration produced by `pnpm db:generate` lands at
+          `drizzle/0009_*.sql` and creates the five tables + indexes.
+          The drizzle meta journal is updated.
+        - `pnpm db:migrate` against the compose DB applies cleanly
+          and re-running is a no-op.
+        - `pnpm typecheck` exits 0.
+      Notes: enums are stored as plain `text` for consistency with
+      the existing schema (sources, sessions); the Zod schemas in
+      T-8-2 / T-8-3 are the source of truth for allowed values.
+
+- [ ] T-8-2: Critic + Finding + active-critics schemas + built-in
+      critic registry
+      Goal: Typed shapes for critics, findings, and the
+      session-scoped active-critics config, plus the built-in critic
+      registry data (with system prompts).
+      Touches: `src/server/sessions/critics.ts`,
+      `tests/unit/sessions/critics-schema.test.ts`.
+      Acceptance:
+        - Exports `severitySchema = z.enum(['info', 'minor',
+          'major'])`.
+        - Exports `findingSpanSchema`: `{ sectionId: z.string()
+          .min(1).max(120), charStart: z.number().int().min(0),
+          charEnd: z.number().int().min(0) }` (no constraint that
+          end >= start at the schema level — the model can emit
+          out-of-order; the runner clamps).
+        - Exports `findingSchema`: `{ criticId: z.string().min(1)
+          .max(60), severity: severitySchema, span: findingSpanSchema,
+          problem: z.string().min(1).max(2000), suggestedChange:
+          z.string().min(1).max(2000), rationale: z.string().min(1)
+          .max(2000) }`.
+        - Exports `findingsResponseSchema = z.object({ findings:
+          z.array(findingSchema).max(20) })`.
+        - Exports `criticDefSchema`: `{ id, label, systemPrompt,
+          defaultEnabled }` (all string fields with sensible bounds).
+        - Exports `activeCriticsSchema = z.object({ enabledIds:
+          z.array(z.string().min(1).max(60)).default([]), custom:
+          z.array(z.object({ id: z.string().min(1).max(60), label:
+          z.string().min(1).max(120), promptFragment: z.string()
+          .min(1).max(4000) })).default([]) })` with helper
+          `parseActiveCritics(value: unknown): ActiveCritics` that
+          falls back to `{ enabledIds: BUILTIN_DEFAULTS, custom: [] }`
+          when the column is null.
+        - Exports the built-in registry `BUILTIN_CRITICS:
+          readonly CriticDef[]` with one entry per spec critic
+          (`editorial`, `audience_fit`, `methodology`, `style`,
+          `structure`, `headline`, `seo_discoverability`); each
+          entry's `systemPrompt` is a 2–6-line persona block ending
+          with the rule "respond ONLY with valid JSON of shape
+          `{ findings: [...] }`". `defaultEnabled` is `true` for all
+          built-ins.
+        - Exports the constant `BUILTIN_DEFAULTS: string[]` listing
+          the built-in critic ids that are enabled by default.
+        - Exports `Severity`, `FindingSpan`, `Finding`,
+          `FindingsResponse`, `CriticDef`, `ActiveCritics` as
+          `z.infer<...>` aliases.
+        - Unit test asserts each schema accepts a valid hand-built
+          value and fails on at least one obvious violation per
+          schema (severity = `'fatal'`, problem = empty); asserts
+          `BUILTIN_CRITICS.length === 7` and that every built-in id
+          appears in `BUILTIN_DEFAULTS`; asserts `parseActiveCritics(null)`
+          returns the defaults.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-3: Claim + verdict + evidence schemas + spanHash helper
+      Goal: Typed shapes for the three fact-check stages plus the
+      span-hash idempotency helper.
+      Touches: `src/server/sessions/claims.ts`,
+      `tests/unit/sessions/claims-schema.test.ts`.
+      Acceptance:
+        - Exports `claimTypeSchema = z.enum(['statistic',
+          'named_entity', 'event', 'attribution', 'definition',
+          'other'])`.
+        - Exports `checkWorthinessSchema = z.enum(['low', 'medium',
+          'high'])`.
+        - Exports `verdictSchema = z.enum(['verified',
+          'contradicted', 'unverifiable', 'needs_caveat'])`.
+        - Exports `claimSpanSchema`: `{ sectionId: z.string().min(1)
+          .max(120), charStart: z.number().int().min(0), charEnd:
+          z.number().int().min(0), text: z.string().min(1).max(2000) }`.
+        - Exports `claimSchema`: `{ span: claimSpanSchema, claimType:
+          claimTypeSchema, checkWorthiness: checkWorthinessSchema }`.
+        - Exports `claimsResponseSchema = z.object({ claims:
+          z.array(claimSchema).max(60) })`.
+        - Exports `evidenceItemSchema`: `{ url: z.string().url(),
+          snippet: z.string().min(1).max(2000), supports: z.boolean() }`.
+        - Exports `evidenceResponseSchema = z.object({ evidence:
+          z.array(evidenceItemSchema).max(8) })`.
+        - Exports `adjudicationSchema`: `{ verdict: verdictSchema,
+          justification: z.string().min(1).max(1000), citationUrls:
+          z.array(z.string().url()).max(8) }`.
+        - Exports `spanHash(text: string): string` that returns
+          `sha256(text)` as a lower-hex string using `node:crypto`'s
+          `createHash`.
+        - Exports `ClaimType`, `CheckWorthiness`, `Verdict`,
+          `ClaimSpan`, `Claim`, `ClaimsResponse`, `EvidenceItem`,
+          `EvidenceResponse`, `Adjudication` as `z.infer<...>`
+          aliases.
+        - Unit test asserts each schema accepts a valid hand-built
+          value and fails on at least one obvious violation per
+          schema (claim type = `'rumor'`, verdict = `'maybe'`,
+          malformed evidence url); asserts `spanHash('hello') ===
+          spanHash('hello')` and `spanHash('hello') !==
+          spanHash('Hello')`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-4: Critique repo helpers
+      Goal: User-scoped persistence for critique rounds and findings
+      in the same cross-table-ownership style as the existing
+      `sources-repo`.
+      Touches: `src/server/sessions/critique-repo.ts`,
+      `tests/unit/sessions/critique-repo.test.ts`.
+      Acceptance:
+        - Exports `createCritiqueRound(userId, sessionId, kind:
+          'critique' | 'factcheck', draftHash: string)` which first
+          verifies the session is owned by `userId`; returns `null`
+          on non-owned, otherwise inserts and returns the new row.
+        - Exports `insertFinding(userId, roundId, fields:
+          { criticId, severity, span, problem, suggestedChange,
+          rationale })` which verifies (via a join) that
+          `roundId` belongs to a session owned by `userId`; returns
+          `null` on non-owned, otherwise inserts with
+          `status = 'open'` and returns the new row.
+        - Exports `listSessionRounds(userId, sessionId, kind?:
+          'critique' | 'factcheck')` returning rounds ordered by
+          `id ASC`, gated by ownership (returns `[]` on non-owned).
+        - Exports `listRoundFindings(userId, roundId)` returning
+          findings ordered by `id ASC`, gated by ownership
+          (returns `[]` on non-owned).
+        - Exports `setFindingStatus(userId, findingId, status:
+          'open' | 'dismissed' | 'applied' | 'rewritten')` which
+          updates only when the finding's round's session is owned;
+          returns the updated row or `null`.
+        - Unit test mocks the drizzle client and asserts: each
+          helper builds a `where` that includes the user-ownership
+          predicate; the happy path returns the row; an unowned id
+          resolves to `null` / `[]` as appropriate.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-5: Claims repo helpers
+      Goal: User-scoped persistence for claims, verdicts, and
+      evidence, plus the span-hash idempotency lookup.
+      Touches: `src/server/sessions/claims-repo.ts`,
+      `tests/unit/sessions/claims-repo.test.ts`.
+      Acceptance:
+        - Exports `insertClaim(userId, sessionId, roundId, fields:
+          { span, spanHash, claimText, claimType, checkWorthiness })`
+          gated by session-ownership; returns the new row with
+          `status = 'open'` or `null` when not owned.
+        - Exports `listSessionClaims(userId, sessionId)` returning
+          claims ordered by `id ASC`, gated by ownership.
+        - Exports `findClaimBySpanHash(userId, sessionId, spanHash:
+          string)` returning the most recent claim with that hash
+          (and its current verdict via a left join, or `null` if
+          none); used for idempotency.
+        - Exports `setClaimStatus(userId, claimId, status: 'open' |
+          'opinion' | 'dismissed')` gated by ownership.
+        - Exports `insertClaimVerdict(userId, claimId, fields:
+          { verdict, justification })` gated by ownership; returns
+          new row or `null`.
+        - Exports `insertClaimEvidence(userId, verdictId, items:
+          Array<{ sourceId: number | null; url; snippet;
+          supports }>)` gated by ownership; returns the inserted
+          rows.
+        - Exports `listClaimVerdicts(userId, claimId)` returning
+          verdicts ordered by `id ASC` plus their evidence rows
+          inlined (`{ ...verdict, evidence: ClaimEvidenceRow[] }`).
+        - Unit test mocks the drizzle client and asserts each
+          helper builds a `where` that includes the user-ownership
+          predicate; the happy path returns the row; unowned ids
+          resolve to `null` / `[]`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-6: `run_critic` stage
+      Goal: A `Stage` that runs one critic persona over the draft
+      and returns typed `Finding[]`.
+      Touches: `src/server/pipeline/stages/run-critic.ts`,
+      `tests/unit/pipeline/run-critic.test.ts`.
+      Acceptance:
+        - Exports `runCritic: Stage<{ critic: CriticDef; plan: Plan;
+          profile: ProfileRow; sectionDrafts: Array<{ sectionId:
+          string; contentMd: string }> }, FindingsResponse>` named
+          `'run_critic'`, model class `'smart'`.
+        - `outputSchema` is `findingsResponseSchema`.
+        - `run` builds the system prompt by concatenating
+          `critic.systemPrompt` with: the platform name, audience,
+          and style from the profile; the chosen methodology and
+          thesis from the plan; the rule "respond ONLY with valid
+          JSON of shape `{ findings: [...] }`, no prose, no fences".
+          The user prompt lists each section as `## <title>
+          [sectionId=<id>]\n<contentMd>`.
+        - `run` calls `routeJsonChat` with `class: 'smart'` and
+          `schema: findingsResponseSchema`; emits `task_started`
+          (`{ stage: 'run_critic', criticId }`) and
+          `task_completed` (`{ stage: 'run_critic', criticId,
+          count: findings.length }`).
+        - Findings whose `span.sectionId` is not in `plan.sections[*].id`
+          are dropped silently before returning (the model's outputs
+          aren't always perfectly grounded; we don't fail the run on
+          one bad span).
+        - Unit test stubs `routeJsonChat` to return two findings
+          (one valid, one with an unknown `sectionId`); asserts the
+          returned shape contains exactly the valid finding, the
+          system prompt mentions the critic's `systemPrompt` and the
+          plan's thesis, and `task_started` / `task_completed`
+          events were emitted in order with the expected payloads.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-7: `runReview` orchestration helper + `startReviewAction`
+      Goal: A non-runner code path that, on user request, creates a
+      new `'critique'` round, fans out the session's active critics
+      in parallel, and persists each critic's findings.
+      Touches: `src/server/pipeline/run-review.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/pipeline/run-review.test.ts`,
+      `tests/unit/sessions/start-review-action.test.ts`.
+      Acceptance:
+        - `run-review.ts` exports `runReview({ sessionId, userId })`
+          that: loads session, profile, plan (validates each via
+          its schema; returns `{ ok: false, error: 'session_invalid' }`
+          on missing/invalid); short-circuits with
+          `{ ok: false, error: 'no_draft' }` if `session.draftMd` is
+          empty; resolves the active critic list by calling
+          `parseActiveCritics(session.activeCritics)` and combining
+          built-ins from `BUILTIN_CRITICS` (filtered by
+          `enabledIds`) with custom critics (custom critic
+          `systemPrompt` is `GENERIC_CRITIC_SYSTEM_PROMPT + '\n' +
+          c.promptFragment`, where `GENERIC_CRITIC_SYSTEM_PROMPT` is
+          a constant exported from this file); creates a
+          `critique_round` via `createCritiqueRound(userId,
+          sessionId, 'critique', spanHash(session.draftMd))`; loads
+          all section drafts via `listSectionDrafts`; runs
+          `runCritic.run({ critic, plan, profile, sectionDrafts })`
+          for every active critic in parallel via `Promise.all`;
+          for each returned finding calls `insertFinding(userId,
+          round.id, ...)`; emits one `artifact_updated` per persisted
+          finding (`{ kind: 'finding', finding }`) and one final
+          `artifact_updated` (`{ kind: 'critique_round', roundId:
+          round.id, findingCount }`); returns `{ ok: true, roundId,
+          findingCount }`.
+        - `actions.ts` adds `startReviewAction(sessionId: number)`:
+          calls `requireUser`, calls `runReview`, returns its result
+          unchanged. `revalidatePath('/sessions/' + sessionId)` on
+          `ok: true`.
+        - Unit test for `runReview` stubs `runCritic.run`, the
+          repos, and the bus; configures a session with two
+          built-ins enabled and one custom critic; drives the
+          helper; asserts: `runCritic.run` was called three times in
+          parallel; each persisted finding hit `insertFinding`; the
+          final `artifact_updated` event carries the right
+          `findingCount`. A second test asserts `no_draft` short-
+          circuit when `draftMd` is empty.
+        - Unit test for the action mocks `requireUser` and
+          `runReview`, asserts `user.id` is passed through.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Decision needed: should the orchestration emit per-critic
+      progress (`task_started: editorial`) for the chat pane?
+      Default: yes — `runCritic.run` already emits these via its
+      `ctx`, so the chat reflects live critic progress. No extra
+      code in the orchestrator.
+
+- [ ] T-8-8: Per-finding action server actions
+      Goal: Server actions for dismiss / apply verbatim / send-to-
+      drafter on a single finding.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/finding-actions.test.ts`.
+      Acceptance:
+        - Adds `dismissFindingAction(sessionId, findingId)`: calls
+          `requireUser`, then `setFindingStatus(user.id, findingId,
+          'dismissed')`, then `revalidatePath`. Returns `{ ok: true }`
+          or `{ ok: false, error: 'not_found' }`.
+        - Adds `applyFindingAction(sessionId, findingId)`: calls
+          `requireUser`, then `setFindingStatus(user.id, findingId,
+          'applied')`. v1 is "mark as applied" only — applying the
+          actual span change is the user's job (they can copy the
+          `suggested_change` text into the section); the comment
+          `// TODO: optionally route through regenerateSection for
+          surgical edit` is left in.
+        - Adds `rewriteFromFindingAction(sessionId, findingId)`:
+          calls `requireUser`; loads the finding (helper:
+          `getFindingForUser(userId, findingId)` added in
+          critique-repo); if missing returns
+          `{ ok: false, error: 'not_found' }`; calls
+          `regenerateSection({ sessionId, userId, sectionId:
+          finding.span.sectionId, instruction: '[critic
+          ' + finding.criticId + '] ' + finding.problem + ' — ' +
+          finding.suggestedChange })`; on success calls
+          `setFindingStatus(user.id, findingId, 'rewritten')`.
+          Returns the regenerate-section result shape passthrough.
+        - Unit test mocks `requireUser`, the repo helpers, and
+          `regenerateSection`; asserts each action passes `user.id`
+          through; asserts `rewriteFromFindingAction` builds the
+          instruction string with the critic id + problem +
+          suggestion and updates status to `'rewritten'` after a
+          successful regenerate.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Decision needed: should "apply verbatim" perform the actual
+      span replacement automatically? Default: no — span-level
+      Markdown replacement is brittle when the model's char offsets
+      are approximate. v1 marks as applied; v2 can add surgical
+      replace once spans are anchor-stable.
+
+- [ ] T-8-9: `extract_claims` stage
+      Goal: A `Stage` that extracts factual claims from the draft
+      with span info and check-worthiness.
+      Touches: `src/server/pipeline/stages/extract-claims.ts`,
+      `tests/unit/pipeline/extract-claims.test.ts`.
+      Acceptance:
+        - Exports `extractClaims: Stage<{ plan: Plan; sectionDrafts:
+          Array<{ sectionId: string; contentMd: string }> },
+          ClaimsResponse>` named `'extract_claims'`, model class
+          `'smart'`.
+        - `outputSchema` is `claimsResponseSchema`.
+        - `run` builds a system prompt that names each `claim_type`
+          and explains the worthiness ladder (opinion / hedged /
+          trivially-known → low; specific verifiable → medium /
+          high). The user prompt lists each section like
+          `## <title> [sectionId=<id>]\n<contentMd>`. Calls
+          `routeJsonChat` with `class: 'smart'` and
+          `schema: claimsResponseSchema`. Emits `task_started`
+          (`{ stage: 'extract_claims' }`) and `task_completed`
+          (`{ stage: 'extract_claims', count }`).
+        - Unit test stubs `routeJsonChat` to return two claims
+          (one `medium`, one `low`); asserts the returned shape and
+          event order; asserts the system prompt mentions the
+          worthiness ladder.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-10: `verify_claim` stage with sources reuse
+      Goal: A `Stage` that gathers evidence for a single claim,
+      reusing accepted sources from the session before issuing a
+      search query.
+      Touches: `src/server/pipeline/stages/verify-claim.ts`,
+      `tests/unit/pipeline/verify-claim.test.ts`.
+      Acceptance:
+        - Exports `verifyClaim: Stage<{ claim: Claim;
+          acceptedSources: Array<{ id: number; url: string; title:
+          string; summary: string; rawExcerpt: string }> },
+          { evidence: Array<EvidenceItem & { sourceId: number |
+          null }>; cached: boolean }>` named `'verify_claim'`,
+          model class `'search'`.
+        - `outputSchema` validates `evidence` via
+          `evidenceResponseSchema`'s item shape extended with
+          `sourceId: z.number().int().nullable()`.
+        - `run` first builds a token bag from the claim
+          (`claim.span.text` lowercased, split on `\W+`, length > 3,
+          deduped). For each accepted source it scores
+          `(rawExcerpt + summary).toLowerCase()` overlap; if any
+          source has an overlap >= 2 tokens it pushes
+          `{ url, snippet: source.rawExcerpt.slice(0, 600),
+          supports: true, sourceId: source.id }` into the evidence
+          pool. If the resulting pool has ≥ 1 item it returns it
+          with `cached: true` and emits `task_completed`
+          (`{ count, cached: true }`) without calling the search
+          model.
+        - Otherwise it calls `routeJsonChat` with `class: 'search'`,
+          `schema: evidenceResponseSchema`, and a prompt asking for
+          up to 5 short snippets bearing on the claim, each with
+          `supports: true|false`. Each item is mapped to
+          `{ ...item, sourceId: null }`. Emits `task_completed`
+          (`{ count, cached: false }`).
+        - Unit test stubs the source pool with one matching source
+          and asserts the cache-hit path returns `cached: true`
+          without calling `routeJsonChat`. A second test stubs
+          `routeJsonChat` returning two evidence items and an empty
+          source pool; asserts `cached: false` and that each
+          evidence item has `sourceId: null`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: how to score "source matches claim". Default:
+      naive token overlap (≥ 2 tokens > 3 chars). Add a `// TODO:
+      replace with embedding similarity` marker. Cheap enough to be
+      net-positive even with false positives — the adjudicator
+      filters noise downstream.
+
+- [ ] T-8-11: `adjudicate_claim` stage
+      Goal: A `Stage` that emits a verdict + justification + citation
+      list given a claim and its evidence pool.
+      Touches: `src/server/pipeline/stages/adjudicate-claim.ts`,
+      `tests/unit/pipeline/adjudicate-claim.test.ts`.
+      Acceptance:
+        - Exports `adjudicateClaim: Stage<{ claim: Claim; evidence:
+          EvidenceItem[] }, Adjudication>` named
+          `'adjudicate_claim'`, model class `'smart'`.
+        - `outputSchema` is `adjudicationSchema`.
+        - `run` builds a prompt naming the claim text, span
+          context, claim type, and the evidence pool (each as
+          `- [supports=<bool>] <url> — <snippet>`). System prompt
+          requires `verdict ∈ {verified, contradicted,
+          unverifiable, needs_caveat}` with definitions and asks
+          for ≤ 3 citation URLs drawn from the evidence pool. Calls
+          `routeJsonChat` with `class: 'smart'` and `schema:
+          adjudicationSchema`. Emits `task_started`
+          (`{ stage: 'adjudicate_claim' }`) and `task_completed`
+          (`{ stage: 'adjudicate_claim', verdict }`).
+        - If `evidence.length === 0`, the stage skips the LLM call
+          and returns `{ verdict: 'unverifiable', justification:
+          'No evidence available.', citationUrls: [] }`, still
+          emitting `task_started` / `task_completed`.
+        - Unit test stubs `routeJsonChat` to return
+          `{ verdict: 'verified', justification: 'matches',
+          citationUrls: ['https://x.test'] }`; asserts the returned
+          shape and event order; asserts the user prompt contains
+          the claim text and an evidence URL. A second test passes
+          `evidence: []` and asserts the no-evidence short-circuit
+          fires without calling `routeJsonChat`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-8-12: `runFactCheck` orchestration helper +
+      `startFactCheckAction`
+      Goal: A non-runner code path that runs the three-stage
+      fact-check pipeline with `span_hash` idempotency.
+      Touches: `src/server/pipeline/run-fact-check.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/pipeline/run-fact-check.test.ts`,
+      `tests/unit/sessions/start-fact-check-action.test.ts`.
+      Acceptance:
+        - `run-fact-check.ts` exports `runFactCheck({ sessionId,
+          userId, force }: { sessionId: number; userId: number;
+          force?: boolean })` that: loads session/plan/profile
+          (fails with `session_invalid` on validation errors);
+          short-circuits with `no_draft` if `draftMd` is empty;
+          loads all `section_drafts`; loads accepted sources via
+          `listSessionSources(...).filter(s.status === 'accepted')`;
+          creates a `'factcheck'` round via `createCritiqueRound`
+          with `draftHash = spanHash(session.draftMd)`; runs
+          `extractClaims.run({ plan, sectionDrafts })`; for each
+          claim: computes `hash = spanHash(claim.span.text)`; if
+          `!force` and `findClaimBySpanHash(userId, sessionId,
+          hash)` returns a row whose verdict exists, the helper
+          emits `task_progress` (`{ stage: 'fact_check', skipped:
+          hash }`) and continues; otherwise inserts the claim,
+          and (only if `claim.checkWorthiness !== 'low'`) runs
+          `verifyClaim.run` then `adjudicateClaim.run`, persists
+          the verdict via `insertClaimVerdict`, persists each
+          evidence row via `insertClaimEvidence` (with `sourceId`
+          from cache hits or `null` from the search model). Emits
+          `artifact_updated` (`{ kind: 'claim_verdict', claimId,
+          verdict }`) on each persisted verdict and a final
+          `artifact_updated` (`{ kind: 'factcheck_round', roundId,
+          claimCount, verdictCount }`); returns
+          `{ ok: true, roundId, claimCount, verdictCount }`.
+        - `actions.ts` adds `startFactCheckAction(sessionId: number,
+          force?: boolean)`: calls `requireUser`, calls
+          `runFactCheck({ ..., force: !!force })`, revalidates path
+          on success.
+        - Unit test for `runFactCheck` stubs the three stage
+          modules, the repos, and the bus; drives the helper with
+          two `medium`-worthy claims and one `low` claim; asserts:
+          `extractClaims` runs once; `verifyClaim` and
+          `adjudicateClaim` run twice (the `low` claim is inserted
+          but skipped); both verdicts are persisted; one
+          `artifact_updated: claim_verdict` per verdict plus the
+          final `factcheck_round` event are emitted.
+        - A second test seeds `findClaimBySpanHash` to return a
+          row with an existing verdict for one of the claims and
+          asserts that claim is skipped (`task_progress` emitted)
+          when `force === false`, and re-verified when
+          `force === true`.
+        - Action test mocks `requireUser` and `runFactCheck`,
+          asserts `force` is forwarded.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-8-13: Per-claim action server actions
+      Goal: Server actions for accept-correction / dismiss-verdict /
+      mark-as-opinion on a single claim.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/claim-actions.test.ts`.
+      Acceptance:
+        - Adds `dismissClaimAction(sessionId, claimId)`: calls
+          `requireUser`, then `setClaimStatus(user.id, claimId,
+          'dismissed')`, then `revalidatePath`. Returns
+          `{ ok: true }` or `{ ok: false, error: 'not_found' }`.
+        - Adds `markClaimOpinionAction(sessionId, claimId)`: same
+          shape but `status = 'opinion'`. Future fact-check runs
+          (T-8-12) skip claims whose latest `claims` row has
+          `status === 'opinion'` — implementation note: the helper
+          `findClaimBySpanHash` returns the latest row; the runner
+          checks `row.status` before re-verifying. (T-8-12's tests
+          already cover the skip path; this task adds an extra unit
+          assertion that an `opinion` row also short-circuits.)
+        - Adds `acceptClaimCorrectionAction(sessionId, claimId)`:
+          calls `requireUser`; loads the claim and its latest
+          verdict (helper: `getClaimWithLatestVerdict(userId,
+          claimId)` added in claims-repo); if the verdict is
+          `verified` returns `{ ok: false, error:
+          'no_correction_needed' }`; otherwise calls
+          `regenerateSection({ ..., sectionId:
+          claim.span.sectionId, instruction: '[fact-check] ' +
+          verdict.verdict + ': ' + verdict.justification +
+          ' — claim text: ' + claim.claimText })`; on success calls
+          `setClaimStatus(user.id, claimId, 'dismissed')`. Returns
+          the regenerate-section result passthrough.
+        - Unit test mocks the helpers and `regenerateSection`;
+          asserts each action passes `user.id` through; asserts
+          `acceptClaimCorrectionAction` short-circuits on `verified`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-8-14: Active critics configuration + ad-hoc critic action
+      Goal: Server action that updates `sessions.active_critics`
+      with a new built-in enabledIds list and/or an appended
+      custom critic.
+      Touches: `src/server/sessions/repo.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/active-critics-action.test.ts`.
+      Acceptance:
+        - `repo.ts` exports `updateSessionActiveCritics(userId, id,
+          activeCritics: ActiveCritics)` mirroring the existing
+          `updateSessionPlan` (ownership check, returns updated row
+          or `null`, sets `updated_at`).
+        - `actions.ts` adds `setActiveCriticsAction(sessionId,
+          payload: unknown)`: calls `requireUser`; validates payload
+          via `activeCriticsSchema` (`safeParse` → `{ ok: false,
+          error: 'validation' }` on failure); each payload may
+          include a new custom critic with auto-generated id
+          `'custom_' + Date.now() + '_' + n` if the client sends
+          `id: ''`; calls `updateSessionActiveCritics`; returns
+          `{ ok: true }` and revalidates path.
+        - Unit test mocks `requireUser` and the repo; asserts a
+          valid payload is persisted, a malformed `enabledIds`
+          (non-string element) yields `validation`, and an empty
+          `id` on a custom critic is replaced with a generated id
+          before persistence.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-8-15: Runner — `'review'` state park + `finishReviewAction`
+      Goal: When the runner enters the `'review'` case it emits
+      a `state_changed` and parks for `review_done`; on resolve it
+      transitions to `'decoration'`. Drafting transitions out are
+      hooked to recursively continue the runner so review-park
+      activates immediately when drafting completes.
+      Touches: `src/server/pipeline/runner.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/pipeline/runner-review.test.ts`.
+      Acceptance:
+        - The `'drafting'` case in `runner.ts` is updated to call
+          `await startRunner(sessionId, userId)` immediately after
+          transitioning to `'review'` (matching the
+          `'planning' → 'research'` and `'research' → 'drafting'`
+          patterns).
+        - A new `case 'review':` parks via
+          `ctx.userInput('review_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'decoration')` and
+          emits `state_changed` (`{ state: 'decoration' }`); does
+          NOT recursively call `startRunner` (decoration runner is
+          Epic 9).
+        - `actions.ts` adds `finishReviewAction(sessionId)`
+          (parallel to `finishDraftAction`): `requireUser`, then
+          `resolveUserInput(sessionId, { action: 'finish' })`;
+          returns `{ ok: true }` or `{ ok: false, error:
+          'no_pending_review' }`.
+        - Unit test stubs `updateSessionState` and drives the
+          runner from `'review'` state; asserts the `awaiting_user`
+          event with `prompt: 'review_done'` is emitted; resolves
+          the input and asserts state advances to `'decoration'`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-8-16: Workbench `<ReviewPane />` shell + Critique tab +
+      page wiring
+      Goal: While `session.state === 'review'`, the workbench
+      shows a two-tab pane. The Critique tab shows past rounds and
+      their findings, exposes a "Run review" button, and renders
+      per-finding actions.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/review-pane.tsx`,
+      `src/app/(app)/sessions/[id]/critique-tab.tsx`,
+      `src/app/(app)/sessions/[id]/finding-card.tsx`.
+      Acceptance:
+        - `page.tsx` mounts `<ReviewPane sessionId={id} plan={plan}
+          draftMd={session.draftMd ?? ''} initialCritiqueRounds={...}
+          initialFactCheckRounds={...} initialClaims={...} />` (a
+          client component) when `state === 'review'`. The page
+          fetches initial rounds via `listSessionRounds(user.id,
+          id, 'critique')` and `listSessionRounds(user.id, id,
+          'factcheck')`; for each critique round it loads its
+          findings; for fact-check it loads claims + latest
+          verdicts.
+        - `review-pane.tsx` renders a tab strip with two tabs
+          (`critique` | `factcheck`); the active tab is local
+          state. It subscribes to `useSessionEvents` and on each
+          `artifact_updated` updates the right local state slice
+          by `kind`: `finding` appends; `critique_round` records
+          the round; `claim_verdict` updates the matching claim;
+          `factcheck_round` records the round.
+        - The Critique tab (`critique-tab.tsx`) renders a "Run
+          review" button at the top wired to `startReviewAction`,
+          plus an active-critics editor (built-in checkboxes seeded
+          from `BUILTIN_CRITICS`, an "Add custom critic" textarea +
+          label input that posts `setActiveCriticsAction`). Below,
+          rounds are shown most-recent first; each round expands to
+          show its findings grouped by `criticId`. Each finding
+          renders as a `<FindingCard>` showing severity, span text
+          (clickable button stub — calls a `scrollToSection(id)`
+          helper passed down), problem, suggestion, rationale, and
+          three buttons calling `dismissFindingAction`,
+          `applyFindingAction`, and `rewriteFromFindingAction`.
+          Status visually distinguishes `dismissed` (gray) /
+          `applied` / `rewritten` (faded) / `open` (default).
+        - A "Finish review" button at the bottom of the pane (in
+          the shell, visible on both tabs) calls
+          `finishReviewAction(sessionId)`. Disabled until at least
+          one round (critique or factcheck) exists.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Decision needed: should "Finish review" require ≥ 1 round?
+      Default: yes — review with no rounds is a no-op; the user can
+      still run zero rounds by re-entering review later via a
+      future "back to review" affordance. The button is disabled
+      with an inline hint.
+
+- [ ] T-8-17: Fact-check tab UI in `<ReviewPane />`
+      Goal: The Fact-check tab shows claims with their latest
+      verdicts and per-claim actions, plus a "Run fact-check"
+      button.
+      Touches: `src/app/(app)/sessions/[id]/factcheck-tab.tsx`,
+      `src/app/(app)/sessions/[id]/review-pane.tsx`,
+      `src/app/(app)/sessions/[id]/claim-card.tsx`.
+      Acceptance:
+        - `factcheck-tab.tsx` renders a "Run fact-check" button
+          wired to `startFactCheckAction(sessionId, false)` and a
+          "Force re-run" toggle that, when on, passes `true`. While
+          `runFactCheck` is in flight a "Checking…" spinner shows
+          (driven off the latest `task_started` /`task_completed`
+          events for stage `extract_claims` |
+          `adjudicate_claim`).
+        - Below, the tab renders each claim in plan order as a
+          `<ClaimCard>` showing the claim text, the section
+          (clickable to `scrollToSection`), `claim_type`,
+          `check_worthiness`, the latest verdict pill (`verified`
+          green, `contradicted` red, `unverifiable` gray,
+          `needs_caveat` amber), the verdict justification, and a
+          collapsible evidence list (each item showing url +
+          snippet + supports indicator). Three action buttons:
+          "Accept correction" (calls
+          `acceptClaimCorrectionAction`), "Dismiss verdict" (calls
+          `dismissClaimAction`), "Mark as opinion" (calls
+          `markClaimOpinionAction`). Buttons reflect status (e.g.
+          dismissed claims are visually muted).
+        - `review-pane.tsx` mounts the new tab when `active ===
+          'factcheck'` and routes the same `useSessionEvents`
+          slice updates (handled in T-8-16; this task wires the
+          rendering).
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [ ] T-8-18: Eval fixtures for the four review stages
+      Goal: Capture one input/expected snapshot per new stage so
+      the Epic 12 harness can replay them.
+      Touches:
+      `tests/eval/fixtures/run_critic/habr-longread-1.json`,
+      `tests/eval/fixtures/extract_claims/habr-longread-1.json`,
+      `tests/eval/fixtures/verify_claim/habr-longread-1.json`,
+      `tests/eval/fixtures/adjudicate_claim/habr-longread-1.json`,
+      `tests/eval/README.md`,
+      `tests/unit/pipeline/run-critic.test.ts`,
+      `tests/unit/pipeline/extract-claims.test.ts`,
+      `tests/unit/pipeline/verify-claim.test.ts`,
+      `tests/unit/pipeline/adjudicate-claim.test.ts`.
+      Acceptance:
+        - Each fixture is a JSON file with shape
+          `{ "input": {...}, "expected": { "schemaRef":
+          "<stageExport>.outputSchema", "snapshot": {...} } }`.
+          Inputs reuse the Habr long-read profile + plan + draft
+          fixtures from Epic 5/7 so the chain stays consistent.
+          The `run_critic` fixture uses the `editorial` built-in
+          critic (one fixture, not seven — the registry is data-
+          only and seven fixtures would be redundant for what's
+          really one stage's behavior).
+        - `tests/eval/README.md` is updated to list the four new
+          fixtures alongside the existing eight; the table grows to
+          twelve rows.
+        - One additional unit test per stage (added to the
+          existing test files from T-8-6, T-8-9, T-8-10, T-8-11)
+          loads its fixture's `input`, runs the stage with a stub
+          `routeJsonChat` returning `expected.snapshot`, and asserts
+          the stage's return equals `expected.snapshot`.
+        - `pnpm test` exits 0.
+      Notes: No real LLM calls; the eval harness ships in Epic 12.
+      A `run_critic` fixture per critic can be added in Epic 12 if
+      the rubric judge wants per-persona regression coverage.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 9 — Decoration suggestions
 
