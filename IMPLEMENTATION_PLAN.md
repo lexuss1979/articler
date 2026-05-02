@@ -1746,7 +1746,7 @@ is captured.
           `null` / `[]` as appropriate.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-7-3: Draft Zod schemas
+- [x] T-7-3: Draft Zod schemas
       Goal: Typed shapes for the `draft_section` stage output and for
       regenerate instructions.
       Touches: `src/server/sessions/draft.ts`,
