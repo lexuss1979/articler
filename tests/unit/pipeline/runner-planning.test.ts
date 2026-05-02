@@ -82,13 +82,9 @@ const plan = {
 
 describe('startRunner — planning state', () => {
   it('drives the full planning flow with clarifications and emits expected events', async () => {
-    mocks.getSessionFn.mockResolvedValue({
-      id: 10,
-      userId: 1,
-      state: 'planning',
-      brief: validBrief,
-      profileId: 1,
-    });
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 10, userId: 1, state: 'planning', brief: validBrief, profileId: 1 })
+      .mockResolvedValue({ id: 10, userId: 1, state: 'research', plan: null, profileId: 1 });
     mocks.getProfileFn.mockResolvedValue(profile);
     mocks.updateSessionPlanFn.mockResolvedValue({});
     mocks.updateSessionStateFn.mockResolvedValue({});
@@ -138,13 +134,9 @@ describe('startRunner — planning state', () => {
   });
 
   it('skips clarification park when questions array is empty', async () => {
-    mocks.getSessionFn.mockResolvedValue({
-      id: 11,
-      userId: 1,
-      state: 'planning',
-      brief: validBrief,
-      profileId: 1,
-    });
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 11, userId: 1, state: 'planning', brief: validBrief, profileId: 1 })
+      .mockResolvedValue({ id: 11, userId: 1, state: 'research', plan: null, profileId: 1 });
     mocks.getProfileFn.mockResolvedValue(profile);
     mocks.updateSessionPlanFn.mockResolvedValue({});
     mocks.updateSessionStateFn.mockResolvedValue({});

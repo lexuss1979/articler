@@ -10,6 +10,18 @@ export class JsonChatParseError extends Error {
   }
 }
 
+function extractJson(content: string): string {
+  // Strip markdown code fences: ```json ... ``` or ``` ... ```
+  const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenced) return fenced[1]!.trim();
+  // Fall back to first {...} or [...] block
+  const obj = content.match(/\{[\s\S]*\}/);
+  if (obj) return obj[0];
+  const arr = content.match(/\[[\s\S]*\]/);
+  if (arr) return arr[0];
+  return content;
+}
+
 export class JsonChatSchemaError extends Error {
   constructor(public readonly issues: ZodIssue[]) {
     super('LLM JSON response did not match expected schema');
@@ -46,7 +58,11 @@ export async function routeJsonChat<T>(args: {
   try {
     parsed = JSON.parse(chatResult.content);
   } catch {
-    throw new JsonChatParseError(chatResult.content);
+    try {
+      parsed = JSON.parse(extractJson(chatResult.content));
+    } catch {
+      throw new JsonChatParseError(chatResult.content);
+    }
   }
 
   const validated = schema.safeParse(parsed);
