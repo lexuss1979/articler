@@ -1722,7 +1722,7 @@ is captured.
       validation at the DB layer; Zod schemas in T-7-3 are the source
       of truth for allowed lengths.
 
-- [ ] T-7-2: Section-drafts repo helpers
+- [x] T-7-2: Section-drafts repo helpers
       Goal: User-scoped persistence for section-draft rows in the same
       cross-table-ownership style as the existing `sources-repo`.
       Touches: `src/server/sessions/section-drafts-repo.ts`,
