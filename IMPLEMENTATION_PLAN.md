@@ -1160,7 +1160,7 @@ wire them into the harness.
       Notes: The `ProfileRow` type is the Drizzle inferred row type
       from `src/server/db/schema.ts`. Reuse it; don't redefine.
 
-- [ ] T-5-7: `propose_angles` stage
+- [x] T-5-7: `propose_angles` stage
       Goal: A `Stage` that, given brief + profile + (optional)
       clarifications, asks the smart model for 2–4 angle/methodology
       candidates with rationale.
