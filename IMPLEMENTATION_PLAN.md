@@ -742,7 +742,7 @@ yet — this epic wires the plumbing.
       `state` as Postgres enum or text. Default: text — the state list
       will keep changing across epics and text avoids churn.
 
-- [ ] T-4-2: `events` table — schema + migration
+- [x] T-4-2: `events` table — schema + migration
       Goal: Persistent activity log feeding the chat pane. Each event
       has a kind and a JSONB payload, ordered by `ts`.
       Touches: `src/server/db/schema.ts`, `drizzle/0004_*.sql`

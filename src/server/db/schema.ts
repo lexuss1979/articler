@@ -1,4 +1,4 @@
-import { integer, jsonb, numeric, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { index, integer, jsonb, numeric, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -42,6 +42,20 @@ export const sessions = pgTable('sessions', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+export const events = pgTable(
+  'events',
+  {
+    id: serial('id').primaryKey(),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    ts: timestamp('ts').defaultNow().notNull(),
+    kind: text('kind').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+  },
+  (t) => [index('events_session_id_id_idx').on(t.sessionId, t.id)],
+);
 
 export const runs = pgTable('runs', {
   id: serial('id').primaryKey(),
