@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { startSessionAction } from './actions';
 
-type RawEvent = { kind: string; payload: Record<string, unknown> };
+type RawEvent = { kind: string; payload: Record<string, unknown>; receivedAt: number };
 
 const STAGE_LABEL: Record<string, string> = {
   clarify_brief: 'Clarifying brief',
@@ -25,7 +25,7 @@ function taskDetail(payload: Record<string, unknown>): string {
   const cached = payload.cached as boolean | undefined;
   const score = payload.relevanceScore as number | undefined;
   if (cached) return 'cached';
-  if (count !== undefined) return `${count}`;
+  if (count !== undefined) return String(count);
   if (score !== undefined) return `score ${score}`;
   return '';
 }
@@ -39,9 +39,34 @@ const EVENT_KINDS = [
   'awaiting_user',
 ] as const;
 
+function Spinner() {
+  return (
+    <svg
+      className="animate-spin shrink-0 h-3 w-3 text-blue-500"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
+    </svg>
+  );
+}
+
 export function ChatPane({ sessionId }: { sessionId: number }) {
   const [events, setEvents] = useState<RawEvent[]>([]);
   const [started, setStarted] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -50,12 +75,17 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
     for (const kind of EVENT_KINDS) {
       source.addEventListener(kind, (e: MessageEvent<string>) => {
         const payload = JSON.parse(e.data) as Record<string, unknown>;
-        setEvents((prev) => [...prev, { kind, payload }]);
+        setEvents((prev) => [...prev, { kind, payload, receivedAt: Date.now() }]);
         if (kind === 'state_changed') router.refresh();
       });
     }
     return () => source.close();
   }, [sessionId, router]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -66,28 +96,27 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
     await startSessionAction(sessionId);
   }
 
-  // Build feed: merge task_started + task_completed pairs, show messages and status changes
   type FeedItem =
-    | { key: string; type: 'task'; label: string; done: boolean; detail: string }
+    | { key: string; type: 'task'; label: string; done: boolean; detail: string; startedAt: number }
     | { key: string; type: 'message'; text: string; error: boolean }
     | { key: string; type: 'status'; state: string };
 
   const feed: FeedItem[] = [];
-  const taskMap = new Map<string, number>(); // stage -> feed index
+  const taskMap = new Map<string, number>();
 
   for (let i = 0; i < events.length; i++) {
     const e = events[i]!;
     if (e.kind === 'task_started') {
       const stage = (e.payload.stage as string) ?? '';
       const idx = feed.length;
-      feed.push({ key: `task-${i}`, type: 'task', label: stageLabel(stage), done: false, detail: '' });
+      feed.push({ key: `task-${i}`, type: 'task', label: stageLabel(stage), done: false, detail: '', startedAt: e.receivedAt });
       taskMap.set(stage, idx);
     } else if (e.kind === 'task_completed') {
       const stage = (e.payload.stage as string) ?? '';
       const idx = taskMap.get(stage);
-      const detail = taskDetail(e.payload);
       if (idx !== undefined) {
-        feed[idx] = { key: `task-${idx}`, type: 'task', label: stageLabel(stage), done: true, detail };
+        const existing = feed[idx] as FeedItem & { type: 'task' };
+        feed[idx] = { ...existing, done: true, detail: taskDetail(e.payload) };
         taskMap.delete(stage);
       }
     } else if (e.kind === 'agent_message') {
@@ -122,16 +151,27 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
 
         {feed.map((item) => {
           if (item.type === 'task') {
+            if (!item.done) {
+              const elapsed = Math.floor((now - item.startedAt) / 1000);
+              return (
+                <div
+                  key={item.key}
+                  className="flex items-center gap-2 px-2 py-1.5 my-0.5 rounded-md bg-blue-50 border border-blue-100"
+                >
+                  <Spinner />
+                  <span className="text-xs font-medium text-blue-700">
+                    {item.label}
+                    {elapsed > 0 && (
+                      <span className="font-normal text-blue-400 ml-1">({elapsed}s)</span>
+                    )}
+                  </span>
+                </div>
+              );
+            }
             return (
-              <div key={item.key} className="flex items-center gap-1.5 py-0.5">
-                {item.done ? (
-                  <span className="text-green-500 text-xs">✓</span>
-                ) : (
-                  <span className="text-gray-300 text-xs animate-pulse">⟳</span>
-                )}
-                <span className={`text-xs ${item.done ? 'text-gray-600' : 'text-gray-800'}`}>
-                  {item.label}
-                </span>
+              <div key={item.key} className="flex items-center gap-2 px-2 py-0.5">
+                <span className="text-green-500 text-xs shrink-0">✓</span>
+                <span className="text-xs text-gray-500">{item.label}</span>
                 {item.detail && (
                   <span className="text-xs text-gray-400 ml-auto">{item.detail}</span>
                 )}
