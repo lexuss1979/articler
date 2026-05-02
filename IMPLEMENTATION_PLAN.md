@@ -760,7 +760,7 @@ yet — this epic wires the plumbing.
           re-running is a no-op.
         - `pnpm typecheck` exits 0.
 
-- [ ] T-4-3: Session repo helpers (user-scoped)
+- [x] T-4-3: Session repo helpers (user-scoped)
       Goal: Repo module mirroring `profiles/repo.ts`: every read/write
       is filtered by `userId` so cross-user access is impossible by
       construction.

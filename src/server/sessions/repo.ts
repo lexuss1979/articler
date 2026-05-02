@@ -1,0 +1,45 @@
+import { and, eq } from 'drizzle-orm';
+import { db } from '../db/client';
+import { profiles, sessions } from '../db/schema';
+
+export class ProfileNotOwnedError extends Error {
+  constructor() {
+    super('Profile not owned by user');
+    this.name = 'ProfileNotOwnedError';
+  }
+}
+
+export async function listSessions(userId: number) {
+  return db.select().from(sessions).where(eq(sessions.userId, userId));
+}
+
+export async function getSession(userId: number, id: number) {
+  const [row] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)));
+  return row ?? null;
+}
+
+export async function createSession(
+  userId: number,
+  input: { profileId: number; mode: 'new' | 'rewrite' },
+) {
+  const [owned] = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(and(eq(profiles.id, input.profileId), eq(profiles.userId, userId)));
+  if (!owned) throw new ProfileNotOwnedError();
+
+  const [row] = await db.insert(sessions).values({ ...input, userId }).returning();
+  return row!;
+}
+
+export async function updateSessionState(userId: number, id: number, state: string) {
+  const [row] = await db
+    .update(sessions)
+    .set({ state, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
