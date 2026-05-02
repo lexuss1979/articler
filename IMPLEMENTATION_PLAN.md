@@ -1485,7 +1485,7 @@ Eval fixtures are captured for the four new stages.
           validation.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-6-6: `web_search` stage with within-session query cache
+- [x] T-6-6: `web_search` stage with within-session query cache
       Goal: A `Stage` that runs a single Sonar Pro query and returns
       structured hits, reusing prior in-session results when the same
       `query.text` was searched before.

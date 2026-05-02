@@ -1,5 +1,5 @@
 import type { ZodIssue, ZodSchema } from 'zod';
-import { routeChat } from './router';
+import { routeChat, routeSearch } from './router';
 import type { ChatRouterResult } from './router';
 import type { ModelClass } from './models';
 
@@ -24,18 +24,23 @@ export async function routeJsonChat<T>(args: {
   system: string;
   user: string;
   schema: ZodSchema<T>;
-  class?: 'smart' | 'fast';
+  class?: 'smart' | 'fast' | 'search';
 }): Promise<JsonChatResult<T>> {
   const { system, user, schema, class: modelClass } = args;
 
-  const chatResult = await routeChat({
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    class: (modelClass ?? 'smart') as 'smart' | 'fast',
-    response_format: { type: 'json_object' },
-  });
+  const messages = [
+    { role: 'system' as const, content: system },
+    { role: 'user' as const, content: user },
+  ];
+
+  const chatResult =
+    modelClass === 'search'
+      ? await routeSearch({ messages, response_format: { type: 'json_object' } })
+      : await routeChat({
+          messages,
+          class: (modelClass ?? 'smart') as 'smart' | 'fast',
+          response_format: { type: 'json_object' },
+        });
 
   let parsed: unknown;
   try {
