@@ -4,10 +4,16 @@ import { appendRunLog } from '../logging/jsonl';
 import { routeChat, routeSearch, routeImage } from '../llm/router';
 import { getProfile } from '../profiles/repo';
 import { briefSchema } from '../sessions/brief';
+import { planSchema } from '../sessions/plan';
 import { getSession, updateSessionPlan, updateSessionState } from '../sessions/repo';
+import { insertSource } from '../sessions/sources-repo';
 import { clarifyBrief } from './stages/clarify-brief';
 import { proposeAngles } from './stages/propose-angles';
 import { buildPlan } from './stages/build-plan';
+import { planSearchHypotheses } from './stages/plan-search-hypotheses';
+import { formulateQueries } from './stages/formulate-queries';
+import { webSearch } from './stages/web-search';
+import { summarizeSource } from './stages/summarize-source';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -15,7 +21,11 @@ type Pending = {
   schema: ZodSchema<unknown>;
 };
 
-const pendingInputs = new Map<number, Pending>();
+declare global {
+  // eslint-disable-next-line no-var
+  var __pendingInputs: Map<number, Pending> | undefined;
+}
+const pendingInputs = (global.__pendingInputs ??= new Map<number, Pending>());
 
 function makeCtx(sessionId: number, state: string) {
   return {
@@ -98,6 +108,56 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'research');
       await ctx.emit('state_changed', { state: 'research' });
+      break;
+    }
+    case 'research': {
+      const planParsed = planSchema.safeParse(session.plan);
+      if (!planParsed.success) {
+        await ctx.emit('agent_message', { text: 'Session plan is missing or invalid.' });
+        return;
+      }
+      const plan = planParsed.data;
+
+      const profile = await getProfile(userId, session.profileId);
+      if (!profile) {
+        await ctx.emit('agent_message', { text: 'Session profile not found.' });
+        return;
+      }
+
+      const { hypotheses } = await planSearchHypotheses.run({ plan, profile }, ctx);
+      await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
+
+      // TODO: parallelize once budgeting + rate limits land
+      for (const hypothesis of hypotheses) {
+        const { queries } = await formulateQueries.run({ hypothesis }, ctx);
+        for (const query of queries) {
+          const { hits } = await webSearch.run({ sessionId, userId, hypothesis, query }, ctx);
+          for (const hit of hits) {
+            const { summary, relevanceScore } = await summarizeSource.run(
+              { hypothesis, query, hit },
+              ctx,
+            );
+            const source = await insertSource(userId, sessionId, {
+              sectionId: hypothesis.sectionId,
+              hypothesis: hypothesis.text,
+              query: query.text,
+              url: hit.url,
+              title: hit.title,
+              rawExcerpt: hit.snippet,
+              summary,
+              relevanceScore,
+            });
+            if (source) {
+              await ctx.emit('artifact_updated', { kind: 'source', source });
+            }
+          }
+        }
+      }
+
+      await ctx.userInput('research_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'drafting');
+      await ctx.emit('state_changed', { state: 'drafting' });
       break;
     }
     default:

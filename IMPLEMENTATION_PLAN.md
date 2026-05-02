@@ -1545,7 +1545,7 @@ Eval fixtures are captured for the four new stages.
           causes the stage to throw via output-schema validation.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-6-8: Runner — `'research'` state orchestration
+- [x] T-6-8: Runner — `'research'` state orchestration
       Goal: When the runner enters the `'research'` case it expands
       hypotheses, runs queries, summarizes hits, persists each as a
       `proposed` source, then parks waiting for the user to finish

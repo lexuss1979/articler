@@ -54,7 +54,7 @@ describe('startRunner', () => {
   });
 
   it('does nothing for an unregistered state', async () => {
-    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'research', brief: null, profileId: 1 });
+    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'drafting', brief: null, profileId: 1 });
     mocks.emitEventFn.mockResolvedValue({});
     const { startRunner } = await import('../../../src/server/pipeline/runner');
     await startRunner(10, 1);
