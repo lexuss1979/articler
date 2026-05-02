@@ -947,7 +947,7 @@ yet — this epic wires the plumbing.
       action) because it's called from the chat client component via
       `fetch` and benefits from a typed JSON contract.
 
-- [ ] T-4-10: Session page — two-pane layout + chat over SSE
+- [x] T-4-10: Session page — two-pane layout + chat over SSE
       Goal: `/sessions/[id]` renders a workbench placeholder on the
       left and a chat pane on the right; the chat pane subscribes to
       `/api/stream/[id]`, renders the event log live, and exposes a
