@@ -1250,7 +1250,7 @@ wire them into the harness.
       `plan_lock` and reads no in-memory plan state, so out-of-band
       edits are safe.
 
-- [ ] T-5-10: Workbench planning UI — clarifications + angle picker
+- [x] T-5-10: Workbench planning UI — clarifications + angle picker
       Goal: While the runner is parked on `'clarify'` or
       `'angle_choice'`, the workbench renders the matching UI driven
       by the latest SSE event.

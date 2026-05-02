@@ -3,6 +3,7 @@ import { requireUser } from '../../../../server/auth/require-user';
 import { getSession } from '../../../../server/sessions/repo';
 import { BriefForm } from './brief-form';
 import { ChatPane } from './chat-pane';
+import { PlanningPane } from './planning-pane';
 
 export default async function SessionPage({
   params,
@@ -22,6 +23,8 @@ export default async function SessionPage({
         <h2 className="text-sm font-medium text-gray-500 mb-4">Workbench</h2>
         {session.state === 'briefing' ? (
           <BriefForm sessionId={id} isRewrite={session.mode === 'rewrite'} />
+        ) : session.state === 'planning' ? (
+          <PlanningPane sessionId={id} initialPlan={session.plan} />
         ) : (
           <p className="text-sm text-gray-500">State: {session.state}</p>
         )}

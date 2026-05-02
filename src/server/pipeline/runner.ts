@@ -70,6 +70,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       let clarifications: Array<{ question: string; answer: string }> = [];
       if (questions.length > 0) {
+        await ctx.emit('artifact_updated', { kind: 'questions', questions });
         const { answers } = await ctx.userInput(
           'clarify',
           z.object({ answers: z.array(z.string().min(1)).length(questions.length) }),
