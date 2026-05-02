@@ -1612,7 +1612,7 @@ Eval fixtures are captured for the four new stages.
           `resolveUserInput` exactly once with the expected payload.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-6-10: Workbench research UI — `<ResearchPane />`
+- [x] T-6-10: Workbench research UI — `<ResearchPane />`
       Goal: While `session.state === 'research'`, the workbench
       streams in proposed sources and lets the user triage them and
       finish research.
