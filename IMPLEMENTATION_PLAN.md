@@ -1698,7 +1698,7 @@ is captured.
 
 ### Tasks
 
-- [ ] T-7-1: `section_drafts` table schema + migration
+- [x] T-7-1: `section_drafts` table schema + migration
       Goal: A user-scoped `section_drafts` table backs the per-section
       markdown produced by the drafting pipeline.
       Touches: `src/server/db/schema.ts`, `drizzle/0007_*.sql`,

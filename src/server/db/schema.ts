@@ -7,6 +7,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
@@ -85,6 +86,21 @@ export const sources = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [index('sources_session_id_status_idx').on(t.sessionId, t.status)],
+);
+
+export const sectionDrafts = pgTable(
+  'section_drafts',
+  {
+    id: serial('id').primaryKey(),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    sectionId: text('section_id').notNull(),
+    contentMd: text('content_md').notNull().default(''),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => [uniqueIndex('section_drafts_session_section_idx').on(t.sessionId, t.sectionId)],
 );
 
 export const runs = pgTable('runs', {

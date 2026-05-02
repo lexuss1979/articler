@@ -50,6 +50,13 @@
       "when": 1777710620282,
       "tag": "0006_jittery_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777725135583,
+      "tag": "0007_bitter_tarot",
+      "breakpoints": true
     }
   ]
 }
