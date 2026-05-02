@@ -1,5 +1,4 @@
 import type { ZodIssue, ZodSchema } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { routeChat, routeSearch } from './router';
 import type { ChatRouterResult } from './router';
 import type { ModelClass } from './models';
@@ -76,7 +75,7 @@ export async function routeJsonChat<T>(args: {
   const jsonSchema =
     modelClass !== 'search'
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ? (zodToJsonSchema(schema as any, { target: 'openApi3' }) as object)
+      ? ((schema as any).toJSONSchema() as object)
       : undefined;
 
   let chatResult = await callModel(modelClass, system, user, jsonSchema);
