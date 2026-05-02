@@ -858,7 +858,7 @@ yet — this epic wires the plumbing.
           and that aborting `request.signal` triggers `unsubscribe`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-4-7: `Stage` type, `StageCtx`, and a `hello` stage
+- [x] T-4-7: `Stage` type, `StageCtx`, and a `hello` stage
       Goal: The pipeline contract from `ARCHITECTURE.md` §5 in code,
       plus one canary stage that exercises every `ctx` capability
       except the LLM.
