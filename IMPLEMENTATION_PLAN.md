@@ -1524,7 +1524,7 @@ Eval fixtures are captured for the four new stages.
       allow/deny list? Default: no — leave to model; revisit if hits
       get spammy. Add a `// TODO: domain filtering` comment.
 
-- [ ] T-6-7: `summarize_source` stage
+- [x] T-6-7: `summarize_source` stage
       Goal: A `Stage` that produces a 1–2 sentence summary and a
       0..100 relevance score for a single hit against its hypothesis,
       using the fast model.
