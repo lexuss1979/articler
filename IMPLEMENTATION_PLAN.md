@@ -1100,7 +1100,7 @@ wire them into the harness.
       but the runner stops invoking it. Removing the file is out of
       scope for this task.
 
-- [ ] T-5-5: Structured-JSON chat helper (`routeJsonChat`)
+- [x] T-5-5: Structured-JSON chat helper (`routeJsonChat`)
       Goal: A thin wrapper over `routeChat` that asks the model for a
       JSON object, parses it, and validates against a Zod schema —
       the contract every planning stage uses.
