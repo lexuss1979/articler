@@ -1342,14 +1342,345 @@ wire them into the harness.
       cross-check that today's stages stay schema-compatible with
       future model swaps.
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 6 — Source research (Sonar Pro)
 
-**Status: TBD**
-Intent: `plan_search_hypotheses`, `formulate_queries`, `web_search`,
-`summarize_source` stages. Source review UI (accept/reject per item,
-attach to section). Cache identical queries within a session.
+**Status: planned**
+**Goal:** After a user locks the plan, the session enters `'research'`,
+the runner expands per-section search hypotheses, fans out queries
+through the search model (Sonar Pro), summarizes each hit with the fast
+model, and persists candidates as `proposed` sources. The workbench
+swaps to a review pane where the user accepts/rejects each candidate
+and assigns it to a plan section. Identical queries within the same
+session reuse prior hits without re-billing the search model. When the
+user clicks "Finish research", the session transitions to `'drafting'`.
+Eval fixtures are captured for the four new stages.
+
+### Tasks
+
+- [x] T-6-1: `sources` table schema + migration
+      Goal: A user-scoped `sources` table backs the candidates produced
+      by the research pipeline.
+      Touches: `src/server/db/schema.ts`, `drizzle/0005_*.sql`,
+      `drizzle/meta/*`.
+      Acceptance:
+        - Adds `sources` to `src/server/db/schema.ts` with columns:
+          `id` (serial PK); `session_id` (integer NOT NULL, FK →
+          `sessions.id` ON DELETE CASCADE); `section_id` (text, NULL);
+          `hypothesis` (text NOT NULL); `query` (text NOT NULL);
+          `url` (text NOT NULL); `title` (text NOT NULL);
+          `raw_excerpt` (text NOT NULL); `summary` (text NOT NULL
+          DEFAULT `''`); `relevance_score` (integer NOT NULL DEFAULT 0,
+          intended range 0..100); `status` (text NOT NULL DEFAULT
+          `'proposed'`, intended values `proposed|accepted|rejected`);
+          `created_at` (timestamp DEFAULT `now()`).
+        - A composite index on `(session_id, status)`.
+        - A migration produced by `pnpm db:generate` lands at
+          `drizzle/0005_*.sql` and creates the table + index. The
+          drizzle meta journal is updated.
+        - `pnpm db:migrate` against the compose DB applies cleanly and
+          re-running is a no-op.
+        - `pnpm typecheck` exits 0.
+      Notes: `relevance_score` is stored as `integer 0..100` for stable
+      ordering; the model emits 0..100 directly (see T-6-7). `status`
+      is plain text — no Postgres enum; the Zod schemas in T-6-2 are
+      the source of truth for allowed values.
+
+- [ ] T-6-2: Source / hypothesis / query Zod schemas
+      Goal: Typed shapes for the outputs of the four research stages
+      and for source rows.
+      Touches: `src/server/sessions/sources.ts`,
+      `tests/unit/sessions/sources-schema.test.ts`.
+      Acceptance:
+        - Exports `searchHypothesisSchema` (Zod): `id` (1..40,
+          slug-like), `sectionId` (1..40, slug-like), `text` (1..400),
+          `evidenceKind` (1..40 — free string, e.g. `statistic`,
+          `expert_quote`, `case_study`).
+        - Exports `searchQuerySchema`: `text` (1..200).
+        - Exports `searchHitSchema`: `url` (`z.string().url()`),
+          `title` (1..400), `snippet` (1..2000).
+        - Exports `sourceSummarySchema`: `summary` (1..600),
+          `relevanceScore` (`z.number().int().min(0).max(100)`).
+        - Exports `sourceStatusSchema = z.enum(['proposed', 'accepted',
+          'rejected'])`.
+        - Exports `Hypothesis`, `SearchQuery`, `SearchHit`,
+          `SourceSummary`, `SourceStatus` as `z.infer<...>` aliases.
+        - Unit test asserts each schema accepts a valid hand-built
+          value and fails on at least one obvious required-field
+          violation per schema (e.g. malformed url, score = 150).
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-6-3: Sources repo helpers
+      Goal: User-scoped persistence for source rows in the same
+      cross-table-ownership style as the existing `sessions` repo.
+      Touches: `src/server/sessions/sources-repo.ts`,
+      `tests/unit/sessions/sources-repo.test.ts`.
+      Acceptance:
+        - Exports `insertSource(userId, sessionId, fields)` where
+          `fields` is `{ sectionId: string | null; hypothesis: string;
+          query: string; url: string; title: string; rawExcerpt: string;
+          summary: string; relevanceScore: number }`. The helper first
+          verifies that `sessions.id = sessionId AND
+          sessions.user_id = userId`; if not, returns `null` (does not
+          throw); otherwise inserts with `status = 'proposed'` and
+          returns the inserted row.
+        - Exports `listSessionSources(userId, sessionId)` returning
+          rows ordered by `id ASC`, gated by the same ownership check
+          (returns `[]` on non-owned).
+        - Exports `findSourceByQuery(userId, sessionId, query)`
+          returning all rows whose `query` column equals `query`
+          exactly within the owned session — used by the cache in
+          T-6-6.
+        - Exports `setSourceStatus(userId, sourceId, status:
+          SourceStatus)` and `setSourceSection(userId, sourceId,
+          sectionId: string | null)`. Both update the row only when
+          its session is owned by `userId` (a join/subquery on
+          `sessions.user_id`); each returns the updated row or `null`.
+        - Unit test mocks the drizzle client and asserts: each helper
+          builds a `where` that includes the user-ownership predicate;
+          the happy path returns the row; an unowned id resolves to
+          `null`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-6-4: `plan_search_hypotheses` stage
+      Goal: A `Stage` that reads the locked plan and the profile and
+      emits 1..3 search hypotheses per section.
+      Touches: `src/server/pipeline/stages/plan-search-hypotheses.ts`,
+      `tests/unit/pipeline/plan-search-hypotheses.test.ts`.
+      Acceptance:
+        - Exports `planSearchHypotheses: Stage<{ plan: Plan; profile:
+          ProfileRow }, { hypotheses: Hypothesis[] }>` named
+          `'plan_search_hypotheses'`, model class `'smart'`.
+        - `outputSchema` enforces `1 <= hypotheses.length <= 40` and
+          each item conforms to `searchHypothesisSchema`. The stage
+          additionally rejects (post-validate, in `run`) any hypothesis
+          whose `sectionId` is not in `plan.sections[*].id` by throwing
+          a typed `OrphanHypothesisError`.
+        - `run` builds a system prompt naming the chosen methodology
+          (read from the plan's section structure), the audience, and
+          asking the model to produce hypotheses keyed to section ids;
+          calls `routeJsonChat` with `class: 'smart'`; emits
+          `task_started` and `task_completed` (`{ count }`) events.
+        - Unit test stubs `routeJsonChat` to return three hypotheses
+          across two sections; asserts the returned shape and event
+          order. A stub returning a hypothesis with an unknown
+          `sectionId` causes the stage to throw `OrphanHypothesisError`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-6-5: `formulate_queries` stage
+      Goal: A `Stage` that converts a single hypothesis into 1..3
+      concrete search queries, using the fast model.
+      Touches: `src/server/pipeline/stages/formulate-queries.ts`,
+      `tests/unit/pipeline/formulate-queries.test.ts`.
+      Acceptance:
+        - Exports `formulateQueries: Stage<{ hypothesis: Hypothesis },
+          { queries: SearchQuery[] }>` named `'formulate_queries'`,
+          model class `'fast'`.
+        - `outputSchema` enforces `1 <= queries.length <= 3` and each
+          query conforms to `searchQuerySchema`.
+        - `run` calls `routeJsonChat` with `class: 'fast'`; emits
+          `task_started` and `task_completed` (`{ count }`).
+        - Unit test stubs `routeJsonChat` to return two queries;
+          asserts the returned shape and event order. A stub returning
+          zero queries causes the stage to throw via output-schema
+          validation.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-6-6: `web_search` stage with within-session query cache
+      Goal: A `Stage` that runs a single Sonar Pro query and returns
+      structured hits, reusing prior in-session results when the same
+      `query.text` was searched before.
+      Touches: `src/server/llm/structured.ts`,
+      `src/server/pipeline/stages/web-search.ts`,
+      `tests/unit/pipeline/web-search.test.ts`.
+      Acceptance:
+        - `routeJsonChat` accepts `class?: 'smart' | 'fast' | 'search'`.
+          When `class === 'search'`, it calls `routeSearch` instead of
+          `routeChat` (still using `response_format: { type:
+          'json_object' }`); on parse / schema failure it throws the
+          existing `JsonChatParseError` / `JsonChatSchemaError`. All
+          existing call sites still typecheck.
+        - Exports `webSearch: Stage<{ sessionId: number; userId:
+          number; hypothesis: Hypothesis; query: SearchQuery },
+          { hits: SearchHit[]; cached: boolean }>` named `'web_search'`,
+          model class `'search'`.
+        - `run` first calls `findSourceByQuery(userId, sessionId,
+          query.text)`; if it returns one or more rows, the stage
+          reconstructs `hits` from those rows (`{ url, title, snippet:
+          row.rawExcerpt }`), emits `task_completed` with
+          `{ count, cached: true }`, and returns `{ hits, cached: true }`
+          without an LLM call. On miss, it calls `routeJsonChat` with
+          `class: 'search'` and a system prompt instructing JSON
+          output `{ hits: [{ url, title, snippet }] }`, max 5 hits;
+          validates against a Zod schema capping `hits.length` at 5;
+          emits `task_completed` with `{ count, cached: false }`;
+          returns `{ hits, cached: false }`.
+        - Unit test stubs both `routeJsonChat` and `findSourceByQuery`
+          and asserts: cache-hit path skips `routeJsonChat`, returns
+          existing hits, and emits `cached: true`; cache-miss path
+          calls `routeJsonChat` once and returns the parsed hits with
+          `cached: false`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: should the search prompt include a domain
+      allow/deny list? Default: no — leave to model; revisit if hits
+      get spammy. Add a `// TODO: domain filtering` comment.
+
+- [ ] T-6-7: `summarize_source` stage
+      Goal: A `Stage` that produces a 1–2 sentence summary and a
+      0..100 relevance score for a single hit against its hypothesis,
+      using the fast model.
+      Touches: `src/server/pipeline/stages/summarize-source.ts`,
+      `tests/unit/pipeline/summarize-source.test.ts`.
+      Acceptance:
+        - Exports `summarizeSource: Stage<{ hypothesis: Hypothesis;
+          query: SearchQuery; hit: SearchHit }, SourceSummary>` named
+          `'summarize_source'`, model class `'fast'`.
+        - `outputSchema` is `sourceSummarySchema`. `run` builds a
+          prompt containing the hypothesis text, the query text, and
+          the hit (`url`, `title`, `snippet`); calls `routeJsonChat`
+          with `class: 'fast'`; emits `task_started` and
+          `task_completed` (`{ relevanceScore }`).
+        - Unit test stubs `routeJsonChat` to return
+          `{ summary: 's', relevanceScore: 73 }`; asserts the returned
+          shape and event order. A stub returning `relevanceScore: 150`
+          causes the stage to throw via output-schema validation.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-6-8: Runner — `'research'` state orchestration
+      Goal: When the runner enters the `'research'` case it expands
+      hypotheses, runs queries, summarizes hits, persists each as a
+      `proposed` source, then parks waiting for the user to finish
+      research before transitioning to `'drafting'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-research.test.ts`.
+      Acceptance:
+        - In the `'research'` case the runner: (a) loads `plan` from
+          `session.plan` (validates via `planSchema`; emits
+          `agent_message` and aborts on failure); loads the profile
+          (same handling); (b) runs `planSearchHypotheses` and emits
+          `artifact_updated` with `{ kind: 'hypotheses', hypotheses }`;
+          (c) for each hypothesis sequentially: runs `formulateQueries`;
+          for each resulting query sequentially: runs `webSearch`
+          (passing `sessionId` + `userId` for cache lookup); for each
+          hit sequentially: runs `summarizeSource`, then calls
+          `insertSource(userId, sessionId, { sectionId:
+          hypothesis.sectionId, hypothesis: hypothesis.text, query:
+          query.text, url: hit.url, title: hit.title, rawExcerpt:
+          hit.snippet, summary, relevanceScore })`. Each persisted row
+          emits `artifact_updated` with `{ kind: 'source', source }`;
+          (d) parks via `ctx.userInput('research_done',
+          z.object({ action: z.literal('finish') }))`; (e) calls
+          `updateSessionState(userId, sessionId, 'drafting')` and
+          emits `state_changed` with `{ state: 'drafting' }`.
+        - Unit test stubs the four stage modules and the sources-repo
+          helpers; drives the runner with one hypothesis → one query
+          → two hits; asserts: `insertSource` was called twice with
+          the expected fields; the `artifact_updated` events were
+          emitted in order (hypotheses, source, source); on the
+          finish-park the runner advances state to `'drafting'`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: parallel vs sequential fan-out across queries
+      and hits. Default: sequential — keeps SSE ordering deterministic
+      and avoids hammering Sonar Pro / OpenRouter rate limits during
+      v1. A `// TODO: parallelize once budgeting + rate limits land`
+      comment marks the spot for revisit.
+
+- [ ] T-6-9: Source review server actions
+      Goal: Server actions for accept / reject / section-assign per
+      source, plus a `finishResearchAction` that releases the runner's
+      `research_done` park.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/source-actions.test.ts`.
+      Acceptance:
+        - Adds `acceptSourceAction(sessionId, sourceId)` and
+          `rejectSourceAction(sessionId, sourceId)`: each calls
+          `requireUser`, then `setSourceStatus(user.id, sourceId,
+          'accepted'|'rejected')`, then
+          `revalidatePath('/sessions/' + sessionId)`. Returns
+          `{ ok: true }` on success or `{ ok: false, error:
+          'not_found' }` when the repo returns `null`.
+        - Adds `assignSourceSectionAction(sessionId, sourceId,
+          sectionId)`: validates `sectionId` is a string (1..40 chars)
+          or `null` via Zod; calls `setSourceSection`; same response
+          shape and revalidate.
+        - Adds `finishResearchAction(sessionId)`: calls `requireUser`,
+          then `resolveUserInput(sessionId, { action: 'finish' })`;
+          returns `{ ok: true }` if the call returned `true`,
+          otherwise `{ ok: false, error: 'no_pending_research' }`.
+        - Unit test mocks `requireUser`, the repo helpers, and
+          `resolveUserInput`; asserts each action passes `user.id`
+          through and that `finishResearchAction` invokes
+          `resolveUserInput` exactly once with the expected payload.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-6-10: Workbench research UI — `<ResearchPane />`
+      Goal: While `session.state === 'research'`, the workbench
+      streams in proposed sources and lets the user triage them and
+      finish research.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/research-pane.tsx`,
+      `src/app/(app)/sessions/[id]/source-card.tsx`.
+      Acceptance:
+        - The session page mounts `<ResearchPane sessionId={id}
+          initialSources={...} plan={session.plan} />` (a client
+          component) when `state === 'research'`. `initialSources` is
+          fetched server-side via `listSessionSources(user.id, id)`.
+        - `ResearchPane` subscribes to the SSE stream (reusing the
+          existing `useSessionEvents` hook) and on each
+          `artifact_updated` with `payload.kind === 'source'` it
+          adds or replaces the matching row in local state by id.
+        - Each source renders as `<SourceCard>` showing url, title,
+          summary, `relevanceScore`, and three controls: "Accept" /
+          "Reject" buttons (calling the matching server actions) and
+          a `<select>` listing the plan's section ids that calls
+          `assignSourceSectionAction` on change. Status is reflected
+          visually (accepted = green outline, rejected = grayed out).
+        - A "Finish research" button is rendered at the bottom; it is
+          disabled until at least one source has `status === 'accepted'`.
+          Clicking it calls `finishResearchAction(sessionId)`; on
+          `ok: true` the page rerenders and `state === 'drafting'`
+          (the workbench shows the placeholder for now since drafting
+          is Epic 7).
+        - Manually verifiable via `pnpm dev` with `LLM_STUB=1`
+          extended to also short-circuit the three new model-backed
+          stages with canned fixtures (reuse the fixture files from
+          T-6-11): submitting and locking a plan lands on the research
+          pane with proposed sources streaming in.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Decision needed: should "Finish research" require ≥1 accepted
+      source? Default: yes — empty drafting context produces poor
+      drafts; the user can still reject everything and re-enter
+      `'planning'` to widen the angle.
+
+- [ ] T-6-11: Eval fixtures for the four research stages
+      Goal: Capture one input/expected snapshot per research stage so
+      the Epic 12 harness can replay them.
+      Touches: `tests/eval/fixtures/plan_search_hypotheses/habr-longread-1.json`,
+      `tests/eval/fixtures/formulate_queries/habr-longread-1.json`,
+      `tests/eval/fixtures/web_search/habr-longread-1.json`,
+      `tests/eval/fixtures/summarize_source/habr-longread-1.json`,
+      `tests/eval/README.md`.
+      Acceptance:
+        - Each fixture is a JSON file with shape `{ "input": {...},
+          "expected": { "schemaRef": "<stage>.outputSchema",
+          "snapshot": {...} } }`. Inputs reuse the Habr long-read
+          plan/profile from Epic 5's fixtures so the chain is
+          consistent.
+        - `tests/eval/README.md` is updated to list the four new
+          fixtures alongside the existing three.
+        - One unit test per stage (added to the existing
+          `tests/unit/pipeline/<stage>.test.ts` files from
+          T-6-4..T-6-7) loads its fixture's `input`, runs the stage
+          with a stub `routeJsonChat` returning `expected.snapshot`,
+          and asserts the stage's return equals `expected.snapshot`.
+        - `pnpm test` exits 0.
+      Notes: No real LLM calls; the eval harness ships in Epic 12.
+      These fixtures are scaffolding for that epic and a cross-check
+      that today's stages stay schema-compatible with future model
+      swaps.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 7 — Drafting + rewrite mode
 

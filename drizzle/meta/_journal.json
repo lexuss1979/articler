@@ -36,6 +36,13 @@
       "when": 1777698435920,
       "tag": "0004_abandoned_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777709999369,
+      "tag": "0005_breezy_diamondback",
+      "breakpoints": true
     }
   ]
 }
