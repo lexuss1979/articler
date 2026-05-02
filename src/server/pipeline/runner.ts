@@ -137,25 +137,29 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
             for (const query of queries) {
               const { hits } = await webSearch.run({ sessionId, userId, hypothesis, query }, ctx);
               for (const hit of hits) {
-                const { summary, relevanceScore } = await summarizeSource.run(
-                  { hypothesis, query, hit },
-                  ctx,
-                );
-                const status =
-                  relevanceScore >= 70 ? 'accepted' : relevanceScore < 40 ? 'rejected' : 'proposed';
-                const source = await insertSource(userId, sessionId, {
-                  sectionId: hypothesis.sectionId,
-                  hypothesis: hypothesis.text,
-                  query: query.text,
-                  url: hit.url,
-                  title: hit.title,
-                  rawExcerpt: hit.snippet,
-                  summary,
-                  relevanceScore,
-                  status,
-                });
-                if (source) {
-                  await ctx.emit('artifact_updated', { kind: 'source', source });
+                try {
+                  const { summary, relevanceScore } = await summarizeSource.run(
+                    { hypothesis, query, hit },
+                    ctx,
+                  );
+                  const status =
+                    relevanceScore >= 70 ? 'accepted' : relevanceScore < 40 ? 'rejected' : 'proposed';
+                  const source = await insertSource(userId, sessionId, {
+                    sectionId: hypothesis.sectionId,
+                    hypothesis: hypothesis.text,
+                    query: query.text,
+                    url: hit.url,
+                    title: hit.title,
+                    rawExcerpt: hit.snippet,
+                    summary,
+                    relevanceScore,
+                    status,
+                  });
+                  if (source) {
+                    await ctx.emit('artifact_updated', { kind: 'source', source });
+                  }
+                } catch (err) {
+                  console.warn('[research] skipping hit due to error:', hit.url, err instanceof Error ? err.message : err);
                 }
               }
             }

@@ -14,20 +14,14 @@ const STAGE_LABEL: Record<string, string> = {
   formulate_queries: 'Formulating queries',
   web_search: 'Searching web',
   summarize_source: 'Summarizing source',
+  draft_section: 'Drafting section',
 };
+
+// These stages run many times in parallel — aggregate into one feed entry each
+const PARALLEL_STAGES = new Set(['summarize_source', 'formulate_queries', 'web_search']);
 
 function stageLabel(stage: string): string {
   return STAGE_LABEL[stage] ?? stage.replace(/_/g, ' ');
-}
-
-function taskDetail(payload: Record<string, unknown>): string {
-  const count = payload.count as number | undefined;
-  const cached = payload.cached as boolean | undefined;
-  const score = payload.relevanceScore as number | undefined;
-  if (cached) return 'cached';
-  if (count !== undefined) return String(count);
-  if (score !== undefined) return `score ${score}`;
-  return '';
 }
 
 const EVENT_KINDS = [
@@ -98,26 +92,54 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
 
   type FeedItem =
     | { key: string; type: 'task'; label: string; done: boolean; detail: string; startedAt: number }
+    | { key: string; type: 'agg'; label: string; active: number; done: number }
     | { key: string; type: 'message'; text: string; error: boolean }
     | { key: string; type: 'status'; state: string };
 
   const feed: FeedItem[] = [];
   const taskMap = new Map<string, number>();
+  const aggMap = new Map<string, { active: number; done: number; feedIdx: number }>();
 
   for (let i = 0; i < events.length; i++) {
     const e = events[i]!;
     if (e.kind === 'task_started') {
       const stage = (e.payload.stage as string) ?? '';
-      const idx = feed.length;
-      feed.push({ key: `task-${i}`, type: 'task', label: stageLabel(stage), done: false, detail: '', startedAt: e.receivedAt });
-      taskMap.set(stage, idx);
+      if (PARALLEL_STAGES.has(stage)) {
+        const agg = aggMap.get(stage);
+        if (agg) {
+          agg.active++;
+          (feed[agg.feedIdx] as FeedItem & { type: 'agg' }).active = agg.active;
+        } else {
+          const feedIdx = feed.length;
+          feed.push({ key: `agg-${stage}`, type: 'agg', label: stageLabel(stage), active: 1, done: 0 });
+          aggMap.set(stage, { active: 1, done: 0, feedIdx });
+        }
+      } else {
+        const idx = feed.length;
+        feed.push({ key: `task-${i}`, type: 'task', label: stageLabel(stage), done: false, detail: '', startedAt: e.receivedAt });
+        taskMap.set(stage, idx);
+      }
     } else if (e.kind === 'task_completed') {
       const stage = (e.payload.stage as string) ?? '';
-      const idx = taskMap.get(stage);
-      if (idx !== undefined) {
-        const existing = feed[idx] as FeedItem & { type: 'task' };
-        feed[idx] = { ...existing, done: true, detail: taskDetail(e.payload) };
-        taskMap.delete(stage);
+      if (PARALLEL_STAGES.has(stage)) {
+        const agg = aggMap.get(stage);
+        if (agg) {
+          agg.active = Math.max(0, agg.active - 1);
+          agg.done++;
+          const entry = feed[agg.feedIdx] as FeedItem & { type: 'agg' };
+          entry.active = agg.active;
+          entry.done = agg.done;
+        }
+      } else {
+        const idx = taskMap.get(stage);
+        if (idx !== undefined) {
+          const existing = feed[idx] as FeedItem & { type: 'task' };
+          const detail = (e.payload.count !== undefined)
+            ? String(e.payload.count)
+            : (e.payload.cached ? 'cached' : '');
+          feed[idx] = { ...existing, done: true, detail };
+          taskMap.delete(stage);
+        }
       }
     } else if (e.kind === 'agent_message') {
       feed.push({
@@ -175,6 +197,27 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
                 {item.detail && (
                   <span className="text-xs text-gray-400 ml-auto">{item.detail}</span>
                 )}
+              </div>
+            );
+          }
+          if (item.type === 'agg') {
+            const allDone = item.active === 0;
+            return (
+              <div
+                key={item.key}
+                className={`flex items-center gap-2 px-2 py-1.5 my-0.5 rounded-md ${
+                  allDone ? '' : 'bg-blue-50 border border-blue-100'
+                }`}
+              >
+                {allDone
+                  ? <span className="text-green-500 text-xs shrink-0">✓</span>
+                  : <Spinner />}
+                <span className={`text-xs ${allDone ? 'text-gray-500' : 'font-medium text-blue-700'}`}>
+                  {item.label}
+                </span>
+                <span className="text-xs text-gray-400 ml-auto">
+                  {item.done}{item.active > 0 ? ` +${item.active}` : ''}
+                </span>
               </div>
             );
           }
