@@ -108,6 +108,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'research');
       await ctx.emit('state_changed', { state: 'research' });
+      await startRunner(sessionId, userId);
       break;
     }
     case 'research': {
