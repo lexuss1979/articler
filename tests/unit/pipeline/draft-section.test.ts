@@ -2,10 +2,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const mockRouteJsonChat = vi.fn();
+const mockRouteChat = vi.fn();
 
-vi.mock('../../../src/server/llm/structured', () => ({
-  routeJsonChat: mockRouteJsonChat,
+vi.mock('../../../src/server/llm/router', () => ({
+  routeChat: mockRouteChat,
+  routeSearch: vi.fn(),
+  routeImage: vi.fn(),
 }));
 
 function makeCtx() {
@@ -57,7 +59,7 @@ const plan = {
   ],
 };
 
-const section = plan.sections[0];
+const section = plan.sections[0]!;
 
 const acceptedSources = [
   {
@@ -68,20 +70,24 @@ const acceptedSources = [
   },
 ];
 
-const stubResult = { contentMd: '## Hook\n\nRust is taking over systems programming.' };
+const stubContentMd = '## Hook\n\nRust is taking over systems programming.';
+
+function makeChatResult(content: string) {
+  return {
+    content,
+    modelUsed: 'anthropic/claude-opus-4.7',
+    modelClass: 'smart',
+    promptTokens: 100,
+    completionTokens: 80,
+    latencyMs: 200,
+  };
+}
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('draftSection stage', () => {
   it('emits task_started and task_completed in order, returns contentMd', async () => {
-    mockRouteJsonChat.mockResolvedValue({
-      result: stubResult,
-      modelUsed: 'claude-sonnet',
-      modelClass: 'smart',
-      promptTokens: 100,
-      completionTokens: 80,
-      latencyMs: 200,
-    });
+    mockRouteChat.mockResolvedValue(makeChatResult(stubContentMd));
 
     const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
     const ctx = makeCtx();
@@ -90,79 +96,54 @@ describe('draftSection stage', () => {
       ctx,
     );
 
-    expect(result).toEqual(stubResult);
+    expect(result).toEqual({ contentMd: stubContentMd });
     expect(ctx._emitted.map(([k]) => k)).toEqual(['task_started', 'task_completed']);
-    expect(ctx._emitted[0][1]).toMatchObject({ stage: 'draft_section', sectionId: 'intro' });
-    expect(ctx._emitted[1][1]).toMatchObject({
+    expect(ctx._emitted[0]![1]).toMatchObject({ stage: 'draft_section', sectionId: 'intro' });
+    expect(ctx._emitted[1]![1]).toMatchObject({
       stage: 'draft_section',
       sectionId: 'intro',
-      length: stubResult.contentMd.length,
+      length: stubContentMd.length,
     });
   });
 
-  it('system prompt mentions section title and platform name', async () => {
-    mockRouteJsonChat.mockResolvedValue({
-      result: stubResult,
-      modelUsed: 'claude-sonnet',
-      modelClass: 'smart',
-      promptTokens: 100,
-      completionTokens: 80,
-      latencyMs: 200,
-    });
+  it('system prompt mentions platform name and thesis', async () => {
+    mockRouteChat.mockResolvedValue(makeChatResult(stubContentMd));
 
     const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
     const ctx = makeCtx();
     await draftSection.run({ profile, plan, section, acceptedSources, prevSections: [] }, ctx);
 
-    const call = mockRouteJsonChat.mock.calls[0][0] as { system: string; user: string };
-    expect(call.system).toContain('TechBlog');
-    expect(call.user).toContain('Introduction');
+    const call = mockRouteChat.mock.calls[0]![0] as { messages: Array<{ role: string; content: string }> };
+    const system = call.messages.find((m) => m.role === 'system')!.content;
+    expect(system).toContain('TechBlog');
+    expect(system).toContain('long-read');
   });
 
-  it('user prompt mentions an accepted source url', async () => {
-    mockRouteJsonChat.mockResolvedValue({
-      result: stubResult,
-      modelUsed: 'claude-sonnet',
-      modelClass: 'smart',
-      promptTokens: 100,
-      completionTokens: 80,
-      latencyMs: 200,
-    });
+  it('user prompt mentions section title and accepted source url', async () => {
+    mockRouteChat.mockResolvedValue(makeChatResult(stubContentMd));
 
     const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
     const ctx = makeCtx();
     await draftSection.run({ profile, plan, section, acceptedSources, prevSections: [] }, ctx);
 
-    const call = mockRouteJsonChat.mock.calls[0][0] as { user: string };
-    expect(call.user).toContain('https://blog.rust-lang.org/survey');
+    const call = mockRouteChat.mock.calls[0]![0] as { messages: Array<{ role: string; content: string }> };
+    const user = call.messages.find((m) => m.role === 'user')!.content;
+    expect(user).toContain('Introduction');
+    expect(user).toContain('https://blog.rust-lang.org/survey');
   });
 
-  it('calls routeJsonChat with class smart', async () => {
-    mockRouteJsonChat.mockResolvedValue({
-      result: stubResult,
-      modelUsed: 'claude-sonnet',
-      modelClass: 'smart',
-      promptTokens: 100,
-      completionTokens: 80,
-      latencyMs: 200,
-    });
+  it('calls routeChat with class smart', async () => {
+    mockRouteChat.mockResolvedValue(makeChatResult(stubContentMd));
 
     const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
     const ctx = makeCtx();
     await draftSection.run({ profile, plan, section, acceptedSources, prevSections: [] }, ctx);
 
-    expect(mockRouteJsonChat).toHaveBeenCalledWith(expect.objectContaining({ class: 'smart' }));
+    expect(mockRouteChat).toHaveBeenCalledWith(expect.objectContaining({ class: 'smart' }));
   });
 
-  it('includes instruction block and rewriteSourceArticles block when provided', async () => {
-    mockRouteJsonChat.mockResolvedValue({
-      result: stubResult,
-      modelUsed: 'claude-sonnet',
-      modelClass: 'smart',
-      promptTokens: 100,
-      completionTokens: 80,
-      latencyMs: 200,
-    });
+  it('includes instruction and rewriteSourceArticles in user prompt', async () => {
+    mockRouteChat.mockResolvedValue(makeChatResult(stubContentMd));
 
     const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
     const ctx = makeCtx();
@@ -181,15 +162,36 @@ describe('draftSection stage', () => {
       ctx,
     );
 
-    const call = mockRouteJsonChat.mock.calls[0][0] as { user: string };
-    expect(call.user).toContain('Tighten the intro');
-    expect(call.user).toContain('https://original.com/article');
+    const call = mockRouteChat.mock.calls[0]![0] as { messages: Array<{ role: string; content: string }> };
+    const user = call.messages.find((m) => m.role === 'user')!.content;
+    expect(user).toContain('Tighten the intro');
+    expect(user).toContain('https://original.com/article');
+  });
+
+  it('shows only titles for older prevSections, full content for recent two', async () => {
+    mockRouteChat.mockResolvedValue(makeChatResult(stubContentMd));
+
+    const prevSections = [
+      { id: 'old-1', contentMd: 'Old section one content' },
+      { id: 'old-2', contentMd: 'Old section two content' },
+      { id: 'intro', contentMd: 'Recent section content' },
+    ];
+
+    const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
+    const ctx = makeCtx();
+    await draftSection.run({ profile, plan, section: plan.sections[1]!, acceptedSources: [], prevSections }, ctx);
+
+    const call = mockRouteChat.mock.calls[0]![0] as { messages: Array<{ role: string; content: string }> };
+    const user = call.messages.find((m) => m.role === 'user')!.content;
+    expect(user).toContain('[already written]');
+    expect(user).toContain('Recent section content');
+    expect(user).not.toContain('Old section one content');
   });
 });
 
 describe('draftSection stage — fixture: habr-longread-1', () => {
-  it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
-    type Fixture = { input: unknown; expected: { snapshot: unknown } };
+  it('returns expected.snapshot contentMd when routeChat returns it', async () => {
+    type Fixture = { input: unknown; expected: { snapshot: { contentMd: string } } };
     const fixture = JSON.parse(
       readFileSync(
         join(__dirname, '../../eval/fixtures/draft_section/habr-longread-1.json'),
@@ -197,14 +199,7 @@ describe('draftSection stage — fixture: habr-longread-1', () => {
       ),
     ) as Fixture;
 
-    mockRouteJsonChat.mockResolvedValue({
-      result: fixture.expected.snapshot,
-      modelUsed: 'claude-sonnet',
-      modelClass: 'smart',
-      promptTokens: 200,
-      completionTokens: 300,
-      latencyMs: 400,
-    });
+    mockRouteChat.mockResolvedValue(makeChatResult(fixture.expected.snapshot.contentMd));
 
     const { draftSection } = await import('../../../src/server/pipeline/stages/draft-section');
     const ctx = makeCtx();

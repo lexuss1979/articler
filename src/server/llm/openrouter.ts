@@ -66,7 +66,7 @@ export function openrouterChat(args: {
   messages: ChatMessage[];
   [key: string]: unknown;
 }): Promise<ChatResponse> {
-  return post<ChatResponse>('/api/v1/chat/completions', args);
+  return post<ChatResponse>('/api/v1/chat/completions', { stream: false, ...args });
 }
 
 export function openrouterImage(args: {

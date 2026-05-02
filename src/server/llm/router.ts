@@ -18,7 +18,11 @@ export interface ImageRouterResult extends RouterResult {
 }
 
 function isTransient(err: unknown): boolean {
-  return err instanceof OpenRouterError && err.status >= 500;
+  if (!(err instanceof OpenRouterError)) return false;
+  if (err.status >= 500) return true;
+  // 200 with non-JSON body = empty/whitespace response from model, treat as transient
+  if (err.status === 200) return true;
+  return false;
 }
 
 async function withFallback<T>(
