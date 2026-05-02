@@ -82,7 +82,7 @@ export const sources = pgTable(
     summary: text('summary').notNull().default(''),
     relevanceScore: integer('relevance_score').notNull().default(0),
     status: text('status').notNull().default('proposed'),
-    createdAt: timestamp('created_at').defaultNow(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [index('sources_session_id_status_idx').on(t.sessionId, t.status)],
 );

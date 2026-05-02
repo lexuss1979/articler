@@ -43,6 +43,13 @@
       "when": 1777709999369,
       "tag": "0005_breezy_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777710620282,
+      "tag": "0006_jittery_blade",
+      "breakpoints": true
     }
   ]
 }
