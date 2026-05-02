@@ -14,7 +14,11 @@ export type EventKind =
 
 export type PersistedEvent = typeof events.$inferSelect;
 
-const emitter = new EventEmitter();
+declare global {
+  // eslint-disable-next-line no-var
+  var __busEmitter: EventEmitter | undefined;
+}
+const emitter = (global.__busEmitter ??= new EventEmitter());
 emitter.setMaxListeners(0);
 
 export function subscribe(

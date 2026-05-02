@@ -1,0 +1,19 @@
+{
+  "input": {
+    "hypothesis": {
+      "id": "h-mechanics-1",
+      "sectionId": "mechanics",
+      "text": "Cache hit tokens cost approximately 10% of full input token price on Anthropic",
+      "evidenceKind": "statistic"
+    }
+  },
+  "expected": {
+    "schemaRef": "formulateQueries.outputSchema",
+    "snapshot": {
+      "queries": [
+        { "text": "Anthropic Claude prompt caching token cost pricing per million tokens" },
+        { "text": "anthropic cache_read_input_tokens price vs regular input tokens percentage" }
+      ]
+    }
+  }
+}

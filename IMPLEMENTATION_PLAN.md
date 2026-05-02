@@ -1651,7 +1651,7 @@ Eval fixtures are captured for the four new stages.
       drafts; the user can still reject everything and re-enter
       `'planning'` to widen the angle.
 
-- [ ] T-6-11: Eval fixtures for the four research stages
+- [x] T-6-11: Eval fixtures for the four research stages
       Goal: Capture one input/expected snapshot per research stage so
       the Epic 12 harness can replay them.
       Touches: `tests/eval/fixtures/plan_search_hypotheses/habr-longread-1.json`,

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockRouteJsonChat = vi.fn();
 
@@ -85,5 +87,36 @@ describe('summarizeSource stage', () => {
     expect(
       summarizeSource.outputSchema.safeParse({ summary: 'ok', relevanceScore: 150 }).success,
     ).toBe(false);
+  });
+});
+
+describe('summarizeSource stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
+    type Fixture = { input: unknown; expected: { snapshot: unknown } };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/summarize_source/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-haiku',
+      modelClass: 'fast',
+      promptTokens: 20,
+      completionTokens: 15,
+      latencyMs: 60,
+    });
+
+    const { summarizeSource } = await import(
+      '../../../src/server/pipeline/stages/summarize-source'
+    );
+    const ctx = makeCtx();
+    const result = await summarizeSource.run(
+      fixture.input as Parameters<typeof summarizeSource.run>[0],
+      ctx,
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

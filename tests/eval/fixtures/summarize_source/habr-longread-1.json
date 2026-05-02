@@ -1,0 +1,23 @@
+{
+  "input": {
+    "hypothesis": {
+      "id": "h-mechanics-1",
+      "sectionId": "mechanics",
+      "text": "Cache hit tokens cost approximately 10% of full input token price on Anthropic",
+      "evidenceKind": "statistic"
+    },
+    "query": { "text": "Anthropic Claude prompt caching token cost pricing per million tokens" },
+    "hit": {
+      "url": "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
+      "title": "Prompt caching - Anthropic",
+      "snippet": "Cache reads cost 10% of the base input token price. Cache writes cost 125% of the base input token price."
+    }
+  },
+  "expected": {
+    "schemaRef": "summarizeSource.outputSchema",
+    "snapshot": {
+      "summary": "Official Anthropic documentation confirms that cached prompt reads cost exactly 10% of the base input token price, directly supporting the cost-reduction statistic.",
+      "relevanceScore": 95
+    }
+  }
+}

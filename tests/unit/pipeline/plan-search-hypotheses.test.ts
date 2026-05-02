@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockRouteJsonChat = vi.fn();
 
@@ -153,5 +155,40 @@ describe('planSearchHypotheses stage', () => {
 
     const kinds = ctx._emitted.map(([k]) => k);
     expect(kinds).not.toContain('task_completed');
+  });
+});
+
+describe('planSearchHypotheses stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: { plan: unknown; profile: { createdAt: string } & Record<string, unknown> };
+      expected: { snapshot: unknown };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/plan_search_hypotheses/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude',
+      modelClass: 'smart',
+      promptTokens: 10,
+      completionTokens: 20,
+      latencyMs: 100,
+    });
+
+    const { planSearchHypotheses } = await import(
+      '../../../src/server/pipeline/stages/plan-search-hypotheses'
+    );
+    const ctx = makeCtx();
+    const input = {
+      plan: fixture.input.plan,
+      profile: { ...fixture.input.profile, createdAt: new Date(fixture.input.profile.createdAt) },
+    };
+    const result = await planSearchHypotheses.run(input as Parameters<typeof planSearchHypotheses.run>[0], ctx);
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

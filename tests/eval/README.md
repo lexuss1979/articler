@@ -25,14 +25,18 @@ the harness knows which Zod schema to validate the snapshot against.
 | `clarifyBrief` | `fixtures/clarify_brief/habr-longread-1.json` |
 | `proposeAngles` | `fixtures/propose_angles/habr-longread-1.json` |
 | `buildPlan` | `fixtures/build_plan/habr-longread-1.json` |
+| `planSearchHypotheses` | `fixtures/plan_search_hypotheses/habr-longread-1.json` |
+| `formulateQueries` | `fixtures/formulate_queries/habr-longread-1.json` |
+| `webSearch` | `fixtures/web_search/habr-longread-1.json` |
+| `summarizeSource` | `fixtures/summarize_source/habr-longread-1.json` |
 
-All three use the same Habr long-read profile (3 000–6 000 words, Russian-speaking backend engineers)
+All seven use the same Habr long-read profile (3 000–6 000 words, Russian-speaking backend engineers)
 and a prompt-caching topic so the inputs chain naturally across stages.
 
 ## Running fixture smoke-tests
 
 The fixture inputs and snapshots are exercised by the unit tests in
-`tests/unit/pipeline/{clarify-brief,propose-angles,build-plan}.test.ts`.
+`tests/unit/pipeline/{clarify-brief,propose-angles,build-plan,plan-search-hypotheses,formulate-queries,web-search,summarize-source}.test.ts`.
 Each test loads its fixture, stubs `routeJsonChat` to return `expected.snapshot`,
 and asserts the stage returns the snapshot unchanged — proving the snapshot is
 schema-valid and the stage passes it through correctly.
