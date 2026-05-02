@@ -97,8 +97,8 @@ export const sectionDrafts = pgTable(
       .references(() => sessions.id, { onDelete: 'cascade' }),
     sectionId: text('section_id').notNull(),
     contentMd: text('content_md').notNull().default(''),
-    createdAt: timestamp('created_at').defaultNow(),
-    updatedAt: timestamp('updated_at').defaultNow(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
   (t) => [uniqueIndex('section_drafts_session_section_idx').on(t.sessionId, t.sectionId)],
 );

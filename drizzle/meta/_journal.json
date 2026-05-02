@@ -57,6 +57,13 @@
       "when": 1777725135583,
       "tag": "0007_bitter_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777742572371,
+      "tag": "0008_thin_silver_centurion",
+      "breakpoints": true
     }
   ]
 }
