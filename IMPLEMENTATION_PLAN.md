@@ -2080,7 +2080,7 @@ for the four new stages.
       the existing schema (sources, sessions); the Zod schemas in
       T-8-2 / T-8-3 are the source of truth for allowed values.
 
-- [ ] T-8-2: Critic + Finding + active-critics schemas + built-in
+- [x] T-8-2: Critic + Finding + active-critics schemas + built-in
       critic registry
       Goal: Typed shapes for critics, findings, and the
       session-scoped active-critics config, plus the built-in critic
