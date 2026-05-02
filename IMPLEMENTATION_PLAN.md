@@ -832,7 +832,7 @@ yet — this epic wires the plumbing.
           asserts unsubscribe stops further deliveries.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-4-6: SSE route handler `/api/stream/[sessionId]`
+- [x] T-4-6: SSE route handler `/api/stream/[sessionId]`
       Goal: Authenticated SSE endpoint that replays the session's
       stored events and then streams new ones live until the client
       disconnects.
