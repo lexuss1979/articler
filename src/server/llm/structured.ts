@@ -53,7 +53,7 @@ async function callModel(
   const response_format = jsonSchema
     ? {
         type: 'json_schema' as const,
-        json_schema: { name: 'response', schema: jsonSchema, strict: true },
+        json_schema: { name: 'response', schema: jsonSchema },
       }
     : { type: 'json_object' as const };
 

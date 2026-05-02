@@ -39,11 +39,26 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   });
+  const responseBody = await res.text().catch(() => '');
   if (!res.ok) {
-    const responseBody = await res.text().catch(() => '');
     throw new OpenRouterError(res.status, responseBody);
   }
-  return res.json() as Promise<T>;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(responseBody);
+  } catch {
+    throw new OpenRouterError(res.status, `Non-JSON response: ${responseBody.slice(0, 200)}`);
+  }
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    'choices' in parsed &&
+    Array.isArray((parsed as { choices: unknown }).choices) &&
+    (parsed as { choices: unknown[] }).choices.length === 0
+  ) {
+    throw new OpenRouterError(0, `Empty choices array: ${responseBody.slice(0, 500)}`);
+  }
+  return parsed as T;
 }
 
 export function openrouterChat(args: {
