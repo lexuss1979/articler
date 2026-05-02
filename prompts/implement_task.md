@@ -46,6 +46,15 @@ Read these files in this order:
    pnpm test
    ```
    Plus any task-specific commands listed in Acceptance.
+
+   **E2E tests:** if the task's Acceptance includes Playwright e2e tests,
+   run them via `pnpm e2e:docker`, **not** `pnpm e2e`. The host WSL2
+   environment is missing system libs (`libnspr4.so` etc.) needed by the
+   Playwright-bundled Chromium, and installing them requires sudo that
+   isn't available here. `pnpm e2e:docker` runs the suite inside the
+   official Playwright image via the `e2e` profile in `docker-compose.yml`;
+   it brings up `db` and `web` automatically and uses host networking so
+   `AUTH_URL=http://localhost:18080` matches the test browser's view.
 6. If a check fails, fix the underlying cause — do not weaken the test,
    do not skip the check, do not bypass hooks. If you cannot fix it,
    stop and report what you tried and what blocked you. Do not commit

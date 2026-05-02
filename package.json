@@ -13,7 +13,8 @@
     "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "e2e": "playwright test --pass-with-no-tests"
+    "e2e": "playwright test --pass-with-no-tests",
+    "e2e:docker": "docker compose --profile e2e run --rm --build e2e"
   },
   "dependencies": {
     "argon2": "^0.44.0",

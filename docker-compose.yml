@@ -12,6 +12,26 @@ services:
       db:
         condition: service_healthy
 
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.59.1-noble
+    profiles: ['e2e']
+    network_mode: host
+    ipc: host
+    working_dir: /work
+    volumes:
+      - .:/work
+      - e2e_node_modules:/work/node_modules
+    environment:
+      E2E_BASE_URL: http://localhost:18080
+      CI: '1'
+    command:
+      - bash
+      - -lc
+      - npm install --prefer-offline --no-save --no-audit --no-fund --silent @playwright/test@1.59.1 && npx playwright test
+    depends_on:
+      web:
+        condition: service_started
+
   db:
     image: postgres:16-alpine
     ports:
@@ -30,3 +50,4 @@ services:
 
 volumes:
   db_data:
+  e2e_node_modules:
