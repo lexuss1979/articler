@@ -1441,7 +1441,7 @@ Eval fixtures are captured for the four new stages.
           `null`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-6-4: `plan_search_hypotheses` stage
+- [x] T-6-4: `plan_search_hypotheses` stage
       Goal: A `Stage` that reads the locked plan and the profile and
       emits 1..3 search hypotheses per section.
       Touches: `src/server/pipeline/stages/plan-search-hypotheses.ts`,
