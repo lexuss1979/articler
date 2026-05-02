@@ -1680,14 +1680,331 @@ Eval fixtures are captured for the four new stages.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 7 — Drafting + rewrite mode
 
-**Status: TBD**
-Intent: `draft_section` stage iterating sections; rewrite-mode entrypoint
-(brief includes one or more source articles); per-section regenerate
-with user instruction; live draft pane.
+**Status: planned**
+**Goal:** When the user finishes research the session enters `'drafting'`,
+the runner walks the locked plan section-by-section, calls a new
+`draft_section` stage with the section spec + accepted sources for that
+section + previously-drafted sections (windowed) + (in rewrite mode) the
+brief's `sourceArticles`, and persists each section's markdown into a
+new `section_drafts` table while keeping `sessions.draft_md` in sync as
+the concatenation. The workbench swaps to a live drafting pane that
+streams sections as they land and exposes a "Regenerate" control on
+each (which re-runs `draft_section` for that section only with an
+optional user instruction). When the user clicks "Finish drafting", the
+session transitions to `'review'`. An eval fixture for `draft_section`
+is captured.
+
+### Tasks
+
+- [ ] T-7-1: `section_drafts` table schema + migration
+      Goal: A user-scoped `section_drafts` table backs the per-section
+      markdown produced by the drafting pipeline.
+      Touches: `src/server/db/schema.ts`, `drizzle/0007_*.sql`,
+      `drizzle/meta/*`.
+      Acceptance:
+        - Adds `sectionDrafts` to `src/server/db/schema.ts` with
+          columns: `id` (serial PK); `session_id` (integer NOT NULL,
+          FK → `sessions.id` ON DELETE CASCADE); `section_id` (text
+          NOT NULL); `content_md` (text NOT NULL DEFAULT `''`);
+          `created_at` (timestamp DEFAULT `now()`); `updated_at`
+          (timestamp DEFAULT `now()`).
+        - A unique index on `(session_id, section_id)` so the runner
+          can upsert by section.
+        - A migration produced by `pnpm db:generate` lands at
+          `drizzle/0007_*.sql` and creates the table + index. The
+          drizzle meta journal is updated.
+        - `pnpm db:migrate` against the compose DB applies cleanly
+          and re-running is a no-op.
+        - `pnpm typecheck` exits 0.
+      Notes: `content_md` is stored verbatim — no enum or extra
+      validation at the DB layer; Zod schemas in T-7-3 are the source
+      of truth for allowed lengths.
+
+- [ ] T-7-2: Section-drafts repo helpers
+      Goal: User-scoped persistence for section-draft rows in the same
+      cross-table-ownership style as the existing `sources-repo`.
+      Touches: `src/server/sessions/section-drafts-repo.ts`,
+      `tests/unit/sessions/section-drafts-repo.test.ts`.
+      Acceptance:
+        - Exports `upsertSectionDraft(userId, sessionId, sectionId,
+          contentMd)` which first verifies that `sessions.id =
+          sessionId AND sessions.user_id = userId`; if not, returns
+          `null` (does not throw). Otherwise performs an upsert keyed
+          on `(session_id, section_id)` (`onConflictDoUpdate` setting
+          `content_md` and `updated_at = now()`) and returns the
+          inserted/updated row.
+        - Exports `listSectionDrafts(userId, sessionId)` returning rows
+          ordered by `id ASC`, gated by the same ownership check
+          (returns `[]` on non-owned).
+        - Exports `getSectionDraft(userId, sessionId, sectionId)`
+          returning the matching row or `null`, gated by ownership.
+        - Unit test mocks the drizzle client and asserts: each helper
+          builds a `where` that includes the user-ownership predicate;
+          the happy path returns the row; an unowned id resolves to
+          `null` / `[]` as appropriate.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-7-3: Draft Zod schemas
+      Goal: Typed shapes for the `draft_section` stage output and for
+      regenerate instructions.
+      Touches: `src/server/sessions/draft.ts`,
+      `tests/unit/sessions/draft-schema.test.ts`.
+      Acceptance:
+        - Exports `sectionDraftOutputSchema` (Zod):
+          `contentMd: z.string().min(1).max(40000)`.
+        - Exports `regenerateInstructionSchema = z.string().min(1)
+          .max(1000)`.
+        - Exports `SectionDraftOutput` and `RegenerateInstruction` as
+          `z.infer<...>` aliases.
+        - Unit test asserts each schema accepts a valid hand-built
+          value and fails on at least one obvious violation
+          (empty `contentMd`, instruction longer than 1000 chars).
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-7-4: `draft_section` stage
+      Goal: A `Stage` that writes the markdown body for a single
+      section, given the profile, the locked plan, the section spec,
+      the accepted sources for that section, the previously-drafted
+      sections (windowed), an optional rewrite instruction, and (in
+      rewrite mode) the brief's `sourceArticles`.
+      Touches: `src/server/pipeline/stages/draft-section.ts`,
+      `tests/unit/pipeline/draft-section.test.ts`.
+      Acceptance:
+        - Exports `draftSection: Stage<{ profile: ProfileRow; plan:
+          Plan; section: PlanSection; acceptedSources: Array<{ url:
+          string; title: string; summary: string; rawExcerpt: string
+          }>; prevSections: Array<{ id: string; contentMd: string }>;
+          instruction?: string; rewriteSourceArticles?:
+          SourceArticle[] }, SectionDraftOutput>` named
+          `'draft_section'`, model class `'smart'`.
+        - `outputSchema` is `sectionDraftOutputSchema`.
+        - `run` builds a system prompt naming the platform name +
+          format, audience, style, the chosen methodology (read from
+          the plan's section structure / angle echo on the plan), the
+          target word count for the section (from
+          `section.expectedLength`), and the markup convention
+          (markdown). It builds a user prompt that includes: the
+          section title + intent + key points; a list of accepted
+          sources (`title — url — summary`); the previously drafted
+          sections concatenated as `## prevTitle\n<body>`; if
+          `rewriteSourceArticles` is non-empty, a "Rewrite source"
+          block listing each `(url, content)` and an instruction to
+          base the section on this material applying the new profile +
+          methodology; if `instruction` is non-empty, an "Override
+          instruction" block telling the model to apply that
+          instruction to this regeneration.
+        - `run` calls `routeJsonChat` with `class: 'smart'` and a
+          system instruction to respond ONLY with valid JSON
+          `{ "contentMd": "..." }`. Emits `task_started` (`{ stage,
+          sectionId }`) and `task_completed` (`{ stage, sectionId,
+          length: contentMd.length }`).
+        - Unit test stubs `routeJsonChat` to return
+          `{ contentMd: '## Hook\n…' }` and asserts: returned shape;
+          event order; system prompt mentions the section title and
+          the platform; user prompt mentions an accepted source url.
+          A second test passes `instruction: 'Tighten the intro'` and
+          a non-empty `rewriteSourceArticles` and asserts both blocks
+          appear in the user prompt.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: should previous sections be passed verbatim or
+      summarized? Default: verbatim — matches FR-DRAFT-1 ("previous
+      sections (windowed)") and avoids a second model call. A
+      `// TODO: window prev sections by token budget` comment marks
+      where to revisit once we have token-aware windowing.
+
+- [ ] T-7-5: `updateSessionDraft` repo helper
+      Goal: Persist the concatenated `draft_md` text on
+      `sessions.draft_md` whenever the runner finishes (or
+      regenerates) a section.
+      Touches: `src/server/sessions/repo.ts`,
+      `tests/unit/sessions/repo.test.ts`.
+      Acceptance:
+        - Exports `updateSessionDraft(userId, id, draftMd: string)`
+          mirroring the existing `updateSessionPlan` (ownership
+          check, returns the updated row or `null`, sets
+          `updated_at = new Date()`).
+        - Existing `repo.test.ts` (or a new sibling test) asserts the
+          helper writes `draft_md` and respects the user-ownership
+          predicate.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-7-6: Runner — `'drafting'` state orchestration
+      Goal: When the runner enters the `'drafting'` case it walks the
+      plan sections sequentially, calls `draftSection.run` on each,
+      upserts the resulting markdown into `section_drafts`, refreshes
+      `sessions.draft_md`, then parks waiting for the user to finish
+      drafting before transitioning to `'review'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-drafting.test.ts`.
+      Acceptance:
+        - In the `'drafting'` case the runner: (a) loads `plan` from
+          `session.plan` (validates via `planSchema`; emits
+          `agent_message` with `error: true` and aborts on failure);
+          loads `brief` from `session.brief` (same handling); loads
+          the profile (same handling); (b) loads accepted sources via
+          `listSessionSources(userId, sessionId)` filtered to
+          `status === 'accepted'`; (c) for each `section` in
+          `plan.sections` sequentially: builds
+          `acceptedSources = sources.filter(s => s.sectionId ===
+          section.id)`, builds `prevSections` from the in-memory
+          accumulator of already-drafted sections; calls
+          `draftSection.run({ profile, plan, section, acceptedSources,
+          prevSections, rewriteSourceArticles: session.mode ===
+          'rewrite' ? brief.sourceArticles : undefined })`; calls
+          `upsertSectionDraft(userId, sessionId, section.id,
+          contentMd)`; pushes `{ id: section.id, contentMd }` onto
+          the accumulator; computes the new `draft_md` as the
+          accumulator joined with `\n\n` and calls
+          `updateSessionDraft(userId, sessionId, draftMd)`; emits
+          `artifact_updated` with `{ kind: 'section_draft', sectionId:
+          section.id, contentMd }`; (d) parks via
+          `ctx.userInput('draft_done', z.object({ action:
+          z.literal('finish') }))`; (e) calls
+          `updateSessionState(userId, sessionId, 'review')` and emits
+          `state_changed` with `{ state: 'review' }`.
+        - Unit test stubs the new stage module, the section-drafts
+          repo, the sources repo, and `updateSessionDraft`; drives
+          the runner with a two-section plan and one accepted source
+          attached to section 1; asserts: `draftSection.run` was
+          called twice in section order; the second call received
+          the first section's contentMd in `prevSections`;
+          `upsertSectionDraft` was called twice; the
+          `artifact_updated` events were emitted in order
+          (`section_draft`, `section_draft`); on finish-park the
+          runner advances state to `'review'`. A second test runs the
+          session with `mode: 'rewrite'` and asserts the stage
+          received `rewriteSourceArticles` populated from
+          `brief.sourceArticles`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: parallel vs sequential fan-out across
+      sections. Default: sequential — required so each section sees
+      the previous ones as `prevSections` context. A `// TODO:
+      consider parallel drafting with a second pass for cohesion`
+      comment marks the spot for future revisit.
+
+- [ ] T-7-7: `regenerateSection` helper + server actions
+      Goal: A non-runner code path for re-drafting a single section
+      with an optional user instruction (used while parked at
+      `draft_done`), and the matching server actions.
+      Touches: `src/server/pipeline/regenerate-section.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/pipeline/regenerate-section.test.ts`,
+      `tests/unit/sessions/draft-actions.test.ts`.
+      Acceptance:
+        - `regenerate-section.ts` exports `regenerateSection({
+          sessionId, userId, sectionId, instruction })` that: loads
+          session/profile/brief; loads accepted sources; locates
+          `section` in `plan.sections` (returns
+          `{ ok: false, error: 'section_not_found' }` if missing);
+          loads previously-drafted sections via
+          `listSectionDrafts(userId, sessionId)` and uses everything
+          *before* `section.id` in plan order as `prevSections`; calls
+          `draftSection.run({ ..., instruction,
+          rewriteSourceArticles: session.mode === 'rewrite' ?
+          brief.sourceArticles : undefined })`; calls
+          `upsertSectionDraft`; recomputes the full `draft_md` from
+          the now-current section drafts (in plan order) and calls
+          `updateSessionDraft`; emits `artifact_updated` with
+          `{ kind: 'section_draft', sectionId, contentMd }`; returns
+          `{ ok: true, contentMd }`.
+        - `actions.ts` adds `regenerateSectionAction(sessionId:
+          number, sectionId: unknown, instruction: unknown)`:
+          `requireUser`; validates `sectionId` via
+          `z.string().min(1).max(40)` and `instruction` via
+          `regenerateInstructionSchema.optional().or(z.literal(''))`;
+          calls `regenerateSection`; returns its result; calls
+          `revalidatePath('/sessions/' + sessionId)` on success.
+        - `actions.ts` adds `finishDraftAction(sessionId: number)`
+          (parallel to `finishResearchAction`): calls `requireUser`,
+          then `resolveUserInput(sessionId, { action: 'finish' })`;
+          returns `{ ok: true }` if the call returned `true`,
+          otherwise `{ ok: false, error: 'no_pending_draft' }`.
+        - Unit tests: one for `regenerateSection` (stubs
+          `draftSection.run`, the repos, and the bus; asserts the
+          stage receives `prevSections` containing only sections
+          before the target in plan order, `instruction` is passed
+          through, and the new `draft_md` reflects the regenerated
+          section in its plan position); one for the actions (mocks
+          `requireUser`, `regenerateSection`, and `resolveUserInput`;
+          asserts each action passes `user.id` through and that
+          validation rejects an instruction longer than 1000 chars
+          with `{ ok: false, error: 'validation' }`).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-7-8: Workbench drafting UI — `<DraftingPane />`
+      Goal: While `session.state === 'drafting'`, the workbench
+      streams in section drafts as they land, exposes a "Regenerate"
+      control per section (with an optional instruction textarea),
+      and a "Finish drafting" button that releases the runner's
+      `draft_done` park.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/drafting-pane.tsx`,
+      `src/app/(app)/sessions/[id]/section-card.tsx`.
+      Acceptance:
+        - `page.tsx` mounts `<DraftingPane sessionId={id}
+          plan={plan} initialSections={await
+          listSectionDrafts(user.id, id)} />` (a client component)
+          when `state === 'drafting'`. The plan is parsed via
+          `planSchema` server-side and only rendered when valid.
+        - `drafting-pane.tsx` keeps a local `Map<sectionId,
+          contentMd>` seeded from `initialSections`. It subscribes to
+          the SSE stream (reusing `useSessionEvents`) and on each
+          `artifact_updated` with `payload.kind === 'section_draft'`
+          it replaces the map entry by `sectionId`. It tracks an
+          `awaitingFinish` flag flipped on by `awaiting_user` with
+          `prompt === 'draft_done'`.
+        - For each section in plan order it renders
+          `<SectionCard plan={plan} section={section}
+          contentMd={map.get(section.id) ?? null}
+          sessionId={sessionId} />`. The card shows the section title
+          + intent, the rendered markdown in a `<pre>` (no markdown
+          library required for v1), a collapsible "Regenerate"
+          panel with an `<textarea name="instruction" maxLength=
+          {1000}>` and a button calling
+          `regenerateSectionAction(sessionId, section.id,
+          instruction || '')`; busy state disables the button.
+        - A "Finish drafting" button is rendered at the bottom; it
+          is disabled until every plan section has a non-null
+          `contentMd` AND `awaitingFinish` is true. Clicking it calls
+          `finishDraftAction(sessionId)`; on `ok: true` the page
+          rerenders and `state === 'review'` (the workbench shows
+          the placeholder for now since review is Epic 8).
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Decision needed: should "Finish drafting" require every plan
+      section to be drafted? Default: yes — partial drafts are not
+      reviewable; the user can regenerate any unsatisfactory section
+      first. The UI surfaces a hint when blocked.
+
+- [ ] T-7-9: Eval fixture for `draft_section`
+      Goal: Capture one input/expected snapshot for `draft_section`
+      so the Epic 12 harness can replay it.
+      Touches: `tests/eval/fixtures/draft_section/habr-longread-1.json`,
+      `tests/eval/README.md`,
+      `tests/unit/pipeline/draft-section.test.ts`.
+      Acceptance:
+        - The fixture is a JSON file with shape `{ "input": {...},
+          "expected": { "schemaRef": "draftSection.outputSchema",
+          "snapshot": { "contentMd": "..." } } }`. The input reuses
+          the Habr long-read profile + plan from Epic 5's fixtures
+          and uses the first plan section as `section`, with one
+          accepted source taken from the existing
+          `summarize_source` fixture.
+        - `tests/eval/README.md` is updated to list the new fixture
+          alongside the existing eight (add a `draftSection` row to
+          the table).
+        - The existing `draft-section.test.ts` (from T-7-4) gets one
+          additional test that loads the fixture's `input`, runs the
+          stage with a stub `routeJsonChat` returning
+          `expected.snapshot`, and asserts the stage's return equals
+          `expected.snapshot`.
+        - `pnpm test` exits 0.
+      Notes: No real LLM calls; the eval harness ships in Epic 12.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 8 — Review: critics + fact-checker
 
