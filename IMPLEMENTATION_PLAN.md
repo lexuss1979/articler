@@ -805,7 +805,7 @@ yet — this epic wires the plumbing.
           error: 'profile_not_owned' }`; the page surfaces it.
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-4-5: In-memory event bus + persist-and-publish helper
+- [x] T-4-5: In-memory event bus + persist-and-publish helper
       Goal: A single module owning the per-session pub/sub used by SSE
       consumers, plus an `emitEvent` helper that persists to `events`
       and publishes in one call.
