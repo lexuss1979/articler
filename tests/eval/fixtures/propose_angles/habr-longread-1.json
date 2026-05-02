@@ -1,0 +1,55 @@
+{
+  "input": {
+    "brief": {
+      "topic": "Prompt caching in large language models",
+      "goal": "Help backend engineers understand when and how to use prompt caching to cut costs and latency",
+      "notes": "Target audience already knows what LLMs are but hasn't used caching APIs",
+      "sourceArticles": []
+    },
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    "clarifications": [
+      {
+        "question": "Which LLM providers should the article cover — Anthropic, OpenAI, Google, or all three?",
+        "answer": "Focus on Anthropic (Claude) with brief mentions of OpenAI for comparison"
+      },
+      {
+        "question": "Should the article include concrete cost-calculation examples with real token prices?",
+        "answer": "Yes, include a worked example with actual API pricing"
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "proposeAngles.outputSchema",
+    "snapshot": {
+      "angles": [
+        {
+          "title": "The 90% Cost Cut: Prompt Caching Under the Hood",
+          "methodology": "deep_dive",
+          "rationale": "Engineers want to understand the mechanism before trusting it in production; a technical deep-dive with benchmarks builds that confidence."
+        },
+        {
+          "title": "When to Cache and When Not To: A Decision Guide",
+          "methodology": "how_to",
+          "rationale": "A practical decision-tree article lets readers immediately apply the knowledge to their own projects without reading theory first."
+        },
+        {
+          "title": "From 500ms to 50ms: Refactoring a RAG Pipeline with Caching",
+          "methodology": "case_study",
+          "rationale": "A concrete before/after case study with real numbers resonates strongly with engineers who evaluate ideas by seeing them in practice."
+        }
+      ]
+    }
+  }
+}

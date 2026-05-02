@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockRouteJsonChat = vi.fn();
 
@@ -101,5 +103,45 @@ describe('proposeAngles stage', () => {
 
     const callArg = mockRouteJsonChat.mock.calls[0][0] as { user: string };
     expect(callArg.user).toContain('Senior engineers');
+  });
+});
+
+describe('proposeAngles stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: {
+        brief: typeof brief;
+        profile: typeof profile & { createdAt: string };
+        clarifications: Array<{ question: string; answer: string }>;
+      };
+      expected: { snapshot: { angles: typeof threeAngles.angles } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/propose_angles/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude',
+      modelClass: 'smart',
+      promptTokens: 15,
+      completionTokens: 80,
+      latencyMs: 200,
+    });
+
+    const { proposeAngles } = await import(
+      '../../../src/server/pipeline/stages/propose-angles'
+    );
+    const ctx = makeCtx();
+    const input = {
+      ...fixture.input,
+      profile: { ...fixture.input.profile, createdAt: new Date(fixture.input.profile.createdAt) },
+    };
+    const result = await proposeAngles.run(input, ctx);
+
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

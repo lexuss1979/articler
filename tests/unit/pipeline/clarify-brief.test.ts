@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockRouteJsonChat = vi.fn();
 
@@ -79,5 +81,39 @@ describe('clarifyBrief stage', () => {
 
     expect(result.questions).toHaveLength(0);
     expect(ctx._emitted[1][1]).toMatchObject({ count: 0 });
+  });
+});
+
+describe('clarifyBrief stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: { brief: typeof brief; profile: typeof profile & { createdAt: string } };
+      expected: { snapshot: { questions: string[] } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/clarify_brief/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude',
+      modelClass: 'smart',
+      promptTokens: 10,
+      completionTokens: 5,
+      latencyMs: 100,
+    });
+
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    const input = {
+      ...fixture.input,
+      profile: { ...fixture.input.profile, createdAt: new Date(fixture.input.profile.createdAt) },
+    };
+    const result = await clarifyBrief.run(input, ctx);
+
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

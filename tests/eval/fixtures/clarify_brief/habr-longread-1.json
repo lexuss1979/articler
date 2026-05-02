@@ -1,0 +1,32 @@
+{
+  "input": {
+    "brief": {
+      "topic": "Prompt caching in large language models",
+      "goal": "Help backend engineers understand when and how to use prompt caching to cut costs and latency",
+      "notes": "Target audience already knows what LLMs are but hasn't used caching APIs",
+      "sourceArticles": []
+    },
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  },
+  "expected": {
+    "schemaRef": "clarifyBrief.outputSchema",
+    "snapshot": {
+      "questions": [
+        "Which LLM providers should the article cover — Anthropic, OpenAI, Google, or all three?",
+        "Should the article include concrete cost-calculation examples with real token prices?"
+      ]
+    }
+  }
+}

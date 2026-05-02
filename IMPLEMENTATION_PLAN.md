@@ -1315,7 +1315,7 @@ wire them into the harness.
           not call the repo.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-5-12: Eval fixtures for `clarify_brief`, `propose_angles`, `build_plan`
+- [x] T-5-12: Eval fixtures for `clarify_brief`, `propose_angles`, `build_plan`
       Goal: Capture one input/expected snapshot per planning stage so
       the Epic 12 harness can replay them verbatim.
       Touches: `tests/eval/fixtures/clarify_brief/habr-longread-1.json`,

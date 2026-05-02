@@ -1,0 +1,116 @@
+{
+  "input": {
+    "brief": {
+      "topic": "Prompt caching in large language models",
+      "goal": "Help backend engineers understand when and how to use prompt caching to cut costs and latency",
+      "notes": "Target audience already knows what LLMs are but hasn't used caching APIs",
+      "sourceArticles": []
+    },
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    "angle": {
+      "title": "The 90% Cost Cut: Prompt Caching Under the Hood",
+      "methodology": "deep_dive",
+      "rationale": "Engineers want to understand the mechanism before trusting it in production; a technical deep-dive with benchmarks builds that confidence."
+    },
+    "clarifications": [
+      {
+        "question": "Which LLM providers should the article cover — Anthropic, OpenAI, Google, or all three?",
+        "answer": "Focus on Anthropic (Claude) with brief mentions of OpenAI for comparison"
+      },
+      {
+        "question": "Should the article include concrete cost-calculation examples with real token prices?",
+        "answer": "Yes, include a worked example with actual API pricing"
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "buildPlan.outputSchema",
+    "snapshot": {
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "sections": [
+        {
+          "id": "intro",
+          "title": "Why Your LLM Costs Are Higher Than They Need to Be",
+          "intent": "Hook the reader with a concrete cost-pain scenario; introduce caching as the solution.",
+          "expectedLength": 400,
+          "keyPoints": [
+            "A typical RAG call re-sends the same 10k-token system prompt every time",
+            "That's ~$0.03 per call multiplied by millions of requests",
+            "Prompt caching changes the economics fundamentally"
+          ]
+        },
+        {
+          "id": "mechanics",
+          "title": "How Prompt Caching Works: Tokens, TTL, and Cache Keys",
+          "intent": "Explain the technical mechanism: what gets cached, for how long, and how the provider identifies cache hits.",
+          "expectedLength": 900,
+          "keyPoints": [
+            "Cache is keyed on the exact prefix of the messages array",
+            "Anthropic's TTL is 5 minutes (extendable via usage)",
+            "Input tokens on a cache hit cost ~10% of full price",
+            "cache_control breakpoint markers in the API"
+          ]
+        },
+        {
+          "id": "when-to-cache",
+          "title": "When Caching Pays Off (and When It Doesn't)",
+          "intent": "Give engineers a decision framework: which call patterns benefit most and which don't.",
+          "expectedLength": 700,
+          "keyPoints": [
+            "High-frequency calls with a stable large prefix are ideal",
+            "One-off calls or rapidly changing contexts see little benefit",
+            "Multi-turn chat with a long system prompt is a perfect candidate",
+            "Short contexts where prefix is <1k tokens are rarely worth caching"
+          ]
+        },
+        {
+          "id": "implementation",
+          "title": "Step-by-Step: Adding Caching to a Claude API Call",
+          "intent": "Walk through a concrete code example showing the before/after diff and the resulting cost calculation.",
+          "expectedLength": 1000,
+          "keyPoints": [
+            "Original call: 12k tokens, $0.036 each",
+            "After cache_control marker: first call $0.036, subsequent hits $0.004",
+            "Code snippet in Python using the official SDK",
+            "Measuring cache hit rate via usage.cache_read_input_tokens"
+          ]
+        },
+        {
+          "id": "comparison",
+          "title": "Anthropic vs. OpenAI: How the Implementations Differ",
+          "intent": "Brief comparison so readers can apply the concept if they use multiple providers.",
+          "expectedLength": 500,
+          "keyPoints": [
+            "OpenAI uses automatic prompt caching with no explicit markers",
+            "Anthropic requires explicit cache_control breakpoints",
+            "TTL and pricing tiers differ — show a side-by-side table"
+          ]
+        },
+        {
+          "id": "conclusion",
+          "title": "Summary and Checklist",
+          "intent": "Recap key points as an actionable checklist readers can bookmark.",
+          "expectedLength": 300,
+          "keyPoints": [
+            "Identify stable large prefixes in your existing LLM calls",
+            "Add cache_control markers and instrument cache hit rate",
+            "Re-evaluate TTL strategy for long sessions"
+          ]
+        }
+      ]
+    }
+  }
+}
