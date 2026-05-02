@@ -1763,7 +1763,7 @@ is captured.
           (empty `contentMd`, instruction longer than 1000 chars).
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-7-4: `draft_section` stage
+- [x] T-7-4: `draft_section` stage
       Goal: A `Stage` that writes the markdown body for a single
       section, given the profile, the locked plan, the section spec,
       the accepted sources for that section, the previously-drafted
