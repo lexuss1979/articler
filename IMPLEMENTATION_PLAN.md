@@ -982,14 +982,367 @@ yet — this epic wires the plumbing.
         - `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm e2e`
           all exit 0.
 
-<!-- PLANING_CHECKPOINT -->
+---
 
 ## Epic 5 — Briefing + planning stages
 
-**Status: TBD**
-Intent: implement `clarify_brief`, `propose_angles`, `build_plan`
-stages with the smart model. Plan editor UI (tree view, inline edit,
-approve to lock). Unit tests with a stub LLM; eval fixtures recorded.
+**Status: planned**
+**Goal:** A logged-in user with a profile and a session can fill in a
+brief in the workbench, watch the runner clarify it (if needed), pick
+one of 2–4 proposed angle/methodology candidates, edit the resulting
+structured plan, and lock it — at which point the session transitions
+to `research`. The smart model is invoked through the existing model
+router with structured-JSON output and a stubbed LLM in unit tests.
+Eval fixtures are captured for the three new stages so Epic 12 can
+wire them into the harness.
+
+### Tasks
+
+- [x] T-5-1: Brief Zod schema + types
+      Goal: A typed schema describing what the briefing form collects
+      and what the planning stages consume — shared between client and
+      server.
+      Touches: `src/server/sessions/brief.ts`,
+      `tests/unit/sessions/brief.test.ts`.
+      Acceptance:
+        - Exports `briefSchema` (Zod) with: `topic` (1..200 chars),
+          `goal` (string, max 500, default `''`), `notes` (string,
+          max 2000, default `''`), `sourceArticles` (array of
+          `{ url: z.string().url(), content: z.string().min(1) }`,
+          default `[]`).
+        - Exports `BriefInput = z.infer<typeof briefSchema>` and
+          `briefSchema.parse({})` rejects (topic is required) while
+          `briefSchema.parse({ topic: 'x' })` returns defaults filled
+          in.
+        - Unit test asserts: a valid payload parses; missing `topic`
+          fails with the error on `topic`; `sourceArticles` with a
+          malformed URL fails with the error on the array element's
+          `url` path.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-5-2: Plan + angle Zod schemas + types
+      Goal: Typed shapes for the angle/methodology candidates from
+      `propose_angles` and the structured plan from `build_plan`.
+      Touches: `src/server/sessions/plan.ts`,
+      `tests/unit/sessions/plan.test.ts`.
+      Acceptance:
+        - Exports `angleSchema` (Zod) with `title` (1..160), `methodology`
+          (1..80 — names like `aida`, `pas`, `inverted_pyramid`,
+          `listicle`, `deep_dive`, `how_to`, `case_study` allowed as
+          free strings; no enum lock-in yet), `rationale` (1..600).
+        - Exports `planSectionSchema` with `id` (1..40, slug-like),
+          `title` (1..160), `intent` (1..400), `expectedLength`
+          (positive int, words), `keyPoints` (array of 1..200-char
+          strings, length 1..10).
+        - Exports `planSchema` with `thesis` (1..400),
+          `targetTakeaway` (1..400), `sections` (array of
+          `planSectionSchema`, length 2..20).
+        - Exports `Angle`, `PlanSection`, `Plan` as
+          `z.infer<...>` aliases.
+        - Unit test asserts: a hand-built valid plan parses; a plan
+          with a single section fails on `sections`; a section with an
+          empty `keyPoints` fails on that path.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-5-3: Session repo helpers — `updateSessionBrief` / `updateSessionPlan`
+      Goal: Persist the brief and plan JSONB columns through the same
+      user-scoped repo style as `updateSessionState`.
+      Touches: `src/server/sessions/repo.ts`,
+      `tests/unit/sessions/repo.test.ts`.
+      Acceptance:
+        - Exports `updateSessionBrief(userId: number, id: number,
+          brief: BriefInput)` and `updateSessionPlan(userId: number,
+          id: number, plan: Plan)` returning the updated row or `null`
+          when the row is not owned by `userId`.
+        - Both helpers always filter the `WHERE` by `id` AND
+          `user_id`, set `updated_at = now()`, and write the JSONB
+          column verbatim (no merge).
+        - Unit test mocks the drizzle client and asserts: each helper
+          builds a `where` including `user_id`; happy-path returns the
+          row; a non-owned id resolves to `null`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-5-4: Brief form in workbench + submit action
+      Goal: When `session.state === 'briefing'`, the workbench renders
+      a brief form. Submitting saves the brief, transitions the state
+      to `'planning'`, and kicks off the runner.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/brief-form.tsx`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `src/server/pipeline/runner.ts`,
+      `tests/unit/sessions/submit-brief-action.test.ts`.
+      Acceptance:
+        - The session page swaps the workbench placeholder for
+          `<BriefForm />` whenever `session.state === 'briefing'`. The
+          form has fields for `topic`, `goal`, `notes`, plus a
+          dynamic-list editor for `sourceArticles` shown only when
+          `session.mode === 'rewrite'`.
+        - `submitBriefAction(sessionId, formData)` (server action):
+          calls `requireUser`, parses input via `briefSchema`, calls
+          `updateSessionBrief(user.id, sessionId, brief)`, then
+          `updateSessionState(user.id, sessionId, 'planning')`, then
+          fires `startRunner(sessionId, user.id)` without awaiting,
+          then `revalidatePath('/sessions/' + sessionId)`.
+        - On validation failure the action returns `{ ok: false,
+          error: 'validation', issues: ... }` and the page surfaces
+          the message above the form (no throw).
+        - The runner's existing `'briefing'` case (which runs
+          `hello`) is removed — briefing is now driven by the form,
+          not a stage.
+        - Unit test mocks `requireUser`, `updateSessionBrief`,
+          `updateSessionState`, and `startRunner`; asserts: a valid
+          payload calls all three repo/runner helpers in order with
+          the expected args; an invalid payload returns
+          `{ ok: false, error: 'validation' }` and calls neither
+          repo helper.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Notes: The `hello` stage file stays in the tree for reference
+      but the runner stops invoking it. Removing the file is out of
+      scope for this task.
+
+- [ ] T-5-5: Structured-JSON chat helper (`routeJsonChat`)
+      Goal: A thin wrapper over `routeChat` that asks the model for a
+      JSON object, parses it, and validates against a Zod schema —
+      the contract every planning stage uses.
+      Touches: `src/server/llm/structured.ts`,
+      `tests/unit/llm/structured.test.ts`.
+      Acceptance:
+        - Exports `routeJsonChat<T>(args: { system: string; user:
+          string; schema: ZodSchema<T>; class?: 'smart' | 'fast' }):
+          Promise<{ result: T; modelUsed: string; modelClass:
+          ModelClass; promptTokens: number; completionTokens: number;
+          latencyMs: number }>`.
+        - Internally calls `routeChat` with `messages = [{ role:
+          'system', content: system }, { role: 'user', content: user
+          }]` and `response_format: { type: 'json_object' }`. Parses
+          `content` as JSON; on parse failure throws a typed
+          `JsonChatParseError` carrying the raw content. On schema
+          mismatch throws `JsonChatSchemaError` carrying the Zod
+          issues.
+        - Unit test stubs `routeChat` (module-level mock) to return a
+          fixed `content` string and asserts: a valid JSON string
+          matching the schema returns the parsed `result`; an
+          unparseable string throws `JsonChatParseError`; a parseable
+          but schema-invalid string throws `JsonChatSchemaError`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: should the helper retry on a JSON parse
+      failure with a "you returned invalid JSON, retry" message?
+      Default: no — first round must be valid; retries belong in the
+      runner where stage-level error handling lives. Add a
+      `// TODO: consider retry-on-parse-error` comment.
+
+- [ ] T-5-6: `clarify_brief` stage
+      Goal: A `Stage` that asks the smart model whether the brief is
+      ambiguous given the profile, returning a (possibly empty)
+      list of clarifying questions.
+      Touches: `src/server/pipeline/stages/clarify-brief.ts`,
+      `tests/unit/pipeline/clarify-brief.test.ts`.
+      Acceptance:
+        - Exports `clarifyBrief: Stage<{ brief: BriefInput; profile:
+          ProfileRow }, { questions: string[] }>` named
+          `'clarify_brief'`, model class `'smart'`.
+        - `inputSchema` is `z.object({ brief: briefSchema, profile:
+          z.object({ ... required profile fields ... }) })`.
+          `outputSchema` is `z.object({ questions: z.array(z.string()
+          .min(1)).max(8) })`.
+        - `run` builds a system prompt summarizing the profile's
+          format/style/audience and a user prompt containing the
+          brief; calls `routeJsonChat` with the output schema; emits
+          a `task_started` event before the call and a
+          `task_completed` event with `{ count: questions.length }`
+          after.
+        - Unit test passes a stub `ctx` whose `llm.routeJsonChat` (via
+          the new helper, monkey-patched in the test) returns
+          `{ result: { questions: ['Who is this for?'] } }` and
+          asserts: the returned shape matches; the two events were
+          emitted in order with the expected payloads.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Notes: The `ProfileRow` type is the Drizzle inferred row type
+      from `src/server/db/schema.ts`. Reuse it; don't redefine.
+
+- [ ] T-5-7: `propose_angles` stage
+      Goal: A `Stage` that, given brief + profile + (optional)
+      clarifications, asks the smart model for 2–4 angle/methodology
+      candidates with rationale.
+      Touches: `src/server/pipeline/stages/propose-angles.ts`,
+      `tests/unit/pipeline/propose-angles.test.ts`.
+      Acceptance:
+        - Exports `proposeAngles: Stage<{ brief: BriefInput; profile:
+          ProfileRow; clarifications?: Array<{ question: string;
+          answer: string }> }, { angles: Angle[] }>` named
+          `'propose_angles'`, model class `'smart'`.
+        - `outputSchema` enforces `2 <= angles.length <= 4` and each
+          angle conforms to `angleSchema` from T-5-2.
+        - `run` constructs a prompt including the profile's format
+          and audience, the brief, and any clarifications; calls
+          `routeJsonChat`; emits `task_started` and `task_completed`
+          (`{ count }`) events.
+        - Unit test with a stub `routeJsonChat` returning three
+          angles asserts the returned shape and event sequence; a
+          stub returning a single angle causes the stage to throw
+          (output-schema validation rejects it).
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-5-8: `build_plan` stage
+      Goal: A `Stage` that takes the chosen angle and produces a full
+      `Plan` (thesis, takeaway, ordered sections).
+      Touches: `src/server/pipeline/stages/build-plan.ts`,
+      `tests/unit/pipeline/build-plan.test.ts`.
+      Acceptance:
+        - Exports `buildPlan: Stage<{ brief: BriefInput; profile:
+          ProfileRow; angle: Angle; clarifications?: Array<{
+          question: string; answer: string }> }, Plan>` named
+          `'build_plan'`, model class `'smart'`.
+        - `outputSchema` is `planSchema` from T-5-2; total section
+          `expectedLength` should land within the profile's
+          `target_volume_min..target_volume_max` window — the prompt
+          must communicate this, but the schema does not enforce it
+          (the user can edit lengths in the editor).
+        - `run` calls `routeJsonChat` with a system prompt that names
+          the methodology from `angle.methodology` and instructs the
+          model to honor section ordering; emits `task_started`,
+          `task_completed` (`{ sections: plan.sections.length }`).
+        - Unit test stubs `routeJsonChat` to return a hand-built
+          two-section plan and asserts the returned shape and
+          emitted events.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-5-9: Runner — wire real LLM into `ctx` and add `planning` orchestration
+      Goal: Replace the runner's stub `ctx.llm` with the real router,
+      then implement the `'planning'` state as a chained call of
+      `clarify_brief` → optional clarification parking →
+      `propose_angles` → angle-selection parking → `build_plan` →
+      plan-lock parking → state transition to `'research'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-planning.test.ts`.
+      Acceptance:
+        - `ctx.llm` is replaced with `{ routeChat, routeSearch,
+          routeImage, routeJsonChat }` imported from
+          `src/server/llm/router.ts` and `src/server/llm/structured.ts`
+          — no more rejected stubs.
+        - In the `'planning'` case the runner: (a) loads brief +
+          profile via the repos; (b) runs `clarifyBrief` and, if
+          `questions.length > 0`, parks via `ctx.userInput('clarify',
+          z.object({ answers: z.array(z.string().min(1)) }))` and
+          merges the answers as `clarifications`; (c) runs
+          `proposeAngles`, emits `artifact_updated` with
+          `{ kind: 'angles', angles }`, parks via
+          `ctx.userInput('angle_choice', z.object({ index:
+          z.number().int().min(0) }))`; (d) runs `buildPlan` with the
+          chosen angle, persists via `updateSessionPlan`, emits
+          `artifact_updated` with `{ kind: 'plan' }`; (e) parks via
+          `ctx.userInput('plan_lock', z.object({ action:
+          z.literal('lock') }))`; (f) calls
+          `updateSessionState(userId, sessionId, 'research')` and
+          emits `state_changed` with `{ state: 'research' }`.
+        - Unit test stubs the three stage modules with fake `run`
+          functions, stubs the repo helpers, drives the runner with
+          fake `resolveUserInput` calls in sequence (one for
+          clarification answers, one for angle index, one for lock),
+          and asserts the events emitted, the plan persisted, and
+          the final state transition.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Decision needed: do plan edits between `build_plan` and the
+      lock park flow through the runner, or directly via a server
+      action? Default: directly via a `savePlanEditsAction` server
+      action that calls `updateSessionPlan` and emits an
+      `artifact_updated` event — the runner stays parked on
+      `plan_lock` and reads no in-memory plan state, so out-of-band
+      edits are safe.
+
+- [ ] T-5-10: Workbench planning UI — clarifications + angle picker
+      Goal: While the runner is parked on `'clarify'` or
+      `'angle_choice'`, the workbench renders the matching UI driven
+      by the latest SSE event.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/planning-pane.tsx`,
+      `src/app/(app)/sessions/[id]/clarification-form.tsx`,
+      `src/app/(app)/sessions/[id]/angle-picker.tsx`.
+      Acceptance:
+        - When `session.state === 'planning'`, the workbench mounts
+          `<PlanningPane sessionId={id} initialPlan={session.plan} />`
+          (a client component) instead of the placeholder.
+        - `PlanningPane` subscribes to the same SSE stream as
+          `ChatPane` (a small shared hook) and tracks the latest
+          `awaiting_user.prompt` and any `artifact_updated.angles`
+          payload.
+        - When the latest park is `'clarify'` it renders
+          `<ClarificationForm questions={...} />` (one textarea per
+          question); submitting POSTs `{ value: { answers: [...] } }`
+          to `/api/sessions/[id]/respond`.
+        - When the latest park is `'angle_choice'` it renders
+          `<AnglePicker angles={...} />` (cards with title /
+          methodology / rationale and a "Choose" button each);
+          choosing POSTs `{ value: { index: i } }` to the respond
+          endpoint.
+        - Manually verifiable via `pnpm dev` + a stubbed router (a
+          dev-only env flag `LLM_STUB=1` short-circuits routeJsonChat
+          to canned fixtures — see T-5-12 fixtures): submitting a
+          brief lands on the clarification form, then on the angle
+          picker.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Decision needed: how to ship a deterministic LLM stub for
+      manual testing without paying for real calls. Default: an
+      `LLM_STUB` env flag read inside `routeJsonChat` that, when
+      truthy, returns the fixture JSON for the matching stage. Mark
+      with `// TODO: drop once eval harness lands (Epic 12)`.
+
+- [ ] T-5-11: Workbench planning UI — plan editor + lock
+      Goal: After `build_plan` runs, the workbench shows a tree-style
+      editor for the plan; "Lock plan" releases the runner's
+      `plan_lock` park, advancing the session to `'research'`.
+      Touches: `src/app/(app)/sessions/[id]/planning-pane.tsx`,
+      `src/app/(app)/sessions/[id]/plan-editor.tsx`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/save-plan-edits-action.test.ts`.
+      Acceptance:
+        - `PlanEditor` (client component) renders editable inputs for
+          `thesis`, `targetTakeaway`, and per-section `title`,
+          `intent`, `expectedLength`, and `keyPoints` (a list editor).
+          Edits are debounced (500 ms) and POST to a
+          `savePlanEditsAction(sessionId, plan)` server action; on
+          server, the action validates `plan` with `planSchema` and
+          calls `updateSessionPlan(user.id, sessionId, plan)`.
+        - A "Lock plan" button POSTs `{ value: { action: 'lock' } }`
+          to `/api/sessions/[id]/respond`; on success the page
+          re-renders with `session.state === 'research'` (the
+          workbench reverts to the placeholder for now since
+          research is Epic 6).
+        - Unit test mocks `requireUser` and `updateSessionPlan`;
+          asserts: a valid plan calls the repo with the user id,
+          session id, and validated plan; an invalid plan returns
+          `{ ok: false, error: 'validation', issues: ... }` and does
+          not call the repo.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-5-12: Eval fixtures for `clarify_brief`, `propose_angles`, `build_plan`
+      Goal: Capture one input/expected snapshot per planning stage so
+      the Epic 12 harness can replay them verbatim.
+      Touches: `tests/eval/fixtures/clarify_brief/habr-longread-1.json`,
+      `tests/eval/fixtures/propose_angles/habr-longread-1.json`,
+      `tests/eval/fixtures/build_plan/habr-longread-1.json`,
+      `tests/eval/README.md`.
+      Acceptance:
+        - Each fixture is a JSON file with shape `{ "input": {...},
+          "expected": { "schemaRef": "<stage>.outputSchema",
+          "snapshot": {...} } }`. Inputs use a hand-written brief +
+          profile pair targeting a Habr long-read.
+        - `tests/eval/README.md` documents the fixture format in
+          ≤30 lines and lists the three captured fixtures.
+        - A unit test in any of the existing
+          `tests/unit/pipeline/<stage>.test.ts` files loads its
+          fixture's `input` and runs the stage with a stub
+          `routeJsonChat` returning `expected.snapshot`, then asserts
+          the stage's return equals `expected.snapshot`. (One per
+          stage — this proves the fixtures load and the stage's
+          schema accepts the snapshot.)
+        - `pnpm test` exits 0.
+      Notes: No real LLM calls; the eval harness itself ships in
+      Epic 12. These fixtures are scaffolding for that epic and a
+      cross-check that today's stages stay schema-compatible with
+      future model swaps.
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 6 — Source research (Sonar Pro)
 
