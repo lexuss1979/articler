@@ -114,45 +114,51 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
     case 'research': {
       const planParsed = planSchema.safeParse(session.plan);
       if (!planParsed.success) {
-        await ctx.emit('agent_message', { text: 'Session plan is missing or invalid.' });
+        await ctx.emit('agent_message', { text: 'Session plan is missing or invalid.', error: true });
         return;
       }
       const plan = planParsed.data;
 
       const profile = await getProfile(userId, session.profileId);
       if (!profile) {
-        await ctx.emit('agent_message', { text: 'Session profile not found.' });
+        await ctx.emit('agent_message', { text: 'Session profile not found.', error: true });
         return;
       }
 
-      const { hypotheses } = await planSearchHypotheses.run({ plan, profile }, ctx);
-      await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
+      try {
+        const { hypotheses } = await planSearchHypotheses.run({ plan, profile }, ctx);
+        await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
 
-      // TODO: parallelize once budgeting + rate limits land
-      for (const hypothesis of hypotheses) {
-        const { queries } = await formulateQueries.run({ hypothesis }, ctx);
-        for (const query of queries) {
-          const { hits } = await webSearch.run({ sessionId, userId, hypothesis, query }, ctx);
-          for (const hit of hits) {
-            const { summary, relevanceScore } = await summarizeSource.run(
-              { hypothesis, query, hit },
-              ctx,
-            );
-            const source = await insertSource(userId, sessionId, {
-              sectionId: hypothesis.sectionId,
-              hypothesis: hypothesis.text,
-              query: query.text,
-              url: hit.url,
-              title: hit.title,
-              rawExcerpt: hit.snippet,
-              summary,
-              relevanceScore,
-            });
-            if (source) {
-              await ctx.emit('artifact_updated', { kind: 'source', source });
+        // TODO: parallelize once budgeting + rate limits land
+        for (const hypothesis of hypotheses) {
+          const { queries } = await formulateQueries.run({ hypothesis }, ctx);
+          for (const query of queries) {
+            const { hits } = await webSearch.run({ sessionId, userId, hypothesis, query }, ctx);
+            for (const hit of hits) {
+              const { summary, relevanceScore } = await summarizeSource.run(
+                { hypothesis, query, hit },
+                ctx,
+              );
+              const source = await insertSource(userId, sessionId, {
+                sectionId: hypothesis.sectionId,
+                hypothesis: hypothesis.text,
+                query: query.text,
+                url: hit.url,
+                title: hit.title,
+                rawExcerpt: hit.snippet,
+                summary,
+                relevanceScore,
+              });
+              if (source) {
+                await ctx.emit('artifact_updated', { kind: 'source', source });
+              }
             }
           }
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await ctx.emit('agent_message', { text: `Research failed: ${msg}`, error: true });
+        return;
       }
 
       await ctx.userInput('research_done', z.object({ action: z.literal('finish') }));

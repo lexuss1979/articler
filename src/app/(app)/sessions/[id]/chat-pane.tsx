@@ -69,7 +69,7 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
   // Build feed: merge task_started + task_completed pairs, show messages and status changes
   type FeedItem =
     | { key: string; type: 'task'; label: string; done: boolean; detail: string }
-    | { key: string; type: 'message'; text: string }
+    | { key: string; type: 'message'; text: string; error: boolean }
     | { key: string; type: 'status'; state: string };
 
   const feed: FeedItem[] = [];
@@ -91,7 +91,12 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
         taskMap.delete(stage);
       }
     } else if (e.kind === 'agent_message') {
-      feed.push({ key: `msg-${i}`, type: 'message', text: (e.payload.text as string) ?? '' });
+      feed.push({
+        key: `msg-${i}`,
+        type: 'message',
+        text: (e.payload.text as string) ?? '',
+        error: !!(e.payload.error as boolean | undefined),
+      });
     } else if (e.kind === 'state_changed') {
       feed.push({ key: `status-${i}`, type: 'status', state: (e.payload.state as string) ?? '' });
     }
@@ -135,8 +140,13 @@ export function ChatPane({ sessionId }: { sessionId: number }) {
           }
           if (item.type === 'message') {
             return (
-              <div key={item.key} className="mt-1 mb-1 bg-blue-50 rounded px-2 py-1.5">
-                <p className="text-xs text-blue-800">{item.text}</p>
+              <div
+                key={item.key}
+                className={`mt-1 mb-1 rounded px-2 py-1.5 ${item.error ? 'bg-red-50' : 'bg-blue-50'}`}
+              >
+                <p className={`text-xs ${item.error ? 'text-red-700' : 'text-blue-800'}`}>
+                  {item.text}
+                </p>
               </div>
             );
           }
