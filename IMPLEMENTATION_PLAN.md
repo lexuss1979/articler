@@ -782,7 +782,7 @@ yet — this epic wires the plumbing.
           `createSession` rejects an unowned profile id.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-4-4: Sessions list + new-session page
+- [x] T-4-4: Sessions list + new-session page
       Goal: `/sessions` lists the user's sessions; `/sessions/new`
       lets the user pick one of their profiles and create a session,
       then redirects to the session page.
