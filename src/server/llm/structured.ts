@@ -47,7 +47,7 @@ export async function routeJsonChat<T>(args: {
 
   const chatResult =
     modelClass === 'search'
-      ? await routeSearch({ messages, response_format: { type: 'json_object' } })
+      ? await routeSearch({ messages })
       : await routeChat({
           messages,
           class: (modelClass ?? 'smart') as 'smart' | 'fast',
