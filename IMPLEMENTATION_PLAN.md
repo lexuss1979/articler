@@ -1409,7 +1409,7 @@ Eval fixtures are captured for the four new stages.
           violation per schema (e.g. malformed url, score = 150).
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-6-3: Sources repo helpers
+- [x] T-6-3: Sources repo helpers
       Goal: User-scoped persistence for source rows in the same
       cross-table-ownership style as the existing `sessions` repo.
       Touches: `src/server/sessions/sources-repo.ts`,
