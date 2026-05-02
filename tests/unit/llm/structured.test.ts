@@ -43,13 +43,28 @@ describe('routeJsonChat', () => {
     );
   });
 
-  it('throws JsonChatSchemaError when JSON does not match schema', async () => {
+  it('throws JsonChatSchemaError when JSON does not match schema on both attempts', async () => {
     mockRouteChat.mockResolvedValue(makeChatResult('{"answer":123}'));
 
     const { routeJsonChat, JsonChatSchemaError } = await import('../../../src/server/llm/structured');
     await expect(routeJsonChat({ system: 'sys', user: 'q', schema })).rejects.toBeInstanceOf(
       JsonChatSchemaError,
     );
+    expect(mockRouteChat).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries with schema issues in prompt and succeeds on second attempt', async () => {
+    mockRouteChat
+      .mockResolvedValueOnce(makeChatResult('{"answer":123}'))
+      .mockResolvedValueOnce(makeChatResult('{"answer":"fixed","score":5}'));
+
+    const { routeJsonChat } = await import('../../../src/server/llm/structured');
+    const result = await routeJsonChat({ system: 'sys', user: 'q', schema });
+
+    expect(result.result).toEqual({ answer: 'fixed', score: 5 });
+    expect(mockRouteChat).toHaveBeenCalledTimes(2);
+    const retryCall = mockRouteChat.mock.calls[1][0] as { messages: Array<{ content: string }> };
+    expect(retryCall.messages[1].content).toContain('schema validation errors');
   });
 
   it('passes response_format json_object to routeChat', async () => {

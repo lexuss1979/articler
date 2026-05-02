@@ -74,9 +74,19 @@ export async function routeJsonChat<T>(args: {
     }
   }
 
-  const validated = schema.safeParse(parsed);
+  let validated = schema.safeParse(parsed);
   if (!validated.success) {
-    throw new JsonChatSchemaError(validated.error.issues);
+    const issueLines = validated.error.issues
+      .map((i) => `- ${i.path.join('.')}: ${i.message}`)
+      .join('\n');
+    const retryUser =
+      user +
+      `\n\nYour previous response had schema validation errors:\n${issueLines}\nPlease correct and respond with valid JSON only.`;
+    chatResult = await callModel(modelClass, system, retryUser);
+    parsed = tryParse(chatResult.content);
+    if (parsed === undefined) throw new JsonChatParseError(chatResult.content);
+    validated = schema.safeParse(parsed);
+    if (!validated.success) throw new JsonChatSchemaError(validated.error.issues);
   }
 
   return {
