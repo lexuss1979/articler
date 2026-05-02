@@ -34,7 +34,7 @@ const inputSchema = z.object({
 });
 
 const outputSchema = z.object({
-  angles: z.array(angleSchema).min(2).max(4),
+  angles: z.array(angleSchema).min(2).max(6).describe('2-4 distinct angles'),
 });
 
 export const proposeAngles: Stage<

@@ -30,12 +30,12 @@ const inputSchema = z.object({
 });
 
 const clarifyQuestionSchema = z.object({
-  question: z.string().min(1),
-  suggestions: z.array(z.string().min(1)).min(1).max(3),
+  question: z.string().min(1).describe('the clarifying question'),
+  suggestions: z.array(z.string().min(1)).min(1).max(5).describe('2-4 short answer suggestions'),
 });
 
 const outputSchema = z.object({
-  questions: z.array(clarifyQuestionSchema).max(8),
+  questions: z.array(clarifyQuestionSchema).max(8).describe('up to 8 clarifying questions'),
 });
 
 export type ClarifyQuestion = z.infer<typeof clarifyQuestionSchema>;

@@ -8,7 +8,7 @@ const inputSchema = z.object({
 });
 
 const outputSchema = z.object({
-  queries: z.array(searchQuerySchema).min(1).max(2),
+  queries: z.array(searchQuerySchema).min(1).max(4).describe('1-2 search queries'),
 });
 
 export const formulateQueries: Stage<{ hypothesis: Hypothesis }, { queries: SearchQuery[] }> = {
