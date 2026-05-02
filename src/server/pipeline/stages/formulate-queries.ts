@@ -8,7 +8,7 @@ const inputSchema = z.object({
 });
 
 const outputSchema = z.object({
-  queries: z.array(searchQuerySchema).min(1).max(3),
+  queries: z.array(searchQuerySchema).min(1).max(2),
 });
 
 export const formulateQueries: Stage<{ hypothesis: Hypothesis }, { queries: SearchQuery[] }> = {
@@ -21,7 +21,7 @@ export const formulateQueries: Stage<{ hypothesis: Hypothesis }, { queries: Sear
 
     const systemPrompt = [
       `You are a research assistant turning a search hypothesis into concrete web search queries.`,
-      `Produce 1–3 distinct search queries that would find evidence for the hypothesis.`,
+      `Produce 1–2 distinct search queries that would find evidence for the hypothesis.`,
       `Queries should be specific and use search-engine-friendly phrasing.`,
       `Respond ONLY with valid JSON: { "queries": [ { "text": "..." } ] }`,
     ].join('\n');

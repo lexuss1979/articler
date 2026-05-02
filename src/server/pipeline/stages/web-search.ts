@@ -19,12 +19,12 @@ const inputSchema = z.object({
 });
 
 const outputSchema = z.object({
-  hits: z.array(searchHitSchema).max(5),
+  hits: z.array(searchHitSchema).max(3),
   cached: z.boolean(),
 });
 
 const hitsSchema = z.object({
-  hits: z.array(searchHitSchema).max(5),
+  hits: z.array(searchHitSchema).max(3),
 });
 
 export const webSearch: Stage<
@@ -54,7 +54,7 @@ export const webSearch: Stage<
       `Hypothesis context: ${input.hypothesis.text} (evidence kind: ${input.hypothesis.evidenceKind})`,
       // TODO: domain filtering
       `Return ONLY valid JSON: { "hits": [ { "url": "https://...", "title": "...", "snippet": "..." } ] }`,
-      `Include at most 5 hits. Use real, credible sources.`,
+      `Include at most 3 hits. Use real, credible sources.`,
     ].join('\n');
 
     const { result } = await routeJsonChat({

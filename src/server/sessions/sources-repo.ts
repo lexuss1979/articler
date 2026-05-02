@@ -12,6 +12,7 @@ type InsertSourceFields = {
   rawExcerpt: string;
   summary: string;
   relevanceScore: number;
+  status?: SourceStatus;
 };
 
 function ownedSessionIds(userId: number) {
@@ -31,7 +32,7 @@ export async function insertSource(
 
   const [row] = await db
     .insert(sources)
-    .values({ ...fields, sessionId, status: 'proposed' })
+    .values({ ...fields, sessionId, status: fields.status ?? 'proposed' })
     .returning();
   return row!;
 }

@@ -45,7 +45,7 @@ const inputSchema = z.object({
 });
 
 const outputSchema = z.object({
-  hypotheses: z.array(searchHypothesisSchema).min(1).max(40),
+  hypotheses: z.array(searchHypothesisSchema).min(1).max(8),
 });
 
 export const planSearchHypotheses: Stage<
@@ -72,8 +72,10 @@ export const planSearchHypotheses: Stage<
       `Target takeaway for readers: ${input.plan.targetTakeaway}`,
       `Platform: ${input.profile.name} (${input.profile.format}).`,
       `Audience: ${input.profile.audience}. Tone: ${input.profile.style}.`,
-      `For each section listed below, produce 1–3 search hypotheses.`,
+      `Produce a focused set of up to 8 search hypotheses in total across all sections.`,
+      `Assign at most 1 hypothesis per section; only the most evidence-heavy sections get 2.`,
       `Each hypothesis identifies a specific claim to verify or evidence type to find.`,
+      `Be selective — fewer, high-value hypotheses beat exhaustive coverage.`,
       `Use exactly the section ids listed — do not invent new ids.`,
       `Respond ONLY with valid JSON: { "hypotheses": [ { "id": "h-1", "sectionId": "<one of the ids below>", "text": "...", "evidenceKind": "statistic|expert_quote|case_study|..." } ] }`,
       `Sections:\n${sectionList}`,

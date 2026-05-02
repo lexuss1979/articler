@@ -23,6 +23,11 @@
           "url": "https://www.anthropic.com/pricing",
           "title": "API Pricing - Anthropic",
           "snippet": "Prompt caching write tokens: $3.75/MTok. Prompt caching read tokens: $0.30/MTok for Claude 3.5 Sonnet."
+        },
+        {
+          "url": "https://openai.com/pricing",
+          "title": "Pricing - OpenAI",
+          "snippet": "Cached input tokens for GPT-4o: $1.25/MTok, a 50% discount on the base input price."
         }
       ],
       "cached": false
