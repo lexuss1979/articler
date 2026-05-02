@@ -696,16 +696,293 @@ Playwright happy-path e2e covers the full CRUD loop.
       attaches, prefer running against `pnpm dev` via the
       `webServer` config; both modes must be supported.
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 4 — Session shell + state machine + SSE bus
 
-**Status: TBD**
-Intent: `sessions` and `events` tables; `runner.ts` state machine;
-`/api/stream/:id` SSE endpoint; session page with two-pane layout
-(workbench + chat); `awaiting_user` round-trip via
-`/api/sessions/:id/respond`. No real LLM stages yet — wire up with a
-"hello" stage.
+**Status: planned**
+**Goal:** A logged-in user can create a session bound to a profile,
+land on a two-pane session page, click "Start", and observe the
+runner execute a no-op `hello` stage end-to-end: emit an
+`agent_message`, park on `userInput`, accept the user's response via
+`/api/sessions/:id/respond`, and advance the session state to `done`.
+Events are persisted in the `events` table and streamed live to the
+chat pane via `/api/stream/[sessionId]` (SSE). No real LLM stages
+yet — this epic wires the plumbing.
+
+### Tasks
+
+- [x] T-4-1: `sessions` table — schema + migration; tighten `runs.session_id`
+      Goal: Persist sessions per user with all forward-compatible JSONB
+      slots from `ARCHITECTURE.md` §4 in place, and add the `runs ⇄
+      sessions` FK that was deferred in T-2-3.
+      Touches: `src/server/db/schema.ts`, `drizzle/0003_*.sql`
+      (generated).
+      Acceptance:
+        - `schema.ts` adds a `sessions` table with columns:
+          `id` (serial PK), `user_id` (integer NOT NULL, FK to
+          `users.id` ON DELETE CASCADE), `profile_id` (integer NOT
+          NULL, FK to `profiles.id` ON DELETE RESTRICT), `mode` (text
+          NOT NULL — `'new' | 'rewrite'`), `state` (text NOT NULL,
+          default `'briefing'`), `brief` (jsonb, nullable), `plan`
+          (jsonb, nullable), `draft_md` (text, nullable),
+          `active_critics` (jsonb, nullable), `decoration` (jsonb,
+          nullable), `images` (jsonb, nullable), `created_at`
+          (timestamp default now NOT NULL), `updated_at` (timestamp
+          default now NOT NULL).
+        - `runs.session_id` is altered to add a FK to `sessions.id`
+          (ON DELETE SET NULL — keep run history when a session is
+          deleted).
+        - `pnpm db:generate` produces a new SQL migration that, applied
+          via `pnpm db:migrate` against the compose DB, creates the
+          table and the FK.
+        - Re-running `pnpm db:migrate` is a no-op.
+        - `pnpm typecheck` exits 0.
+      Decision needed: `profile_id` delete behavior. Default: RESTRICT
+      so a profile with sessions cannot be silently deleted; the user
+      must archive or remove sessions first. Decision needed: encode
+      `state` as Postgres enum or text. Default: text — the state list
+      will keep changing across epics and text avoids churn.
+
+- [ ] T-4-2: `events` table — schema + migration
+      Goal: Persistent activity log feeding the chat pane. Each event
+      has a kind and a JSONB payload, ordered by `ts`.
+      Touches: `src/server/db/schema.ts`, `drizzle/0004_*.sql`
+      (generated).
+      Acceptance:
+        - `schema.ts` adds an `events` table with columns: `id`
+          (serial PK), `session_id` (integer NOT NULL, FK to
+          `sessions.id` ON DELETE CASCADE), `ts` (timestamp default
+          now NOT NULL), `kind` (text NOT NULL), `payload` (jsonb NOT
+          NULL DEFAULT `'{}'::jsonb`).
+        - An index on `(session_id, id)` exists so the SSE replay can
+          page in insertion order.
+        - `pnpm db:generate` produces a new SQL migration; applied
+          against the compose DB it creates the table and index;
+          re-running is a no-op.
+        - `pnpm typecheck` exits 0.
+
+- [ ] T-4-3: Session repo helpers (user-scoped)
+      Goal: Repo module mirroring `profiles/repo.ts`: every read/write
+      is filtered by `userId` so cross-user access is impossible by
+      construction.
+      Touches: `src/server/sessions/repo.ts`,
+      `tests/unit/sessions/repo.test.ts`.
+      Acceptance:
+        - Exports `listSessions(userId)`, `getSession(userId, id)`,
+          `createSession(userId, input: { profileId: number; mode:
+          'new' | 'rewrite' })`, `updateSessionState(userId, id,
+          state: string)`.
+        - `getSession` and `updateSessionState` resolve to `null` /
+          no row affected when the row is not owned by `userId`; both
+          always filter by `id` AND `user_id`.
+        - `createSession` validates that the supplied `profileId`
+          belongs to `userId` (a single SQL existence check) and
+          throws a typed `ProfileNotOwnedError` otherwise.
+        - Unit test mocks the drizzle client and asserts: each helper
+          builds a `where` including the `user_id` predicate;
+          `createSession` rejects an unowned profile id.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-4-4: Sessions list + new-session page
+      Goal: `/sessions` lists the user's sessions; `/sessions/new`
+      lets the user pick one of their profiles and create a session,
+      then redirects to the session page.
+      Touches: `src/app/(app)/sessions/page.tsx`,
+      `src/app/(app)/sessions/new/page.tsx`,
+      `src/app/(app)/sessions/actions.ts`.
+      Acceptance:
+        - `/sessions` is a server component awaiting `requireUser()`
+          and `listSessions(user.id)`; renders a list of sessions
+          showing `id`, `state`, `created_at`, and a link to
+          `/sessions/[id]`. A header link "New session" points to
+          `/sessions/new`.
+        - `/sessions/new` lists the user's profiles (via
+          `listProfiles`); shows a form with a profile select and a
+          `mode` select (`new`, `rewrite`); a server action
+          `createSessionAction` creates the row via
+          `createSession(user.id, ...)` and `redirect('/sessions/' +
+          id)` on success.
+        - On `ProfileNotOwnedError` the action returns `{ ok: false,
+          error: 'profile_not_owned' }`; the page surfaces it.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [ ] T-4-5: In-memory event bus + persist-and-publish helper
+      Goal: A single module owning the per-session pub/sub used by SSE
+      consumers, plus an `emitEvent` helper that persists to `events`
+      and publishes in one call.
+      Touches: `src/server/events/bus.ts`,
+      `tests/unit/events/bus.test.ts`.
+      Acceptance:
+        - Exports `subscribe(sessionId: number, listener: (e:
+          PersistedEvent) => void): () => void` returning an
+          unsubscribe function. Implementation uses Node's
+          `EventEmitter` keyed by session id; supports many
+          subscribers per session.
+        - Exports `emitEvent(sessionId: number, kind: EventKind,
+          payload: unknown): Promise<PersistedEvent>` which inserts
+          into `events`, then synchronously calls every subscriber
+          for that session with the inserted row, then returns it.
+        - Exports an `EventKind` union exactly matching
+          `ARCHITECTURE.md` §11: `'state_changed' | 'task_started' |
+          'task_progress' | 'task_completed' | 'artifact_updated' |
+          'cost_updated' | 'agent_message' | 'awaiting_user'`.
+        - Unit test stubs the drizzle insert, registers two
+          subscribers for the same session id and a third for a
+          different id, calls `emitEvent`, asserts the two matching
+          subscribers received the event and the third did not, and
+          asserts unsubscribe stops further deliveries.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-4-6: SSE route handler `/api/stream/[sessionId]`
+      Goal: Authenticated SSE endpoint that replays the session's
+      stored events and then streams new ones live until the client
+      disconnects.
+      Touches: `src/app/api/stream/[sessionId]/route.ts`,
+      `tests/unit/api/stream.test.ts`.
+      Acceptance:
+        - `GET /api/stream/[sessionId]` calls `requireUser`; if
+          `getSession(user.id, sessionId)` returns `null` it responds
+          with 404. Otherwise it returns a `Response` whose body is a
+          `ReadableStream` with `Content-Type: text/event-stream`,
+          `Cache-Control: no-cache, no-transform`, `Connection:
+          keep-alive`.
+        - On open: writes `event: <kind>\ndata: <json>\n\n` for each
+          row already in `events` for that session, in `id` order;
+          then subscribes via `bus.subscribe` and forwards each new
+          event in the same wire format.
+        - When the client disconnects (`request.signal.aborted` fires)
+          the handler unsubscribes and closes the stream — no
+          dangling subscribers.
+        - Unit test mocks `requireUser`, `getSession`, the events
+          select, and `bus.subscribe`; asserts the response headers,
+          that one stored event is replayed before any live event,
+          and that aborting `request.signal` triggers `unsubscribe`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-4-7: `Stage` type, `StageCtx`, and a `hello` stage
+      Goal: The pipeline contract from `ARCHITECTURE.md` §5 in code,
+      plus one canary stage that exercises every `ctx` capability
+      except the LLM.
+      Touches: `src/server/pipeline/stage.ts`,
+      `src/server/pipeline/stages/hello.ts`,
+      `tests/unit/pipeline/hello.test.ts`.
+      Acceptance:
+        - `stage.ts` exports `type Stage<I, O>` matching the
+          architecture shape (`name`, `modelClass`, `inputSchema`,
+          `outputSchema`, `run`) and a `StageCtx` interface providing
+          `emit(kind, payload)` (delegates to `bus.emitEvent`),
+          `userInput<T>(prompt: string, schema: ZodSchema<T>):
+          Promise<T>` (parks until the runner resolves it), `log`
+          (the JSONL logger pre-tagged with `sessionId` + `stage`),
+          and `llm` (the model router from T-2-5; `hello` does not
+          touch it).
+        - `stages/hello.ts` exports a `Stage<{}, { greeted: true }>`
+          named `hello`, model class `'fast'`, that: (a) emits an
+          `agent_message` "Hi! Type anything to continue.", (b) calls
+          `ctx.userInput('reply', z.object({ text: z.string() }))`,
+          (c) emits `task_completed` with the received text, (d)
+          returns `{ greeted: true }`.
+        - Unit test passes a stub `ctx` whose `userInput` resolves
+          with `{ text: 'world' }` and asserts the three emitted
+          events appear in order with the expected payload shapes.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-4-8: `runner.ts` — state machine with `userInput` parking
+      Goal: A single in-process orchestrator that, for the current
+      session state, runs the matching stage, persists the new state,
+      and exposes a registry the respond endpoint can resolve.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner.test.ts`.
+      Acceptance:
+        - Exports `startRunner(sessionId: number, userId: number):
+          Promise<void>` which: looks up the session via
+          `getSession`, switches on `state`, runs the matching stage
+          (epic 4 only registers `briefing → hello`), then calls
+          `updateSessionState(userId, sessionId, 'done')` after the
+          stage resolves and emits `state_changed` with the new
+          state.
+        - Exports `resolveUserInput(sessionId: number, value:
+          unknown): boolean` returning `true` if a parked input
+          existed and was resolved (validating against the registered
+          Zod schema), `false` otherwise.
+        - The `userInput` implementation registers `{ resolve, reject,
+          schema }` in a `Map<number, Pending>` keyed by `sessionId`
+          before emitting `awaiting_user`. Calling `resolveUserInput`
+          parses the value with the schema, calls `resolve`, and
+          deletes the entry.
+        - Unit test runs `startRunner` against an in-memory stub of
+          `getSession`/`updateSessionState`/`bus.emitEvent` and a
+          fake `hello` stage; asserts that the runner parks on
+          `awaiting_user`, that `resolveUserInput` advances it, and
+          that the final `state_changed` event reports `done`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Notes: Single-process only — adequate for v1 per
+      `ARCHITECTURE.md` §1 ("background jobs deferred"). Multi-replica
+      deployment will require a Redis-backed registry; out of scope.
+
+- [ ] T-4-9: `/api/sessions/[id]/respond` + start-session action
+      Goal: The two endpoints the UI needs to drive a session: one
+      that starts the runner for a session, and one that resolves a
+      parked `userInput`.
+      Touches: `src/app/api/sessions/[id]/respond/route.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/api/respond.test.ts`.
+      Acceptance:
+        - `POST /api/sessions/[id]/respond` calls `requireUser`,
+          checks ownership via `getSession(user.id, id)` (404
+          otherwise), parses `{ value: unknown }` from the JSON body,
+          and returns `{ ok: true }` if `resolveUserInput(id, value)`
+          succeeds, or 409 `{ ok: false, error: 'no_pending_input' }`
+          if no parked input exists, or 400 `{ ok: false, error:
+          'invalid_value' }` if the schema rejects the value.
+        - A server action `startSessionAction(sessionId: number)`
+          (in `sessions/[id]/actions.ts`) calls `requireUser`,
+          verifies ownership, and invokes `startRunner(sessionId,
+          user.id)` — without awaiting it — so the action can return
+          immediately while the runner emits events.
+        - Unit test mocks `requireUser`, `getSession`, and
+          `resolveUserInput`; asserts each branch (200 / 404 / 409 /
+          400) of the respond endpoint.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+      Notes: The respond endpoint is a route handler (not a server
+      action) because it's called from the chat client component via
+      `fetch` and benefits from a typed JSON contract.
+
+- [ ] T-4-10: Session page — two-pane layout + chat over SSE
+      Goal: `/sessions/[id]` renders a workbench placeholder on the
+      left and a chat pane on the right; the chat pane subscribes to
+      `/api/stream/[id]`, renders the event log live, and exposes a
+      "Start" button (initial state) plus a reply input (when the
+      most recent event is `awaiting_user`).
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/chat-pane.tsx`,
+      `tests/e2e/sessions-hello.spec.ts`.
+      Acceptance:
+        - The page is a server component that calls `requireUser`,
+          `getSession`, and on `null` calls `notFound()`. It renders
+          a two-column layout: left column shows a workbench
+          placeholder with the session's `state`; right column
+          mounts the `ChatPane` client component with the session id
+          as a prop.
+        - `ChatPane` opens an `EventSource('/api/stream/' + id)`,
+          appends each incoming event to a list in state, and renders
+          the list as `[kind] payload-summary`. When the latest event
+          kind is `awaiting_user`, it shows a text input + Send
+          button that POSTs `{ value: { text: input } }` to
+          `/api/sessions/[id]/respond`.
+        - A "Start" button (visible while no events have arrived
+          yet, i.e., empty initial event list) invokes
+          `startSessionAction` from T-4-9.
+        - Playwright e2e (`tests/e2e/sessions-hello.spec.ts`):
+          registers + logs in a fresh user, creates a profile,
+          creates a session, opens `/sessions/[id]`, clicks Start,
+          waits for the agent_message text "Hi!" to appear, types
+          "world" into the reply box, clicks Send, and asserts a
+          `state_changed` entry mentioning `done` appears. `pnpm e2e`
+          passes.
+        - `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm e2e`
+          all exit 0.
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 5 — Briefing + planning stages
 

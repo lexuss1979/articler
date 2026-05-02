@@ -23,9 +23,29 @@ export const profiles = pgTable('profiles', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const sessions = pgTable('sessions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  profileId: integer('profile_id')
+    .notNull()
+    .references(() => profiles.id, { onDelete: 'restrict' }),
+  mode: text('mode').notNull(),
+  state: text('state').notNull().default('briefing'),
+  brief: jsonb('brief'),
+  plan: jsonb('plan'),
+  draftMd: text('draft_md'),
+  activeCritics: jsonb('active_critics'),
+  decoration: jsonb('decoration'),
+  images: jsonb('images'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const runs = pgTable('runs', {
   id: serial('id').primaryKey(),
-  sessionId: integer('session_id'),
+  sessionId: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
   userId: integer('user_id').references(() => users.id),
   stage: text('stage').notNull(),
   task: text('task').notNull(),
