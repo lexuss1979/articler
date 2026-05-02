@@ -5,9 +5,12 @@ import { requireUser } from '../../../../server/auth/require-user';
 import {
   getSession,
   updateSessionBrief,
+  updateSessionPlan,
   updateSessionState,
 } from '../../../../server/sessions/repo';
 import { briefSchema } from '../../../../server/sessions/brief';
+import { planSchema } from '../../../../server/sessions/plan';
+import type { ZodIssue } from 'zod';
 import { startRunner } from '../../../../server/pipeline/runner';
 
 export async function startSessionAction(sessionId: number): Promise<void> {
@@ -51,4 +54,17 @@ export async function submitBriefAction(
   void startRunner(sessionId, user.id);
   revalidatePath(`/sessions/${sessionId}`);
   return null;
+}
+
+export async function savePlanEditsAction(
+  sessionId: number,
+  plan: unknown,
+): Promise<{ ok: true } | { ok: false; error: 'validation'; issues: ZodIssue[] }> {
+  const user = await requireUser();
+  const parsed = planSchema.safeParse(plan);
+  if (!parsed.success) {
+    return { ok: false, error: 'validation', issues: parsed.error.issues };
+  }
+  await updateSessionPlan(user.id, sessionId, parsed.data);
+  return { ok: true };
 }

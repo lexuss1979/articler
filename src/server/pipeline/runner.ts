@@ -91,7 +91,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
       // Step 3: build plan
       const plan = await buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx);
       await updateSessionPlan(userId, sessionId, plan);
-      await ctx.emit('artifact_updated', { kind: 'plan' });
+      await ctx.emit('artifact_updated', { kind: 'plan', plan });
 
       // Step 4: await plan lock
       await ctx.userInput('plan_lock', z.object({ action: z.literal('lock') }));

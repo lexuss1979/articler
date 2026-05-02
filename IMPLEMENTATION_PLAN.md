@@ -1287,7 +1287,7 @@ wire them into the harness.
       truthy, returns the fixture JSON for the matching stage. Mark
       with `// TODO: drop once eval harness lands (Epic 12)`.
 
-- [ ] T-5-11: Workbench planning UI — plan editor + lock
+- [x] T-5-11: Workbench planning UI — plan editor + lock
       Goal: After `build_plan` runs, the workbench shows a tree-style
       editor for the plan; "Lock plan" releases the runner's
       `plan_lock` park, advancing the session to `'research'`.
