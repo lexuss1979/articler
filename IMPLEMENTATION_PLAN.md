@@ -1933,7 +1933,7 @@ is captured.
           with `{ ok: false, error: 'validation' }`).
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-7-8: Workbench drafting UI — `<DraftingPane />`
+- [x] T-7-8: Workbench drafting UI — `<DraftingPane />`
       Goal: While `session.state === 'drafting'`, the workbench
       streams in section drafts as they land, exposes a "Regenerate"
       control per section (with an optional instruction textarea),
