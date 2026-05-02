@@ -12,7 +12,7 @@ import {
 import { briefSchema } from '../../../../server/sessions/brief';
 import { planSchema } from '../../../../server/sessions/plan';
 import type { ZodIssue } from 'zod';
-import { startRunner, resolveUserInput } from '../../../../server/pipeline/runner';
+import { startRunner, resolveUserInput, cancelPendingInput } from '../../../../server/pipeline/runner';
 import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
 import {
   setSourceStatus,
@@ -140,6 +140,23 @@ export async function finishDraftAction(
   await requireUser();
   const resolved = resolveUserInput(sessionId, { action: 'finish' });
   if (!resolved) return { ok: false, error: 'no_pending_draft' };
+  return { ok: true };
+}
+
+const DEV_STATES = ['planning', 'research', 'drafting', 'review'] as const;
+type DevState = (typeof DEV_STATES)[number];
+
+export async function devResetSessionAction(
+  sessionId: number,
+  targetState: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (process.env.NODE_ENV !== 'development') return { ok: false, error: 'not_dev' };
+  if (!DEV_STATES.includes(targetState as DevState)) return { ok: false, error: 'invalid_state' };
+  const user = await requireUser();
+  cancelPendingInput(sessionId);
+  await updateSessionState(user.id, sessionId, targetState as DevState);
+  void startRunner(sessionId, user.id);
+  revalidatePath('/sessions/' + sessionId);
   return { ok: true };
 }
 

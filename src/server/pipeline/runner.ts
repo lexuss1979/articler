@@ -258,3 +258,11 @@ export function resolveUserInput(sessionId: number, value: unknown): boolean {
 export function hasPendingInput(sessionId: number): boolean {
   return pendingInputs.has(sessionId);
 }
+
+export function cancelPendingInput(sessionId: number): void {
+  const pending = pendingInputs.get(sessionId);
+  if (pending) {
+    pendingInputs.delete(sessionId);
+    pending.reject(new Error('Session reset'));
+  }
+}

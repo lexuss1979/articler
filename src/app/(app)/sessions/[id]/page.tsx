@@ -9,6 +9,7 @@ import { ChatPane } from './chat-pane';
 import { PlanningPane } from './planning-pane';
 import { ResearchPane } from './research-pane';
 import { DraftingPane } from './drafting-pane';
+import { DevResetPanel } from './dev-reset-panel';
 
 export default async function SessionPage({
   params,
@@ -46,6 +47,9 @@ export default async function SessionPage({
         <div className="shrink-0 px-4 py-3 border-b">
           <h2 className="text-sm font-medium text-gray-500">Workbench</h2>
         </div>
+        {process.env.NODE_ENV === 'development' && (
+          <DevResetPanel sessionId={id} currentState={session.state} />
+        )}
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {session.state === 'briefing' ? (
             <BriefForm sessionId={id} isRewrite={session.mode === 'rewrite'} />
