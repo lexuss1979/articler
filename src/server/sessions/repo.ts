@@ -1,6 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { profiles, sessions } from '../db/schema';
+import type { BriefInput } from './brief';
+import type { Plan } from './plan';
 
 export class ProfileNotOwnedError extends Error {
   constructor() {
@@ -39,6 +41,24 @@ export async function updateSessionState(userId: number, id: number, state: stri
   const [row] = await db
     .update(sessions)
     .set({ state, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function updateSessionBrief(userId: number, id: number, brief: BriefInput) {
+  const [row] = await db
+    .update(sessions)
+    .set({ brief, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function updateSessionPlan(userId: number, id: number, plan: Plan) {
+  const [row] = await db
+    .update(sessions)
+    .set({ plan, updatedAt: new Date() })
     .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
     .returning();
   return row ?? null;

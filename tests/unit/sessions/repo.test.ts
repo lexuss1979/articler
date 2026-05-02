@@ -133,6 +133,64 @@ describe('createSession', () => {
   });
 });
 
+describe('updateSessionBrief', () => {
+  it('includes user_id and id predicates in where clause', async () => {
+    const { updateSessionBrief } = await import('../../../src/server/sessions/repo');
+    const { eq } = await import('drizzle-orm');
+    const { sessions } = await import('../../../src/server/db/schema');
+
+    const brief = { topic: 'Prompt caching', goal: '', notes: '', sourceArticles: [] };
+    await updateSessionBrief(7, 42, brief);
+
+    const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
+    expect(calls.some(([col, val]) => col === sessions.userId && val === 7)).toBe(true);
+    expect(calls.some(([col, val]) => col === sessions.id && val === 42)).toBe(true);
+  });
+
+  it('returns null when no row matched', async () => {
+    const { updateSessionBrief } = await import('../../../src/server/sessions/repo');
+    dbMocks.updateReturning.mockResolvedValue([]);
+    const brief = { topic: 'X', goal: '', notes: '', sourceArticles: [] };
+    expect(await updateSessionBrief(7, 42, brief)).toBeNull();
+  });
+});
+
+describe('updateSessionPlan', () => {
+  it('includes user_id and id predicates in where clause', async () => {
+    const { updateSessionPlan } = await import('../../../src/server/sessions/repo');
+    const { eq } = await import('drizzle-orm');
+    const { sessions } = await import('../../../src/server/db/schema');
+
+    const plan = {
+      thesis: 'T',
+      targetTakeaway: 'R',
+      sections: [
+        { id: 's1', title: 'S1', intent: 'i', expectedLength: 100, keyPoints: ['kp1'] },
+        { id: 's2', title: 'S2', intent: 'i', expectedLength: 100, keyPoints: ['kp1'] },
+      ],
+    };
+    await updateSessionPlan(7, 42, plan);
+
+    const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
+    expect(calls.some(([col, val]) => col === sessions.userId && val === 7)).toBe(true);
+    expect(calls.some(([col, val]) => col === sessions.id && val === 42)).toBe(true);
+  });
+
+  it('returns null when no row matched', async () => {
+    const { updateSessionPlan } = await import('../../../src/server/sessions/repo');
+    dbMocks.updateReturning.mockResolvedValue([]);
+    const plan = {
+      thesis: 'T',
+      targetTakeaway: 'R',
+      sections: [
+        { id: 's1', title: 'S1', intent: 'i', expectedLength: 100, keyPoints: ['kp1'] },
+        { id: 's2', title: 'S2', intent: 'i', expectedLength: 100, keyPoints: ['kp1'] },
+      ],
+    };
+    expect(await updateSessionPlan(7, 42, plan)).toBeNull();
+  });
+});
+
 describe('updateSessionState', () => {
   it('includes user_id and id predicates in where clause', async () => {
     const { updateSessionState } = await import('../../../src/server/sessions/repo');

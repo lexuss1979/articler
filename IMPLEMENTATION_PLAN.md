@@ -1044,7 +1044,7 @@ wire them into the harness.
           empty `keyPoints` fails on that path.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-5-3: Session repo helpers — `updateSessionBrief` / `updateSessionPlan`
+- [x] T-5-3: Session repo helpers — `updateSessionBrief` / `updateSessionPlan`
       Goal: Persist the brief and plan JSONB columns through the same
       user-scoped repo style as `updateSessionState`.
       Touches: `src/server/sessions/repo.ts`,
