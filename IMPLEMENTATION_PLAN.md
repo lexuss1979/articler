@@ -1131,7 +1131,7 @@ wire them into the harness.
       runner where stage-level error handling lives. Add a
       `// TODO: consider retry-on-parse-error` comment.
 
-- [ ] T-5-6: `clarify_brief` stage
+- [x] T-5-6: `clarify_brief` stage
       Goal: A `Stage` that asks the smart model whether the brief is
       ambiguous given the profile, returning a (possibly empty)
       list of clarifying questions.
