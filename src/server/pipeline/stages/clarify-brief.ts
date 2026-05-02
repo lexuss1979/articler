@@ -29,13 +29,20 @@ const inputSchema = z.object({
   }),
 });
 
-const outputSchema = z.object({
-  questions: z.array(z.string().min(1)).max(8),
+const clarifyQuestionSchema = z.object({
+  question: z.string().min(1),
+  suggestions: z.array(z.string().min(1)).min(1).max(3),
 });
+
+const outputSchema = z.object({
+  questions: z.array(clarifyQuestionSchema).max(8),
+});
+
+export type ClarifyQuestion = z.infer<typeof clarifyQuestionSchema>;
 
 export const clarifyBrief: Stage<
   { brief: BriefInput; profile: ProfileRow },
-  { questions: string[] }
+  { questions: ClarifyQuestion[] }
 > = {
   name: 'clarify_brief',
   modelClass: 'smart',
@@ -51,8 +58,9 @@ export const clarifyBrief: Stage<
       `Target length: ${input.profile.targetVolumeMin}–${input.profile.targetVolumeMax} words.`,
       input.profile.extraPrompt ? `Additional constraints: ${input.profile.extraPrompt}` : '',
       'If the brief is clear and specific enough to begin planning, return an empty questions array.',
-      'Otherwise return up to 8 concise clarifying questions that would materially improve the output.',
-      'Respond ONLY with valid JSON: { "questions": ["..."] }',
+      'Otherwise return up to 8 concise clarifying questions.',
+      'For each question also provide 2–3 short, concrete answer suggestions that cover the most likely choices.',
+      'Respond ONLY with valid JSON: { "questions": [{ "question": "...", "suggestions": ["...", "..."] }] }',
     ]
       .filter(Boolean)
       .join('\n');

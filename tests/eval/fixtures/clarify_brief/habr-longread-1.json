@@ -24,8 +24,22 @@
     "schemaRef": "clarifyBrief.outputSchema",
     "snapshot": {
       "questions": [
-        "Which LLM providers should the article cover — Anthropic, OpenAI, Google, or all three?",
-        "Should the article include concrete cost-calculation examples with real token prices?"
+        {
+          "question": "Which LLM providers should the article cover — Anthropic, OpenAI, Google, or all three?",
+          "suggestions": [
+            "All three major providers",
+            "Focus on Anthropic Claude only",
+            "Anthropic and OpenAI only"
+          ]
+        },
+        {
+          "question": "Should the article include concrete cost-calculation examples with real token prices?",
+          "suggestions": [
+            "Yes, with real pricing tables",
+            "High-level estimates only",
+            "No, focus on concepts"
+          ]
+        }
       ]
     }
   }

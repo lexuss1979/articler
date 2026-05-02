@@ -6,13 +6,14 @@ import { ClarificationForm } from './clarification-form';
 import { AnglePicker } from './angle-picker';
 import { PlanEditor } from './plan-editor';
 import type { Angle, Plan } from '../../../../server/sessions/plan';
+import type { ClarifyQuestion } from '../../../../server/pipeline/stages/clarify-brief';
 
 export function PlanningPane({ sessionId }: { sessionId: number; initialPlan?: unknown }) {
   const events = useSessionEvents(sessionId);
   const [locking, setLocking] = useState(false);
 
   let latestPrompt: string | null = null;
-  let questions: string[] = [];
+  let questions: ClarifyQuestion[] = [];
   let angles: Angle[] = [];
   let plan: Plan | null = null;
 
@@ -23,7 +24,7 @@ export function PlanningPane({ sessionId }: { sessionId: number; initialPlan?: u
     } else if (e.kind === 'artifact_updated') {
       const payload = e.payload as {
         kind: string;
-        questions?: string[];
+        questions?: ClarifyQuestion[];
         angles?: Angle[];
         plan?: Plan;
       };

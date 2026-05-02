@@ -85,7 +85,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
           'clarify',
           z.object({ answers: z.array(z.string().min(1)).length(questions.length) }),
         );
-        clarifications = questions.map((q, i) => ({ question: q, answer: answers[i]! }));
+        clarifications = questions.map((q, i) => ({ question: q.question, answer: answers[i]! }));
       }
 
       // Step 2: propose angles

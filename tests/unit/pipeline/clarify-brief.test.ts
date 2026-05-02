@@ -45,10 +45,15 @@ const brief = {
 
 beforeEach(() => vi.clearAllMocks());
 
+const sampleQuestion = {
+  question: 'Who is your target reader?',
+  suggestions: ['Backend engineers', 'ML researchers', 'Product managers'],
+};
+
 describe('clarifyBrief stage', () => {
   it('emits task_started and task_completed in order, returns questions array', async () => {
     mockRouteJsonChat.mockResolvedValue({
-      result: { questions: ['Who is your target reader?'] },
+      result: { questions: [sampleQuestion] },
       modelUsed: 'claude',
       modelClass: 'smart',
       promptTokens: 10,
@@ -60,7 +65,7 @@ describe('clarifyBrief stage', () => {
     const ctx = makeCtx();
     const result = await clarifyBrief.run({ brief, profile }, ctx);
 
-    expect(result).toEqual({ questions: ['Who is your target reader?'] });
+    expect(result).toEqual({ questions: [sampleQuestion] });
     expect(ctx._emitted.map(([k]) => k)).toEqual(['task_started', 'task_completed']);
     expect(ctx._emitted[1][1]).toMatchObject({ count: 1 });
   });
@@ -82,13 +87,22 @@ describe('clarifyBrief stage', () => {
     expect(result.questions).toHaveLength(0);
     expect(ctx._emitted[1][1]).toMatchObject({ count: 0 });
   });
+
+  it('outputSchema rejects a question with no suggestions', async () => {
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    expect(
+      clarifyBrief.outputSchema.safeParse({
+        questions: [{ question: 'Who?', suggestions: [] }],
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('clarifyBrief stage — fixture: habr-longread-1', () => {
   it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
     type Fixture = {
       input: { brief: typeof brief; profile: typeof profile & { createdAt: string } };
-      expected: { snapshot: { questions: string[] } };
+      expected: { snapshot: unknown };
     };
     const fixture = JSON.parse(
       readFileSync(
