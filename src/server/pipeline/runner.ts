@@ -5,8 +5,9 @@ import { routeChat, routeSearch, routeImage } from '../llm/router';
 import { getProfile } from '../profiles/repo';
 import { briefSchema } from '../sessions/brief';
 import { planSchema } from '../sessions/plan';
-import { getSession, updateSessionPlan, updateSessionState } from '../sessions/repo';
-import { insertSource } from '../sessions/sources-repo';
+import { getSession, updateSessionDraft, updateSessionPlan, updateSessionState } from '../sessions/repo';
+import { insertSource, listSessionSources } from '../sessions/sources-repo';
+import { upsertSectionDraft } from '../sessions/section-drafts-repo';
 import { clarifyBrief } from './stages/clarify-brief';
 import { proposeAngles } from './stages/propose-angles';
 import { buildPlan } from './stages/build-plan';
@@ -14,6 +15,7 @@ import { planSearchHypotheses } from './stages/plan-search-hypotheses';
 import { formulateQueries } from './stages/formulate-queries';
 import { webSearch } from './stages/web-search';
 import { summarizeSource } from './stages/summarize-source';
+import { draftSection } from './stages/draft-section';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -169,6 +171,67 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'drafting');
       await ctx.emit('state_changed', { state: 'drafting' });
+      break;
+    }
+    case 'drafting': {
+      const planParsed = planSchema.safeParse(session.plan);
+      if (!planParsed.success) {
+        await ctx.emit('agent_message', { text: 'Session plan is missing or invalid.', error: true });
+        return;
+      }
+      const plan = planParsed.data;
+
+      const briefParsed = briefSchema.safeParse(session.brief);
+      if (!briefParsed.success) {
+        await ctx.emit('agent_message', { text: 'Session brief is missing or invalid.', error: true });
+        return;
+      }
+      const brief = briefParsed.data;
+
+      const profile = await getProfile(userId, session.profileId);
+      if (!profile) {
+        await ctx.emit('agent_message', { text: 'Session profile not found.', error: true });
+        return;
+      }
+
+      const allSources = await listSessionSources(userId, sessionId);
+      const acceptedSources = allSources.filter((s) => s.status === 'accepted');
+
+      // TODO: consider parallel drafting with a second pass for cohesion
+      const drafted: Array<{ id: string; contentMd: string }> = [];
+      for (const section of plan.sections) {
+        const sectionSources = acceptedSources.filter((s) => s.sectionId === section.id);
+        const prevSections = [...drafted];
+
+        const { contentMd } = await draftSection.run(
+          {
+            profile,
+            plan,
+            section,
+            acceptedSources: sectionSources.map((s) => ({
+              url: s.url,
+              title: s.title,
+              summary: s.summary,
+              rawExcerpt: s.rawExcerpt,
+            })),
+            prevSections,
+            rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
+          },
+          ctx,
+        );
+
+        await upsertSectionDraft(userId, sessionId, section.id, contentMd);
+        drafted.push({ id: section.id, contentMd });
+
+        const draftMd = drafted.map((d) => d.contentMd).join('\n\n');
+        await updateSessionDraft(userId, sessionId, draftMd);
+        await ctx.emit('artifact_updated', { kind: 'section_draft', sectionId: section.id, contentMd });
+      }
+
+      await ctx.userInput('draft_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'review');
+      await ctx.emit('state_changed', { state: 'review' });
       break;
     }
     default:

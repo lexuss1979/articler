@@ -1830,7 +1830,7 @@ is captured.
           predicate.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-7-6: Runner — `'drafting'` state orchestration
+- [x] T-7-6: Runner — `'drafting'` state orchestration
       Goal: When the runner enters the `'drafting'` case it walks the
       plan sections sequentially, calls `draftSection.run` on each,
       upserts the resulting markdown into `section_drafts`, refreshes
