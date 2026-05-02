@@ -175,6 +175,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'drafting');
       await ctx.emit('state_changed', { state: 'drafting' });
+      await startRunner(sessionId, userId);
       break;
     }
     case 'drafting': {
