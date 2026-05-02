@@ -100,7 +100,9 @@ export async function assignSourceSectionAction(
 export async function finishResearchAction(
   sessionId: number,
 ): Promise<{ ok: true } | { ok: false; error: 'no_pending_research' }> {
-  await requireUser();
+  const user = await requireUser();
+  const session = await getSession(user.id, sessionId);
+  if (!session) return { ok: false, error: 'no_pending_research' };
   const resolved = resolveUserInput(sessionId, { action: 'finish' });
   if (!resolved) return { ok: false, error: 'no_pending_research' };
   return { ok: true };

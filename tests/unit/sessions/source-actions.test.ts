@@ -25,8 +25,10 @@ vi.mock('next/cache', () => ({
   revalidatePath: mockRevalidatePath,
 }));
 
+const mockGetSession = vi.fn();
+
 vi.mock('../../../src/server/sessions/repo', () => ({
-  getSession: vi.fn(),
+  getSession: mockGetSession,
   updateSessionBrief: vi.fn(),
   updateSessionPlan: vi.fn(),
   updateSessionState: vi.fn(),
@@ -115,6 +117,7 @@ describe('assignSourceSectionAction', () => {
 
 describe('finishResearchAction', () => {
   it('calls resolveUserInput with {action:finish} and returns ok:true when resolved', async () => {
+    mockGetSession.mockResolvedValue({ id: 10, userId: 7 });
     mockResolveUserInput.mockReturnValue(true);
     const { finishResearchAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
     const result = await finishResearchAction(10);
@@ -124,9 +127,19 @@ describe('finishResearchAction', () => {
   });
 
   it('returns no_pending_research when resolveUserInput returns false', async () => {
+    mockGetSession.mockResolvedValue({ id: 10, userId: 7 });
     mockResolveUserInput.mockReturnValue(false);
     const { finishResearchAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
     const result = await finishResearchAction(10);
     expect(result).toEqual({ ok: false, error: 'no_pending_research' });
+  });
+
+  it('returns no_pending_research when session is not owned (ownership check)', async () => {
+    mockGetSession.mockResolvedValue(null);
+    const { finishResearchAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await finishResearchAction(10);
+    expect(result).toEqual({ ok: false, error: 'no_pending_research' });
+    expect(mockResolveUserInput).not.toHaveBeenCalled();
+    expect(mockGetSession).toHaveBeenCalledWith(7, 10);
   });
 });
