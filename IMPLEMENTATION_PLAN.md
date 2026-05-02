@@ -1183,7 +1183,7 @@ wire them into the harness.
           (output-schema validation rejects it).
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-5-8: `build_plan` stage
+- [x] T-5-8: `build_plan` stage
       Goal: A `Stage` that takes the chosen angle and produces a full
       `Plan` (thesis, takeaway, ordered sections).
       Touches: `src/server/pipeline/stages/build-plan.ts`,
