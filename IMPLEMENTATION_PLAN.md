@@ -2175,7 +2175,7 @@ for the four new stages.
           spanHash('Hello')`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-4: Critique repo helpers
+- [x] T-8-4: Critique repo helpers
       Goal: User-scoped persistence for critique rounds and findings
       in the same cross-table-ownership style as the existing
       `sources-repo`.
