@@ -169,6 +169,64 @@ describe('GET /api/sessions/[id]/export', () => {
     });
   });
 
+  it('format=pdf returns 503 pdf_unavailable when Chromium fails to launch', async () => {
+    mocks.renderPdfArticleFn.mockRejectedValue(
+      new Error("browserType.launch: Executable doesn't exist at /ms-playwright/chromium-1217/chrome-linux64/chrome"),
+    );
+    const res = await getExport('10', 'format=pdf');
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('pdf_unavailable');
+    expect(body.message).toContain("Executable doesn't exist");
+  });
+
+  it('format=pdf returns 503 pdf_unavailable on missing system libraries', async () => {
+    mocks.renderPdfArticleFn.mockRejectedValue(
+      new Error('error while loading shared libraries: libnspr4.so: cannot open shared object file'),
+    );
+    const res = await getExport('10', 'format=pdf');
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('pdf_unavailable');
+  });
+
+  it('format=pdf returns 500 render_failed for non-launch errors', async () => {
+    mocks.renderPdfArticleFn.mockRejectedValue(new Error('random pdf failure'));
+    const res = await getExport('10', 'format=pdf');
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string; format: string; message: string };
+    expect(body.error).toBe('render_failed');
+    expect(body.format).toBe('pdf');
+    expect(body.message).toBe('random pdf failure');
+  });
+
+  it('format=docx returns 500 render_failed when the renderer throws', async () => {
+    mocks.renderDocxArticleFn.mockRejectedValue(new Error('docx oops'));
+    const res = await getExport('10', 'format=docx');
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string; format: string };
+    expect(body.error).toBe('render_failed');
+    expect(body.format).toBe('docx');
+  });
+
+  it('format=html returns 500 render_failed when the renderer throws', async () => {
+    mocks.renderHtmlArticleFn.mockRejectedValue(new Error('html oops'));
+    const res = await getExport('10', 'format=html');
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string; format: string };
+    expect(body.error).toBe('render_failed');
+    expect(body.format).toBe('html');
+  });
+
+  it('format=md returns 500 render_failed when bundling throws', async () => {
+    mocks.buildZipBundleFn.mockRejectedValue(new Error('zip oops'));
+    const res = await getExport('10', 'format=md');
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string; format: string };
+    expect(body.error).toBe('render_failed');
+    expect(body.format).toBe('md');
+  });
+
   it('format=pdf renders HTML then PDF and returns the PDF bytes', async () => {
     const res = await getExport('10', 'format=pdf');
     expect(res.status).toBe(200);

@@ -30,6 +30,28 @@ async function readAttachmentBytes(
   );
 }
 
+const PDF_LAUNCH_PATTERNS = [
+  /browserType\.launch/i,
+  /Executable doesn't exist/i,
+  /libnspr4/i,
+  /error while loading shared libraries/i,
+  /missing dependencies/i,
+];
+
+function isPdfLaunchFailure(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return PDF_LAUNCH_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+function renderError(format: 'md' | 'html' | 'docx' | 'pdf', err: unknown): Response {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`[export] ${format} render failed:`, err);
+  if (format === 'pdf' && isPdfLaunchFailure(err)) {
+    return Response.json({ error: 'pdf_unavailable', message }, { status: 503 });
+  }
+  return Response.json({ error: 'render_failed', format, message }, { status: 500 });
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -68,53 +90,69 @@ export async function GET(
   const filenameBase = `article-${id}`;
 
   if (format === 'md') {
-    const imageBytes = await readAttachmentBytes(attachments);
-    const zip = await buildZipBundle([
-      { path: 'article.md', bytes: contentMd },
-      ...imageBytes,
-      { path: 'README.txt', bytes: buildAttributionsReadme(attachments, imageState) },
-    ]);
-    return new Response(new Uint8Array(zip), {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${filenameBase}-md.zip"`,
-      },
-    });
+    try {
+      const imageBytes = await readAttachmentBytes(attachments);
+      const zip = await buildZipBundle([
+        { path: 'article.md', bytes: contentMd },
+        ...imageBytes,
+        { path: 'README.txt', bytes: buildAttributionsReadme(attachments, imageState) },
+      ]);
+      return new Response(new Uint8Array(zip), {
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${filenameBase}-md.zip"`,
+        },
+      });
+    } catch (err) {
+      return renderError('md', err);
+    }
   }
 
   if (format === 'html') {
-    const html = await renderHtmlArticle(contentMd, rules);
-    const imageBytes = await readAttachmentBytes(attachments);
-    const zip = await buildZipBundle([
-      { path: 'article.html', bytes: html },
-      ...imageBytes,
-      { path: 'README.txt', bytes: buildAttributionsReadme(attachments, imageState) },
-    ]);
-    return new Response(new Uint8Array(zip), {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${filenameBase}-html.zip"`,
-      },
-    });
+    try {
+      const html = await renderHtmlArticle(contentMd, rules);
+      const imageBytes = await readAttachmentBytes(attachments);
+      const zip = await buildZipBundle([
+        { path: 'article.html', bytes: html },
+        ...imageBytes,
+        { path: 'README.txt', bytes: buildAttributionsReadme(attachments, imageState) },
+      ]);
+      return new Response(new Uint8Array(zip), {
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${filenameBase}-html.zip"`,
+        },
+      });
+    } catch (err) {
+      return renderError('html', err);
+    }
   }
 
   if (format === 'docx') {
-    const buf = await renderDocxArticle({ contentMd, attachments, rules });
-    return new Response(new Uint8Array(buf), {
-      headers: {
-        'Content-Type':
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="${filenameBase}.docx"`,
-      },
-    });
+    try {
+      const buf = await renderDocxArticle({ contentMd, attachments, rules });
+      return new Response(new Uint8Array(buf), {
+        headers: {
+          'Content-Type':
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'Content-Disposition': `attachment; filename="${filenameBase}.docx"`,
+        },
+      });
+    } catch (err) {
+      return renderError('docx', err);
+    }
   }
 
-  const html = await renderHtmlArticle(contentMd, rules);
-  const buf = await renderPdfArticle({ html, attachments });
-  return new Response(new Uint8Array(buf), {
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filenameBase}.pdf"`,
-    },
-  });
+  try {
+    const html = await renderHtmlArticle(contentMd, rules);
+    const buf = await renderPdfArticle({ html, attachments });
+    return new Response(new Uint8Array(buf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filenameBase}.pdf"`,
+      },
+    });
+  } catch (err) {
+    return renderError('pdf', err);
+  }
 }

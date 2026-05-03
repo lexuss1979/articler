@@ -4272,7 +4272,7 @@ Decisions taken (defaults — change before implementation if needed):
           `state='done'` asserts the banner replaces the button.
         - `pnpm typecheck`, `pnpm lint`, `pnpm test` exit 0.
 
-- [ ] T-11-12: Surface render errors as JSON in the export route
+- [x] T-11-12: Surface render errors as JSON in the export route
       Goal: When a renderer throws (e.g. Playwright Chromium can't
       launch in dev/WSL2), the route must return a structured JSON
       error with the right status — never the raw HTML/text error
