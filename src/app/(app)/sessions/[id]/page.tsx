@@ -17,6 +17,7 @@ import { DraftingPane } from './drafting-pane';
 import { ReviewPane } from './review-pane';
 import { DecorationPane } from './decoration-pane';
 import { IllustrationPane } from './illustration-pane';
+import { ExportPane } from './export-pane';
 import { DevResetPanel } from './dev-reset-panel';
 
 export default async function SessionPage({
@@ -140,6 +141,8 @@ export default async function SessionPage({
               plan={illustrationData.plan}
               initialState={illustrationData.imageState}
             />
+          ) : session.state === 'export' || session.state === 'done' ? (
+            <ExportPane sessionId={id} state={session.state} />
           ) : (
             <p className="text-sm text-gray-500">State: {session.state}</p>
           )}

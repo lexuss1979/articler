@@ -4236,7 +4236,7 @@ Decisions taken (defaults — change before implementation if needed):
           returns `false`; asserts `{ ok: true }` on resolve.
         - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
 
-- [ ] T-11-11: `<ExportPane />` + page wiring for `'export'` /
+- [x] T-11-11: `<ExportPane />` + page wiring for `'export'` /
       `'done'` states
       Goal: Workbench pane for the `'export'` state with one
       download button per format and a "Mark as done" action.
