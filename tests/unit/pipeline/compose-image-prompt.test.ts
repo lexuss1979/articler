@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -142,5 +144,48 @@ describe('composeImagePrompt stage', () => {
     );
     const callArgs = mockRouteJsonChat.mock.calls[0][0] as { user: string };
     expect(callArgs.user).toContain('unique-surrounding-token');
+  });
+});
+
+describe('composeImagePrompt stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: {
+        profile: typeof profile;
+        plan: typeof plan;
+        slot: { id: string; kind: 'hero' | 'inline'; brief: string };
+      };
+      expected: { snapshot: typeof minimalPrompt };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/compose_image_prompt/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-opus',
+      modelClass: 'smart' as const,
+      promptTokens: 100,
+      completionTokens: 100,
+      latencyMs: 400,
+    });
+
+    const { composeImagePrompt } = await import(
+      '../../../src/server/pipeline/stages/compose-image-prompt'
+    );
+    const result = await composeImagePrompt.run(
+      {
+        ...fixture.input,
+        profile: {
+          ...fixture.input.profile,
+          createdAt: new Date(fixture.input.profile.createdAt as unknown as string),
+        },
+      } as Parameters<typeof composeImagePrompt.run>[0],
+      makeCtx(),
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

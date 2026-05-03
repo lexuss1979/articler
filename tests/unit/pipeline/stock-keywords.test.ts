@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -89,5 +91,44 @@ describe('stockKeywords stage', () => {
     );
     const callArgs = mockRouteJsonChat.mock.calls[0][0] as { user: string };
     expect(callArgs.user).toContain('unique-brief-token');
+  });
+});
+
+describe('stockKeywords stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: { profile: typeof profile; slot: { brief: string; kind: 'hero' | 'inline' } };
+      expected: { snapshot: { keywords: string[] } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/stock_keywords/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-haiku',
+      modelClass: 'fast' as const,
+      promptTokens: 50,
+      completionTokens: 30,
+      latencyMs: 200,
+    });
+
+    const { stockKeywords } = await import(
+      '../../../src/server/pipeline/stages/stock-keywords'
+    );
+    const result = await stockKeywords.run(
+      {
+        ...fixture.input,
+        profile: {
+          ...fixture.input.profile,
+          createdAt: new Date(fixture.input.profile.createdAt as unknown as string),
+        },
+      } as Parameters<typeof stockKeywords.run>[0],
+      makeCtx(),
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

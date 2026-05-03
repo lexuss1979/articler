@@ -3839,7 +3839,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           to render for `'export' | 'done'`.
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-10-15: Eval fixtures for the new LLM stages
+- [x] T-10-15: Eval fixtures for the new LLM stages
       Goal: One captured input/expected snapshot for each of
       `propose_image_slots`, `compose_image_prompt`, and
       `stock_keywords` so the Epic 12 harness can replay them.

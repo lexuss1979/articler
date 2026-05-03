@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -148,5 +150,44 @@ describe('proposeImageSlots stage', () => {
     expect(mockRouteJsonChat).toHaveBeenCalledTimes(1);
     const callArgs = mockRouteJsonChat.mock.calls[0][0] as { user: string };
     expect(callArgs.user).toBe('');
+  });
+});
+
+describe('proposeImageSlots stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: { profile: typeof profile; plan: typeof plan; sectionDrafts: typeof sectionDrafts };
+      expected: { snapshot: { heroBrief: string; inlineSlots: unknown[] } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/propose_image_slots/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-opus',
+      modelClass: 'smart' as const,
+      promptTokens: 100,
+      completionTokens: 100,
+      latencyMs: 400,
+    });
+
+    const { proposeImageSlots } = await import(
+      '../../../src/server/pipeline/stages/propose-image-slots'
+    );
+    const result = await proposeImageSlots.run(
+      {
+        ...fixture.input,
+        profile: {
+          ...fixture.input.profile,
+          createdAt: new Date(fixture.input.profile.createdAt as unknown as string),
+        },
+      } as Parameters<typeof proposeImageSlots.run>[0],
+      makeCtx(),
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });
