@@ -3414,7 +3414,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
       Notes: image bytes can be large; do NOT store them in the
       events table or in JSONB. Only `localPath` is persisted.
 
-- [ ] T-10-4: `propose_image_slots` stage
+- [x] T-10-4: `propose_image_slots` stage
       Goal: Single-shot smart-model stage that, given the locked
       draft, plan, and profile, proposes one hero slot and 0–N
       inline slots anchored to specific section paragraphs.
