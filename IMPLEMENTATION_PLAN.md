@@ -4138,7 +4138,7 @@ Decisions taken (defaults — change before implementation if needed):
           line appears with its attribution string.
         - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
 
-- [ ] T-11-8: Export route handler
+- [x] T-11-8: Export route handler
       Goal: `GET /api/sessions/:id/export?format=md|html|docx|pdf`
       returns a downloadable artifact gated by ownership and
       session state.
