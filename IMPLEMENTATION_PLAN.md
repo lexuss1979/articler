@@ -2799,7 +2799,7 @@ join image-slot rows the same column can be migrated then.
 
 ### Tasks
 
-- [ ] T-9-1: Decoration domain schemas + paragraph helpers
+- [x] T-9-1: Decoration domain schemas + paragraph helpers
       Goal: Typed shapes for decoration suggestions and the persisted
       `sessions.decoration` payload, plus pure helpers for splitting
       and rejoining a section's markdown by paragraphs.
