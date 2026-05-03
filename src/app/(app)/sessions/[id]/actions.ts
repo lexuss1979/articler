@@ -657,3 +657,14 @@ export async function finishIllustrationAction(
   if (!resolved) return { ok: false, error: 'no_pending_illustration' };
   return { ok: true };
 }
+
+export async function finishExportAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'no_pending_export' }> {
+  const user = await requireUser();
+  const session = await getSession(user.id, sessionId);
+  if (!session) return { ok: false, error: 'no_pending_export' };
+  const resolved = resolveUserInput(sessionId, { action: 'finish' });
+  if (!resolved) return { ok: false, error: 'no_pending_export' };
+  return { ok: true };
+}

@@ -4215,7 +4215,7 @@ Decisions taken (defaults — change before implementation if needed):
           advances to `'done'`.
         - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
 
-- [ ] T-11-10: `finishExportAction` server action
+- [x] T-11-10: `finishExportAction` server action
       Goal: Server action the UI calls to confirm the user is
       done downloading; resolves the runner's `export_done` park.
       Touches: `src/app/(app)/sessions/[id]/actions.ts`,
