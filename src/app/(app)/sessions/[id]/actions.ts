@@ -22,6 +22,32 @@ import { runFactCheck } from '../../../../server/pipeline/run-fact-check';
 import { applyRevisions } from '../../../../server/pipeline/apply-revisions';
 import { runDecoration } from '../../../../server/pipeline/run-decoration';
 import { applyDecoration } from '../../../../server/pipeline/apply-decoration';
+import { runIllustration } from '../../../../server/pipeline/run-illustration';
+import { applyImageSelection } from '../../../../server/pipeline/apply-image';
+import { composeImagePrompt } from '../../../../server/pipeline/stages/compose-image-prompt';
+import { prerenderImages } from '../../../../server/pipeline/stages/prerender-images';
+import { stockKeywords } from '../../../../server/pipeline/stages/stock-keywords';
+import {
+  searchUnsplash,
+  StockUnconfiguredError,
+  StockHttpError,
+} from '../../../../server/images/stock';
+import { saveImageFromUrl } from '../../../../server/images/storage';
+import {
+  appendSlotCandidates,
+  findSlot,
+  setSlotMode,
+  setSlotPrompt,
+} from '../../../../server/sessions/images-repo';
+import {
+  imagePromptSchema,
+  type ImageCandidate,
+  type ImagePrompt,
+  type ImageSlot,
+} from '../../../../server/sessions/images';
+import { getProfile } from '../../../../server/profiles/repo';
+import { emitEvent } from '../../../../server/events/bus';
+import { routeChat, routeImage, routeSearch } from '../../../../server/llm/router';
 import { setSuggestionStatus } from '../../../../server/sessions/decoration-repo';
 import {
   setClaimStatus,
@@ -372,5 +398,262 @@ export async function setActiveCriticsAction(
   const row = await updateSessionActiveCritics(user.id, sessionId, parsed.data);
   if (!row) return { ok: false, error: 'not_found' };
   revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+function makeIllustrationCtx(sessionId: number) {
+  return {
+    emit: (kind: Parameters<typeof emitEvent>[1], payload: unknown) =>
+      emitEvent(sessionId, kind, payload),
+    userInput: () =>
+      Promise.reject(new Error('userInput not available in illustration context')),
+    log: { append: async () => {} },
+    llm: {
+      routeChat: (args: Parameters<typeof routeChat>[0]) => routeChat(args),
+      routeSearch: (args: Parameters<typeof routeSearch>[0]) => routeSearch(args),
+      routeImage: (args: Parameters<typeof routeImage>[0]) => routeImage(args),
+    },
+  };
+}
+
+const slotIdSchema = z.string().min(1).max(60);
+
+export async function startIllustrationAction(
+  sessionId: number,
+): Promise<
+  { ok: true; slotCount: number } | { ok: false; error: 'session_invalid' | 'no_draft' }
+> {
+  const user = await requireUser();
+  const result = await runIllustration({ sessionId, userId: user.id });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function setSlotModeAction(
+  sessionId: number,
+  slotId: unknown,
+  mode: unknown,
+): Promise<
+  { ok: true; slot: ImageSlot } | { ok: false; error: 'validation' | 'not_found' }
+> {
+  const user = await requireUser();
+  const slotIdParsed = slotIdSchema.safeParse(slotId);
+  const modeParsed = z.enum(['generate', 'stock']).safeParse(mode);
+  if (!slotIdParsed.success || !modeParsed.success) {
+    return { ok: false, error: 'validation' };
+  }
+  const slot = await setSlotMode(user.id, sessionId, slotIdParsed.data, modeParsed.data);
+  if (!slot) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true, slot };
+}
+
+export async function composePromptAction(
+  sessionId: number,
+  slotId: unknown,
+): Promise<
+  | { ok: true; prompt: ImagePrompt }
+  | { ok: false; error: 'validation' | 'not_found' | 'session_invalid' }
+> {
+  const user = await requireUser();
+  const slotIdParsed = slotIdSchema.safeParse(slotId);
+  if (!slotIdParsed.success) return { ok: false, error: 'validation' };
+
+  const session = await getSession(user.id, sessionId);
+  if (!session) return { ok: false, error: 'session_invalid' };
+  const planParsed = planSchema.safeParse(session.plan);
+  if (!planParsed.success) return { ok: false, error: 'session_invalid' };
+  const profile = await getProfile(user.id, session.profileId);
+  if (!profile) return { ok: false, error: 'session_invalid' };
+
+  const slot = await findSlot(user.id, sessionId, slotIdParsed.data);
+  if (!slot) return { ok: false, error: 'not_found' };
+
+  const ctx = makeIllustrationCtx(sessionId);
+  const prompt = await composeImagePrompt.run(
+    {
+      profile,
+      plan: planParsed.data,
+      slot: {
+        id: slot.id,
+        kind: slot.kind,
+        sectionId: slot.sectionId,
+        paragraphIndex: slot.paragraphIndex,
+        brief: slot.brief,
+      },
+    },
+    ctx,
+  );
+  const persisted = await setSlotPrompt(user.id, sessionId, slotIdParsed.data, prompt);
+  if (!persisted) return { ok: false, error: 'not_found' };
+
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true, prompt };
+}
+
+export async function savePromptAction(
+  sessionId: number,
+  slotId: unknown,
+  prompt: unknown,
+): Promise<
+  { ok: true; prompt: ImagePrompt } | { ok: false; error: 'validation' | 'not_found' }
+> {
+  const user = await requireUser();
+  const slotIdParsed = slotIdSchema.safeParse(slotId);
+  const promptParsed = imagePromptSchema.safeParse(prompt);
+  if (!slotIdParsed.success || !promptParsed.success) {
+    return { ok: false, error: 'validation' };
+  }
+  const persisted = await setSlotPrompt(
+    user.id,
+    sessionId,
+    slotIdParsed.data,
+    promptParsed.data,
+  );
+  if (!persisted) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true, prompt: promptParsed.data };
+}
+
+export async function prerenderSlotAction(
+  sessionId: number,
+  slotId: unknown,
+): Promise<
+  | { ok: true; candidates: ImageCandidate[] }
+  | { ok: false; error: 'no_prompt' | 'not_found' | 'session_invalid' }
+> {
+  const user = await requireUser();
+  const slotIdParsed = slotIdSchema.safeParse(slotId);
+  if (!slotIdParsed.success) return { ok: false, error: 'not_found' };
+
+  const slot = await findSlot(user.id, sessionId, slotIdParsed.data);
+  if (!slot) return { ok: false, error: 'not_found' };
+  if (!slot.prompt) return { ok: false, error: 'no_prompt' };
+
+  const ctx = makeIllustrationCtx(sessionId);
+  const result = await prerenderImages.run(
+    { sessionId, slotId: slotIdParsed.data, prompt: slot.prompt },
+    ctx,
+  );
+  const persisted = await appendSlotCandidates(
+    user.id,
+    sessionId,
+    slotIdParsed.data,
+    result.candidates,
+  );
+  if (!persisted) return { ok: false, error: 'session_invalid' };
+
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true, candidates: result.candidates };
+}
+
+export async function stockSearchAction(
+  sessionId: number,
+  slotId: unknown,
+): Promise<
+  | { ok: true; candidates: ImageCandidate[] }
+  | { ok: false; error: 'unconfigured' | 'http_error' | 'not_found' }
+> {
+  const user = await requireUser();
+  const slotIdParsed = slotIdSchema.safeParse(slotId);
+  if (!slotIdParsed.success) return { ok: false, error: 'not_found' };
+
+  const session = await getSession(user.id, sessionId);
+  if (!session) return { ok: false, error: 'not_found' };
+  const profile = await getProfile(user.id, session.profileId);
+  if (!profile) return { ok: false, error: 'not_found' };
+
+  const slot = await findSlot(user.id, sessionId, slotIdParsed.data);
+  if (!slot) return { ok: false, error: 'not_found' };
+
+  const ctx = makeIllustrationCtx(sessionId);
+  const kw = await stockKeywords.run(
+    { profile, slot: { brief: slot.brief, kind: slot.kind } },
+    ctx,
+  );
+
+  let unsplash: Awaited<ReturnType<typeof searchUnsplash>>;
+  try {
+    unsplash = await searchUnsplash(kw.keywords);
+  } catch (err) {
+    if (err instanceof StockUnconfiguredError) return { ok: false, error: 'unconfigured' };
+    if (err instanceof StockHttpError) return { ok: false, error: 'http_error' };
+    return { ok: false, error: 'http_error' };
+  }
+
+  const candidates: ImageCandidate[] = [];
+  for (const c of unsplash.candidates) {
+    try {
+      const saved = await saveImageFromUrl({
+        sessionId,
+        slotId: slotIdParsed.data,
+        candidateId: c.id,
+        url: c.sourceUrl,
+      });
+      candidates.push({
+        id: c.id,
+        source: 'stock',
+        localPath: saved.localPath,
+        sourceUrl: c.sourceUrl,
+        thumbUrl: c.thumbUrl,
+        attribution: c.attribution,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  const persisted = await appendSlotCandidates(
+    user.id,
+    sessionId,
+    slotIdParsed.data,
+    candidates,
+  );
+  if (!persisted) return { ok: false, error: 'not_found' };
+
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true, candidates };
+}
+
+export async function selectCandidateAction(
+  sessionId: number,
+  slotId: unknown,
+  candidateId: unknown,
+): Promise<
+  | { ok: true; revisedDraftMd: string }
+  | {
+      ok: false;
+      error:
+        | 'validation'
+        | 'not_found'
+        | 'session_invalid'
+        | 'plan_invalid'
+        | 'section_missing'
+        | 'already_chosen';
+    }
+> {
+  const user = await requireUser();
+  const slotIdParsed = slotIdSchema.safeParse(slotId);
+  const candIdParsed = z.string().min(1).max(80).safeParse(candidateId);
+  if (!slotIdParsed.success || !candIdParsed.success) {
+    return { ok: false, error: 'validation' };
+  }
+  const result = await applyImageSelection({
+    sessionId,
+    userId: user.id,
+    slotId: slotIdParsed.data,
+    candidateId: candIdParsed.data,
+  });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function finishIllustrationAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'no_pending_illustration' }> {
+  await requireUser();
+  const resolved = resolveUserInput(sessionId, { action: 'finish' });
+  if (!resolved) return { ok: false, error: 'no_pending_illustration' };
   return { ok: true };
 }

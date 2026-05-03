@@ -3664,7 +3664,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           v1 supports a single round).
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-11: Illustration server actions + slot helpers
+- [x] T-10-11: Illustration server actions + slot helpers
       Goal: Server actions wiring the pane to the orchestrator,
       per-slot prompt composition, prerender, stock search,
       candidate selection, and the finish handoff.
