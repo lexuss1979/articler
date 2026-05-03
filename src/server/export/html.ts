@@ -5,6 +5,7 @@ import remarkRehype from 'remark-rehype';
 import rehypeRaw from 'rehype-raw';
 import rehypeStringify from 'rehype-stringify';
 import type { MarkupRules } from '../profiles/markup';
+import { ARTICLE_STYLESHEET } from './styles';
 
 type MdHeading = { type: 'heading'; depth: 1 | 2 | 3 | 4 | 5 | 6 };
 type MdRoot = { children: { type: string }[] };
@@ -54,5 +55,5 @@ export async function renderHtmlArticle(
   let body = String(file);
   if (rules.flavor === 'habr') body = applyHabrTweaks(body);
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Article</title></head><body>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Article</title><style>${ARTICLE_STYLESHEET}</style></head><body>${body}</body></html>`;
 }

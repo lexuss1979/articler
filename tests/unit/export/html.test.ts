@@ -31,6 +31,11 @@ describe('renderHtmlArticle', () => {
     expect(html).toContain('<body>');
     expect(html).toContain('</body></html>');
 
+    expect(html).toContain('<style>');
+    expect(html).toContain('max-width: 42rem');
+    expect(html).toContain('font-family');
+    expect(html).toContain('blockquote');
+
     expect(html).toContain('<h1>Title</h1>');
     expect(html).toContain('<h2>Subtitle</h2>');
     expect(html).toContain('<ul>');

@@ -4402,6 +4402,39 @@ Decisions taken (defaults — change before implementation if needed):
       and was chosen to keep download buttons always visible
       below the fold; could be revisited.
 
+- [x] T-11-16: Shared readable stylesheet for HTML and PDF
+      Goal: The exported HTML (and the in-app preview iframe) and
+      the PDF render currently look bare-browser-default, which
+      is ugly. Add one shared editorial stylesheet that both
+      formats use; the preview iframe and the downloaded `.html`
+      pick it up automatically because they share `renderHtmlArticle`.
+      Touches: `src/server/export/styles.ts`,
+      `src/server/export/html.ts`, `src/server/export/pdf.ts`,
+      `tests/unit/export/html.test.ts`.
+      Acceptance:
+        - New module `src/server/export/styles.ts` exports
+          `ARTICLE_STYLESHEET: string` — a short CSS string
+          covering: system-font body, ~42rem container, headings
+          (h1..h6) sizing/spacing, paragraph spacing, responsive
+          centred images with light corner radius, `<sub>` styled
+          as a centred caption under the preceding image, links,
+          `code`/`pre` (GitHub-ish background), blockquote, `hr`,
+          GFM tables.
+        - `renderHtmlArticle` injects `<style>${ARTICLE_STYLESHEET}
+          </style>` into the document `<head>`.
+        - `renderPdfArticle` replaces its local `PRINT_STYLESHEET`
+          with the shared one (so in-app preview, downloaded
+          `.html`, and `.pdf` look consistent).
+        - HTML test asserts the style tag is present and contains
+          a few load-bearing markers (e.g. `max-width:42rem`,
+          `font-family`, `blockquote`).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: kept as a single CSS string (no per-element classes
+      added to the renderer) so we don't have to touch the
+      remark/rehype/docx pipelines. The DOCX renderer keeps its
+      own paragraph/run styling — DOCX has its own format and
+      doesn't consume CSS.
+
 ---
 
 <!-- PLANING_CHECKPOINT -->

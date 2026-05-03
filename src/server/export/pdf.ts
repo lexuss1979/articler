@@ -3,17 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { chromium } from 'playwright';
 import type { ImageAttachment } from './markdown';
-
-const PRINT_STYLESHEET = `
-  body { font-family: system-ui, -apple-system, sans-serif; max-width: 42rem; margin: 0 auto; padding: 2rem; line-height: 1.55; }
-  img { max-width: 100%; height: auto; }
-  pre { background: #f6f8fa; padding: 0.75rem; overflow: auto; }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  blockquote { border-left: 3px solid #d0d7de; margin: 0; padding: 0 0 0 1rem; color: #57606a; }
-`;
+import { ARTICLE_STYLESHEET } from './styles';
 
 function injectPrintStyle(html: string): string {
-  const styleTag = `<style>${PRINT_STYLESHEET}</style>`;
+  const styleTag = `<style>${ARTICLE_STYLESHEET}</style>`;
   if (html.includes('</head>')) return html.replace('</head>', `${styleTag}</head>`);
   return styleTag + html;
 }
