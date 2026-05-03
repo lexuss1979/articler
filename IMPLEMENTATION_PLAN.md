@@ -2242,7 +2242,7 @@ for the four new stages.
           resolve to `null` / `[]`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-6: `run_critic` stage
+- [x] T-8-6: `run_critic` stage
       Goal: A `Stage` that runs one critic persona over the draft
       and returns typed `Finding[]`.
       Touches: `src/server/pipeline/stages/run-critic.ts`,
