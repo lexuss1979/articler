@@ -89,6 +89,14 @@ export async function listRoundFindings(userId: number, roundId: number) {
     .orderBy(asc(critiqueFindings.id));
 }
 
+export async function getFindingForUser(userId: number, findingId: number) {
+  const [row] = await db
+    .select()
+    .from(critiqueFindings)
+    .where(and(eq(critiqueFindings.id, findingId), inArray(critiqueFindings.roundId, ownedRoundIds(userId))));
+  return row ?? null;
+}
+
 export async function setFindingStatus(
   userId: number,
   findingId: number,

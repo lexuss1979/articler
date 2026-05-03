@@ -16,6 +16,10 @@ import { startRunner, resolveUserInput, cancelPendingInput } from '../../../../s
 import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
 import { runReview } from '../../../../server/pipeline/run-review';
 import {
+  setFindingStatus,
+  getFindingForUser,
+} from '../../../../server/sessions/critique-repo';
+import {
   setSourceStatus,
   setSourceSection,
 } from '../../../../server/sessions/sources-repo';
@@ -170,6 +174,56 @@ export async function startReviewAction(
   const user = await requireUser();
   const result = await runReview({ sessionId, userId: user.id });
   if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function dismissFindingAction(
+  sessionId: number,
+  findingId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await setFindingStatus(user.id, findingId, 'dismissed');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function applyFindingAction(
+  sessionId: number,
+  findingId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  // TODO: optionally route through regenerateSection for surgical edit
+  const row = await setFindingStatus(user.id, findingId, 'applied');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function rewriteFromFindingAction(
+  sessionId: number,
+  findingId: number,
+): Promise<
+  | { ok: true; contentMd: string }
+  | { ok: false; error: 'not_found' | 'session_invalid' | 'section_not_found' }
+> {
+  const user = await requireUser();
+  const finding = await getFindingForUser(user.id, findingId);
+  if (!finding) return { ok: false, error: 'not_found' };
+
+  const instruction =
+    '[critic ' + finding.criticId + '] ' + finding.problem + ' — ' + finding.suggestedChange;
+  const result = await regenerateSection({
+    sessionId,
+    userId: user.id,
+    sectionId: (finding.span as { sectionId: string }).sectionId,
+    instruction,
+  });
+
+  if (result.ok) {
+    await setFindingStatus(user.id, findingId, 'rewritten');
+    revalidatePath('/sessions/' + sessionId);
+  }
   return result;
 }
 
