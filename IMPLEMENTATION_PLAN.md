@@ -3545,7 +3545,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           asserts `class: 'fast'` is forwarded.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-8: Unsplash stock provider client
+- [x] T-10-8: Unsplash stock provider client
       Goal: Pure HTTP client that, given keywords, queries the
       Unsplash search-photos endpoint and returns up to 6 normalized
       candidates ready for the slot's candidate list.
