@@ -3196,16 +3196,685 @@ join image-slot rows the same column can be migrated then.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 10 — Image subsystem
 
-**Status: TBD**
-Intent: `propose_image_slots`, `compose_image_prompt`,
-`prerender_images` (NanoBanana + Image 2) stages; structured JSON prompt
-editor; pre-render gallery with selection; stock pathway
-(`stock_keywords` + Unsplash/Pexels/Pixabay search + selection); image
-storage on local volume; references inserted into the draft.
+**Status: planned**
+
+**Goal:** When the user clicks "Finish decoration" the session
+transitions to `'illustration'`. The workbench swaps to an
+`<IllustrationPane />` that lists image slots (one `hero` plus zero or
+more inline slots, each anchored to a section). For each slot the user
+picks **generate** or **stock**. The generate pathway runs
+`compose_image_prompt` (smart) → produces a structured JSON
+`ImagePrompt` the user can edit → `prerender_images` (image class)
+fans out 3 parallel calls to NanoBanana / Image 2 via the existing
+`routeImage` and stores the bytes on disk under
+`data/images/<sessionId>/<slotId>/<candidateId>.<ext>`. The stock
+pathway runs `stock_keywords` (fast) → calls Unsplash via its HTTP API
+and presents thumbnails. In both cases the user picks one candidate;
+the helper inserts a deterministic Markdown image reference into the
+draft (via the same `insertParagraph` / section-draft recompose path as
+Epic 9). When the user clicks "Finish illustration", the runner
+transitions to `'export'` (no export logic yet — Epic 11). Eval
+fixtures captured for the three new LLM stages.
+
+Decision needed: keep image state in `sessions.images` JSONB or split
+into `image_slots` / `image_candidates` tables? Default: **JSONB** on
+`sessions.images` — the column already exists in the schema, the data
+is bounded (≤ 8 slots × ≤ 4 candidates per session), no cross-session
+query is required, and the same persistence pattern works for both
+generated and stock candidates without a polymorphic table.
+
+Decision needed: which stock providers ship in v1 (Unsplash, Pexels,
+Pixabay)? Default: **Unsplash only**. Single API, the most reliable
+free tier, and `UNSPLASH_ACCESS_KEY` is already in `.env.example`.
+Pexels / Pixabay env vars stay reserved; their clients are deferred.
+If the key is missing the stock pathway returns an empty result and
+the UI shows a "stock disabled — set UNSPLASH_ACCESS_KEY" notice.
+
+Decision needed: insert images on per-candidate selection (Epic 9
+decoration pattern) or recompose only on "Finish illustration"?
+Default: **per-selection insertion**, mirroring decoration. First
+selection inserts the Markdown image reference deterministically;
+subsequent re-selections for the same slot update the candidate
+metadata but the v1 UI disables the re-select buttons (a "swap" flow
+is deferred). This keeps the runner contract identical to Epic 9.
+
+### Tasks
+
+- [x] T-10-1: Image domain schemas + slot helpers
+      Goal: Typed shapes for image slots, structured prompts,
+      candidates, and the persisted `sessions.images` payload, plus
+      a pure helper that renders a Markdown image reference for an
+      arbitrary candidate.
+      Touches: `src/server/sessions/images.ts`,
+      `tests/unit/sessions/images-schema.test.ts`.
+      Acceptance:
+        - Exports `imageSlotKindSchema = z.enum(['hero', 'inline'])`.
+        - Exports `imageAspectSchema = z.enum(['16:9', '4:3', '1:1',
+          '3:4'])`.
+        - Exports `imageModeSchema = z.enum(['undecided', 'generate',
+          'stock'])`.
+        - Exports `imageCandidateSourceSchema = z.enum(['generated',
+          'stock'])`.
+        - Exports `imagePromptSchema = z.object({ subject:
+          z.string().min(1).max(600), style: z.string().min(1)
+          .max(200), composition: z.string().min(1).max(400),
+          palette: z.array(z.string().min(1).max(60)).min(1).max(8),
+          lighting: z.string().min(1).max(200), camera:
+          z.string().max(200).optional(), mood: z.string().min(1)
+          .max(200), negative: z.string().max(400).optional(),
+          aspect: imageAspectSchema })`.
+        - Exports `imageCandidateSchema = z.object({ id: z.string()
+          .min(1).max(80), source: imageCandidateSourceSchema,
+          localPath: z.string().min(1).max(400), sourceUrl:
+          z.string().url().optional(), thumbUrl: z.string().url()
+          .optional(), attribution: z.string().max(400).optional(),
+          model: z.string().max(120).optional(), createdAt:
+          z.string() })`.
+        - Exports `imageSlotSchema = z.object({ id: z.string().min(1)
+          .max(60), kind: imageSlotKindSchema, sectionId:
+          z.string().min(1).max(120).optional(), paragraphIndex:
+          z.number().int().min(0).max(500).optional(), brief:
+          z.string().min(1).max(1000), altText: z.string().max(300)
+          .optional(), mode: imageModeSchema.default('undecided'),
+          prompt: imagePromptSchema.optional(), candidates:
+          z.array(imageCandidateSchema).default([]),
+          chosenCandidateId: z.string().max(80).optional() })`. The
+          schema enforces (via `.superRefine`) that `kind === 'inline'`
+          requires both `sectionId` and `paragraphIndex` to be set,
+          and `kind === 'hero'` forbids them.
+        - Exports `imageStateSchema = z.object({ slots:
+          z.array(imageSlotSchema).max(20).default([]) })` and
+          `parseImageState(value: unknown): ImageState` returning
+          `{ slots: [] }` on null/invalid input.
+        - Exports `proposeImageSlotsResponseSchema = z.object({
+          heroBrief: z.string().min(1).max(1000), inlineSlots:
+          z.array(z.object({ sectionId: z.string().min(1).max(120),
+          paragraphIndex: z.number().int().min(0).max(500), brief:
+          z.string().min(1).max(1000) })).max(8) })` — emitted by
+          the `propose_image_slots` stage (no ids; the orchestrator
+          assigns them).
+        - Exports `stockKeywordsResponseSchema = z.object({ keywords:
+          z.array(z.string().min(1).max(60)).min(1).max(8) })`.
+        - Exports type aliases via `z.infer<...>`: `ImageSlotKind`,
+          `ImageAspect`, `ImageMode`, `ImagePrompt`, `ImageCandidate`,
+          `ImageSlot`, `ImageState`, `ProposeImageSlotsResponse`,
+          `StockKeywordsResponse`.
+        - Exports `renderImageMarkdown(candidate: ImageCandidate, alt:
+          string): string` that returns
+          `![alt](localPath)` for `source: 'generated'`,
+          and `![alt](sourceUrl) <sub>${attribution}</sub>` for
+          `source: 'stock'` (omits the `<sub>` if attribution is
+          empty); `alt` is HTML-escaped (`&` → `&amp;`, `[` → `\[`,
+          `]` → `\]`).
+        - Unit test asserts each schema accepts a valid hand-built
+          value and rejects one obvious violation
+          (`palette: []`, `aspect: '21:9'`, `kind: 'inline'` without
+          `sectionId`, candidate without `localPath`); asserts
+          `parseImageState(null)` returns `{ slots: [] }`; asserts
+          `renderImageMarkdown` for a generated candidate equals
+          `'![Hero](/api/images/1/slot_a/c1.png)'` and for a stock
+          candidate includes the attribution; asserts alt with `]`
+          is escaped.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-2: Image persistence helpers (`sessions.images` JSONB)
+      Goal: User-scoped read/write helpers for the image state on the
+      `sessions.images` column, mirroring `decoration-repo.ts`.
+      Touches: `src/server/sessions/images-repo.ts`,
+      `tests/unit/sessions/images-repo.test.ts`.
+      Acceptance:
+        - Exports `getImageState(userId, sessionId):
+          Promise<ImageState>` that loads via `getSession` and runs
+          `parseImageState(session.images)`; returns `{ slots: [] }`
+          on missing/foreign session.
+        - Exports `setImageSlots(userId, sessionId, slots:
+          ImageSlot[]): Promise<ImageSlot[] | null>` that overwrites
+          the slot list (used after `propose_image_slots`); returns
+          the persisted slots or `null` on update miss.
+        - Exports `findSlot(userId, sessionId, slotId):
+          Promise<ImageSlot | null>`.
+        - Exports `updateSlot(userId, sessionId, slotId, mutator:
+          (slot: ImageSlot) => ImageSlot):
+          Promise<ImageSlot | null>` that loads the state, replaces
+          the matching slot, and persists; returns the updated slot
+          or `null` if not found / not owned. All other helpers
+          below are implemented in terms of `updateSlot`.
+        - Exports `setSlotMode(userId, sessionId, slotId, mode:
+          'generate' | 'stock'): Promise<ImageSlot | null>`.
+        - Exports `setSlotPrompt(userId, sessionId, slotId, prompt:
+          ImagePrompt): Promise<ImageSlot | null>`.
+        - Exports `appendSlotCandidates(userId, sessionId, slotId,
+          candidates: ImageCandidate[]): Promise<ImageSlot | null>`
+          that appends; the `id` field is honored as supplied
+          (`prerender_images` and the stock client both assign ids).
+        - Exports `setSlotChoice(userId, sessionId, slotId,
+          candidateId: string): Promise<ImageSlot | null>` that
+          rejects if the candidateId is not present and otherwise
+          stamps `chosenCandidateId`.
+        - Unit tests mock the db client mirroring
+          `tests/unit/sessions/decoration-repo.test.ts`; assert each
+          helper is a no-op (returns `null`) for foreign sessions;
+          assert mode/prompt/candidates round-trip through
+          `parseImageState`; assert `setSlotChoice` rejects an
+          unknown candidate id.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-3: Image file storage utility + serve route
+      Goal: Persist generated bytes (b64) and remote stock URLs to
+      `data/images/<sessionId>/<slotId>/<candidateId>.<ext>` and serve
+      them through a Next.js GET handler so the draft Markdown can
+      reference them as `/api/images/...`.
+      Touches: `src/server/images/storage.ts`,
+      `src/app/api/images/[...path]/route.ts`,
+      `tests/unit/images/storage.test.ts`,
+      `.gitignore` (verify `data/` is already ignored — no change
+      needed if so).
+      Acceptance:
+        - `storage.ts` exports `IMAGES_ROOT = path.resolve(
+          process.cwd(), 'data', 'images')`.
+        - Exports `saveImageFromB64({ sessionId, slotId, candidateId,
+          mime, b64 }): Promise<{ localPath: string; absPath:
+          string }>` that decodes the base64 string into a Buffer,
+          ensures the directory exists via `fs.promises.mkdir`,
+          writes the file with extension derived from `mime`
+          (allowed: `image/png`, `image/jpeg`, `image/webp`; default
+          `png`), and returns
+          `localPath = '/api/images/<sessionId>/<slotId>/<candidate
+          Id>.<ext>'`.
+        - Exports `saveImageFromUrl({ sessionId, slotId, candidateId,
+          url }): Promise<{ localPath: string; absPath: string }>`
+          that fetches via `undici.fetch` (using the same
+          `getDispatcher()` pattern as `openrouter.ts` to honor
+          `HTTP_PROXY`), validates `Content-Type` matches one of
+          the allowed image mimes, and writes the bytes the same
+          way as `saveImageFromB64`.
+        - The GET route `app/api/images/[...path]/route.ts`:
+          - parses `params.path` (string array), rejoins to a
+            relative path, refuses any segment containing `..` or
+            starting with `.` (returns 400);
+          - resolves `path.join(IMAGES_ROOT, relPath)` and asserts
+            the resolved path stays within `IMAGES_ROOT` (else 400);
+          - reads the file via `fs.promises.readFile`; on
+            `ENOENT` returns 404;
+          - sets `Content-Type` from the extension (`.png` →
+            `image/png`, `.jpg`/`.jpeg` → `image/jpeg`, `.webp` →
+            `image/webp`) and `Cache-Control: private, max-age=
+            3600`;
+          - returns the bytes as the response body.
+        - Unit test exercises `saveImageFromB64` with a tiny inline
+          1×1 PNG and asserts the file exists at the returned
+          `absPath`, the bytes match, and `localPath` equals the
+          expected `/api/images/...` URL; uses a tmp directory by
+          monkey-patching `IMAGES_ROOT` via `vi.doMock` or by
+          accepting an injected `root` parameter (whichever keeps
+          tests deterministic — implementer's choice).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Notes: image bytes can be large; do NOT store them in the
+      events table or in JSONB. Only `localPath` is persisted.
+
+- [ ] T-10-4: `propose_image_slots` stage
+      Goal: Single-shot smart-model stage that, given the locked
+      draft, plan, and profile, proposes one hero slot and 0–N
+      inline slots anchored to specific section paragraphs.
+      Touches: `src/server/pipeline/stages/propose-image-slots.ts`,
+      `tests/unit/pipeline/propose-image-slots.test.ts`.
+      Acceptance:
+        - Exports `proposeImageSlots: Stage<{ profile: ProfileRow;
+          plan: Plan; sectionDrafts: Array<{ sectionId: string;
+          contentMd: string }> }, ProposeImageSlotsResponse>` with
+          `name: 'propose_image_slots'`, `modelClass: 'smart'`,
+          `inputSchema` and `outputSchema =
+          proposeImageSlotsResponseSchema`.
+        - System prompt instructs the model to (a) emit exactly one
+          `heroBrief` summarizing the article's central image
+          subject in 1–2 sentences, (b) propose at most 4 inline
+          slots, each anchored to a `sectionId` from the provided
+          sections plus a `paragraphIndex` (split on blank lines),
+          (c) keep each `brief` concrete enough to feed an image
+          generator (subject + tone) without specifying camera or
+          composition (those are picked later by
+          `compose_image_prompt`), (d) prefer slots that introduce
+          a new technical concept or a key contrast, (e) respond
+          with valid JSON `{ heroBrief, inlineSlots }` only.
+        - User prompt mirrors `propose-decoration.ts`: each section
+          rendered as `## ${title} [sectionId=${id}]\n${contentMd}`.
+        - Emits `task_started` and `task_completed` events with
+          `{ stage: 'propose_image_slots', count: heroCount +
+          inlineSlots.length }`.
+        - Calls `routeJsonChat({ system, user, schema:
+          proposeImageSlotsResponseSchema, class: 'smart' })`.
+        - Unit test mocks `routeJsonChat` (vi.mock pattern from
+          `propose-decoration.test.ts`); asserts the returned shape;
+          asserts `class: 'smart'` is passed; asserts the system
+          prompt mentions the hero contract; asserts an empty
+          `sectionDrafts` array still yields a valid call.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-5: `compose_image_prompt` stage
+      Goal: Smart-model stage that produces a structured
+      `ImagePrompt` JSON for a single slot.
+      Touches: `src/server/pipeline/stages/compose-image-prompt.ts`,
+      `tests/unit/pipeline/compose-image-prompt.test.ts`.
+      Acceptance:
+        - Exports `composeImagePrompt: Stage<{ profile: ProfileRow;
+          plan: Plan; slot: { id: string; kind: ImageSlotKind;
+          sectionId?: string; paragraphIndex?: number; brief:
+          string }; surroundingMd?: string }, ImagePrompt>` with
+          `name: 'compose_image_prompt'`, `modelClass: 'smart'`,
+          `outputSchema = imagePromptSchema`.
+        - System prompt instructs the model to fill every required
+          field of `ImagePrompt`; pick `aspect` based on slot kind
+          (default `16:9` for hero, `4:3` for inline); avoid
+          banned content (logos, text overlays, real people unless
+          the brief explicitly names them); respond with valid JSON
+          only.
+        - User prompt includes the slot brief, the
+          surrounding paragraph(s) when provided, and the profile
+          style/audience snippet.
+        - Calls `routeJsonChat` and emits `task_started` /
+          `task_completed` with `{ stage: 'compose_image_prompt',
+          slotId }`.
+        - Unit test mocks `routeJsonChat` to return a minimal
+          valid `ImagePrompt`; asserts the stage returns it
+          unchanged; asserts the input is forwarded into the user
+          prompt (substring match on `slot.brief`).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-6: `prerender_images` stage
+      Goal: Image-class stage that fans out 3 parallel `routeImage`
+      calls for one prompt and persists the bytes via the storage
+      utility.
+      Touches: `src/server/pipeline/stages/prerender-images.ts`,
+      `tests/unit/pipeline/prerender-images.test.ts`.
+      Acceptance:
+        - Exports `prerenderImages: Stage<{ sessionId: number;
+          slotId: string; prompt: ImagePrompt; count?: number }
+          , { candidates: ImageCandidate[] }>` with
+          `name: 'prerender_images'`, `modelClass: 'image'`. The
+          `outputSchema` is `z.object({ candidates:
+          z.array(imageCandidateSchema).min(1).max(4) })`.
+        - Builds a single textual prompt from `ImagePrompt` (e.g.
+          ``${subject} — ${style}, ${composition}, ${lighting},
+          mood: ${mood}; palette: ${palette.join(', ')}; aspect
+          ${aspect}; negative: ${negative ?? 'none'}``).
+        - Spawns `count` (default 3, max 4) parallel `ctx.llm
+          .routeImage({ prompt: text })` calls via `Promise
+          .allSettled`. For each fulfilled result it picks the
+          first element of `data` and:
+          - if `b64_json` is set, calls `saveImageFromB64(...)`;
+          - else if `url` is set, calls `saveImageFromUrl(...)`;
+          - else marks the candidate as failed (skipped).
+        - Each candidate gets `id = 'c_' + Date.now() + '_' +
+          randomBytes(3).toString('hex') + '_' + i`, `source:
+          'generated'`, `model: result.modelUsed`, `createdAt:
+          new Date().toISOString()`.
+        - At least one successful candidate is required; if all
+          fail the stage throws an `Error('prerender_images: all
+          calls failed')`.
+        - Emits `task_started` (`{ stage: 'prerender_images',
+          slotId }`) and `task_completed` (`{ stage:
+          'prerender_images', slotId, count: candidates.length }`).
+        - Unit test mocks `ctx.llm.routeImage` to return a fake
+          response with `b64_json` and mocks `saveImageFromB64`
+          via `vi.mock`; asserts 3 candidates returned, each with
+          a `localPath`; asserts an all-fail run throws.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-7: `stock_keywords` stage
+      Goal: Fast-model stage that turns a slot brief into 3–6
+      stock-photo search keywords.
+      Touches: `src/server/pipeline/stages/stock-keywords.ts`,
+      `tests/unit/pipeline/stock-keywords.test.ts`.
+      Acceptance:
+        - Exports `stockKeywords: Stage<{ profile: ProfileRow;
+          slot: { brief: string; kind: ImageSlotKind } },
+          StockKeywordsResponse>` with `name: 'stock_keywords'`,
+          `modelClass: 'fast'`, `outputSchema =
+          stockKeywordsResponseSchema`.
+        - System prompt instructs the model to emit 3–6 single-word
+          or short-phrase English keywords suitable for Unsplash
+          search (no hashtags, no quotes, no punctuation, lowercase
+          preferred), reflect the brief's subject and tone, avoid
+          brand names, respond with valid JSON only.
+        - Calls `routeJsonChat({ class: 'fast' })`.
+        - Emits `task_started` / `task_completed` with `{ stage:
+          'stock_keywords' }`.
+        - Unit test mocks `routeJsonChat`; asserts result passthrough;
+          asserts `class: 'fast'` is forwarded.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-8: Unsplash stock provider client
+      Goal: Pure HTTP client that, given keywords, queries the
+      Unsplash search-photos endpoint and returns up to 6 normalized
+      candidates ready for the slot's candidate list.
+      Touches: `src/server/images/stock.ts`,
+      `tests/unit/images/stock.test.ts`.
+      Acceptance:
+        - Exports `searchUnsplash(keywords: string[], opts?: { perPage?:
+          number }): Promise<{ candidates: Array<{ id: string; sourceUrl:
+          string; thumbUrl: string; attribution: string }> }>`.
+        - Reads `process.env.UNSPLASH_ACCESS_KEY`; if missing,
+          throws `class StockUnconfiguredError extends Error` (also
+          exported) with message `'UNSPLASH_ACCESS_KEY not set'`.
+        - Calls `https://api.unsplash.com/search/photos?query=
+          <encoded keywords joined by '+'>&per_page=<perPage ?? 6>`
+          with the `Authorization: Client-ID <key>` header via the
+          `undici.fetch` + `getDispatcher()` pattern; surfaces a
+          non-200 response as `class StockHttpError extends Error`
+          (also exported) carrying the status code.
+        - Maps each `result` to
+          `{ id: 'unsplash_' + result.id, sourceUrl: result.urls
+          .regular, thumbUrl: result.urls.small, attribution:
+          'Photo by ' + result.user.name + ' on Unsplash' }`.
+        - Unit test stubs `undici.fetch` (e.g. via `vi.mock(
+          'undici', ...)` or by exporting an injectable
+          `fetchImpl` parameter) and asserts: missing env throws
+          `StockUnconfiguredError`; 200 response yields normalized
+          candidates with the expected attribution string; 401
+          response throws `StockHttpError` with `status === 401`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Notes: Pexels / Pixabay are out of scope here per the epic's
+      decision default. Their env keys remain in `.env.example`.
+
+- [ ] T-10-9: Apply-image helper (deterministic draft insert)
+      Goal: Pure persistence helper that, given a chosen candidate,
+      inserts its Markdown image reference into the appropriate
+      section's `section_drafts.contentMd` (inline) or prepends to
+      the recomposed draft (hero), then recomposes
+      `sessions.draftMd` and stamps `chosenCandidateId` on the slot.
+      Touches: `src/server/pipeline/apply-image.ts`,
+      `tests/unit/pipeline/apply-image.test.ts`.
+      Acceptance:
+        - Exports `applyImageSelection({ sessionId, userId, slotId,
+          candidateId }): Promise<{ ok: true; revisedDraftMd:
+          string } | { ok: false; error: 'not_found' |
+          'session_invalid' | 'plan_invalid' | 'section_missing' |
+          'already_chosen' }>`.
+        - Resolves the session (ownership), parses `session.plan`
+          via `planSchema` (errors → `plan_invalid`).
+        - Loads the slot via `findSlot`; if missing → `not_found`.
+          If `slot.chosenCandidateId` is already set → returns
+          `already_chosen` and DOES NOT touch the draft (the v1
+          UI disables re-selection; this is a defensive guard).
+        - Looks up the candidate inside `slot.candidates` by
+          `candidateId`; if missing → `not_found`.
+        - For `kind === 'inline'`: loads `getSectionDraft(userId,
+          sessionId, slot.sectionId)`; if missing →
+          `section_missing`; computes `nextContentMd =
+          insertParagraph(currentContentMd, slot.paragraphIndex,
+          renderImageMarkdown(candidate, slot.altText ?? ''))`;
+          calls `upsertSectionDraft` to persist; recomposes
+          `revisedDraftMd` exactly like
+          `apply-decoration.ts` (`listSectionDrafts` + plan order
+          join with `'\n\n'`).
+        - For `kind === 'hero'`: skips `section_drafts` entirely;
+          `revisedDraftMd =
+          renderImageMarkdown(candidate, slot.altText ?? '') +
+          '\n\n' + composedFromSectionDrafts`.
+        - Calls `updateSessionDraft(userId, sessionId,
+          revisedDraftMd)` and `setSlotChoice(userId, sessionId,
+          slotId, candidateId)`.
+        - Returns `{ ok: true, revisedDraftMd }`.
+        - Unit test mocks `getSession`, `getSectionDraft`,
+          `upsertSectionDraft`, `listSectionDrafts`,
+          `updateSessionDraft`, and the images repo; asserts inline
+          slot inserts at the right paragraph index; asserts hero
+          slot prepends; asserts `already_chosen` short-circuits;
+          asserts plan order is honored.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-10: `runIllustration` orchestrator
+      Goal: One-shot wrapper (analogue of `run-decoration.ts`) that
+      validates the session, calls `propose_image_slots`, persists
+      the resulting slots, and emits artifact events.
+      Touches: `src/server/pipeline/run-illustration.ts`,
+      `tests/unit/pipeline/run-illustration.test.ts`.
+      Acceptance:
+        - Exports `async function runIllustration({ sessionId,
+          userId }): Promise<{ ok: true; slotCount: number } | {
+          ok: false; error: 'session_invalid' | 'no_draft' }>`.
+        - Loads `getSession`, `getProfile`, parses `planSchema`;
+          returns `session_invalid` on any failure. Returns
+          `no_draft` if `session.draftMd` is null/empty.
+        - Builds a minimal `ctx` mirroring `run-decoration.ts`
+          (real `emit`, no-op `userInput`, no-op `log.append`,
+          unused `llm` placeholder).
+        - Calls `proposeImageSlots.run({ profile, plan,
+          sectionDrafts: await listSectionDrafts(userId,
+          sessionId) }, ctx)`.
+        - Materializes a `Hero` slot (`id = 's_hero_' + Date.now()`,
+          `kind: 'hero'`, brief from `result.heroBrief`) plus one
+          `inline` slot per `result.inlineSlots[i]`
+          (`id = 's_in_' + Date.now() + '_' + i`).
+        - Calls `setImageSlots(userId, sessionId, slots)`; if it
+          returns `null` treats that as `session_invalid`.
+        - For each persisted slot emits `artifact_updated` with
+          `{ kind: 'image_slot', slot }`.
+        - After the loop emits `artifact_updated` with `{ kind:
+          'image_slots_round', slotCount: slots.length }`.
+        - Returns `{ ok: true, slotCount: slots.length }`.
+        - Unit test mocks the stage and the repo helpers; asserts
+          a missing draft short-circuits to `no_draft` BEFORE the
+          stage runs; asserts the happy path emits both event
+          kinds and the persisted slot list contains exactly one
+          hero plus the proposed inline slots; asserts re-running
+          REPLACES the slot list (overwrite, not append — Epic 10
+          v1 supports a single round).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-11: Illustration server actions + slot helpers
+      Goal: Server actions wiring the pane to the orchestrator,
+      per-slot prompt composition, prerender, stock search,
+      candidate selection, and the finish handoff.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/illustration-actions.test.ts`.
+      Acceptance:
+        - Adds `startIllustrationAction(sessionId): Promise<{ ok:
+          true; slotCount: number } | { ok: false; error: ... }>`
+          that calls `requireUser` then `runIllustration({
+          sessionId, userId: user.id })`; revalidates on success.
+        - Adds `setSlotModeAction(sessionId, slotId, mode):
+          Promise<{ ok: true; slot: ImageSlot } | { ok: false;
+          error: 'validation' | 'not_found' }>` validating
+          `slotId` (`z.string().min(1).max(60)`) and `mode`
+          (`imageModeSchema.exclude(['undecided'])`).
+        - Adds `composePromptAction(sessionId, slotId): Promise<{
+          ok: true; prompt: ImagePrompt } | { ok: false; error: ... }>`
+          that loads the slot, runs `composeImagePrompt`, persists
+          via `setSlotPrompt`, returns the persisted prompt.
+        - Adds `savePromptAction(sessionId, slotId, prompt:
+          unknown): Promise<{ ok: true; prompt: ImagePrompt } |
+          { ok: false; error: 'validation' | 'not_found' }>`
+          validating against `imagePromptSchema`.
+        - Adds `prerenderSlotAction(sessionId, slotId): Promise<{
+          ok: true; candidates: ImageCandidate[] } | { ok: false;
+          error: 'no_prompt' | 'not_found' | 'session_invalid' }>`
+          that requires `slot.prompt`, calls
+          `prerenderImages.run`, persists via
+          `appendSlotCandidates`. Builds a minimal `ctx`
+          (analogous to `run-illustration.ts`).
+        - Adds `stockSearchAction(sessionId, slotId): Promise<{
+          ok: true; candidates: ImageCandidate[] } | { ok:
+          false; error: 'unconfigured' | 'http_error' |
+          'not_found' }>` that runs `stockKeywords.run`, calls
+          `searchUnsplash`, downloads each result via
+          `saveImageFromUrl` (so the local cache stays
+          self-contained), persists via `appendSlotCandidates`.
+          Maps `StockUnconfiguredError` → `unconfigured`,
+          `StockHttpError` → `http_error`.
+        - Adds `selectCandidateAction(sessionId, slotId,
+          candidateId): Promise<{ ok: true; revisedDraftMd:
+          string } | { ok: false; error: ... }>` calling
+          `applyImageSelection`.
+        - Adds `finishIllustrationAction(sessionId): Promise<{ ok:
+          true } | { ok: false; error:
+          'no_pending_illustration' }>` mirroring
+          `finishDecorationAction`: calls `resolveUserInput(
+          sessionId, { action: 'finish' })`.
+        - Unit test mocks `requireUser`, `runIllustration`,
+          `composeImagePrompt`, `prerenderImages`, `stockKeywords`,
+          `searchUnsplash`, `applyImageSelection`,
+          `setSlotMode/Prompt`, and `resolveUserInput`; asserts
+          each action threads `user.id`; asserts validation
+          rejects empty `slotId`; asserts the
+          `StockUnconfiguredError` mapping; asserts
+          `finishIllustrationAction` returns
+          `no_pending_illustration` when nothing is parked.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-12: Runner — `'illustration'` state park + transition to
+      `'export'`
+      Goal: When the runner enters the `'illustration'` case it
+      parks for `illustration_done`; on resolve it transitions to
+      `'export'`. The previous `'decoration'` case is updated so
+      it kicks the runner forward into `'illustration'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-illustration.test.ts`.
+      Acceptance:
+        - The `'decoration'` case is updated to call
+          `await startRunner(sessionId, userId, true)` immediately
+          after transitioning to `'illustration'` (matching the
+          existing `'review' → 'decoration'` chain), so the
+          illustration park activates without a fresh kick.
+        - A new `case 'illustration':` parks via
+          `ctx.userInput('illustration_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'export')`,
+          emits `state_changed` (`{ state: 'export' }`), and does
+          NOT recursively call `startRunner` (Epic 11 owns the
+          export runner).
+        - Unit test (mirrors
+          `tests/unit/pipeline/runner-decoration.test.ts`) stubs
+          `getSession` to return an `illustration` session and
+          `updateSessionState`; drives the runner; asserts an
+          `awaiting_user` event with `prompt:
+          'illustration_done'` fires; calls `resolveUserInput` and
+          asserts state advances to `'export'`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-10-13: `<IllustrationPane />` + `<ImageSlotCard />` +
+      `<ImagePromptEditor />`
+      Goal: Workbench pane for the `'illustration'` state with one
+      card per slot, mode toggle, prompt editor (generate path),
+      candidate gallery, candidate selection, and a "Finish
+      illustration" button.
+      Touches:
+      `src/app/(app)/sessions/[id]/illustration-pane.tsx`,
+      `src/app/(app)/sessions/[id]/image-slot-card.tsx`,
+      `src/app/(app)/sessions/[id]/image-prompt-editor.tsx`.
+      Acceptance:
+        - `illustration-pane.tsx` is a `'use client'` component
+          with props `{ sessionId: number; plan: Plan;
+          initialState: ImageState }`. Local state mirrors
+          `initialState.slots`; resyncs on `initialState`
+          identity change (same pattern as `decoration-pane.tsx`).
+        - Subscribes via `useSessionEvents`; on `artifact_updated`
+          with `kind === 'image_slot'` upserts by `slot.id`.
+        - Renders a "Run illustration proposal" button calling
+          `startIllustrationAction`. Disabled while a
+          `propose_image_slots` task is in flight (reuse the
+          activeTasks pattern from `decoration-pane.tsx`). Hidden
+          when `slots.length > 0` (the v1 flow supports one
+          round).
+        - Lists slots in this order: hero first, then inline slots
+          in the plan's section order (sections not in plan fall
+          to the tail).
+        - `<ImageSlotCard>` displays for each slot: the kind pill
+          ('Hero' or 'Inline — <section title>'), the brief, a
+          two-button mode toggle ('Generate' / 'Stock'), the
+          relevant sub-pane based on `mode`, the candidate gallery
+          (4-up grid of thumbnails), and once a candidate is
+          chosen, a faded "Selected" overlay on the chosen
+          thumbnail (re-selection disabled in v1).
+        - Generate sub-pane: shows the
+          `<ImagePromptEditor />` (a controlled `<textarea>` over
+          `JSON.stringify(prompt, null, 2)`, with "Compose
+          prompt" → `composePromptAction`, "Save prompt" →
+          `savePromptAction`, "Prerender" → `prerenderSlotAction`
+          buttons). Save validates client-side via `try {
+          JSON.parse(...) } catch` and shows an inline error
+          before round-tripping to the server.
+        - Stock sub-pane: a "Search Unsplash" button →
+          `stockSearchAction`. On `error: 'unconfigured'` shows
+          a static notice "Stock pathway disabled — set
+          `UNSPLASH_ACCESS_KEY`."
+        - Each thumbnail tile triggers `selectCandidateAction(
+          sessionId, slot.id, candidate.id)`.
+        - A "Finish illustration" button at the bottom calls
+          `finishIllustrationAction(sessionId)`; surfaces
+          `no_pending_illustration` with the same Resume button
+          pattern as `decoration-pane.tsx`. Disabled until
+          `slots.every(s => s.chosenCandidateId)` is true OR until
+          the user explicitly skips a slot (deferred — for v1 the
+          button is enabled when ALL slots have a chosen
+          candidate, so a user who wants to leave a slot empty
+          must reject the slot via the deferred "skip" flow; for
+          v1 enable the button when `slots.length > 0` instead so
+          the user is never blocked).
+        - One component-level smoke test (Vitest + Testing
+          Library) renders the pane with one hero slot and one
+          inline slot, asserts both kind pills, the mode toggles,
+          the brief text, and the "Finish illustration" button
+          appear.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Notes: actually rendering generated PNGs in `<img>` tags is
+      fine — the `/api/images/...` route serves them. Stock
+      thumbnails point at the Unsplash CDN URLs we cached.
+
+- [ ] T-10-14: Page wiring for `'illustration'` state
+      Goal: `sessions/[id]/page.tsx` mounts `<IllustrationPane />`
+      when `session.state === 'illustration'`, loading the slots
+      server-side.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`.
+      Acceptance:
+        - When `session.state === 'illustration'`, the page parses
+          `planSchema` (existing fallback render on failure),
+          loads `imageState = parseImageState(session.images)`,
+          and mounts `<IllustrationPane sessionId={id} plan={plan}
+          initialState={imageState} />` inside the workbench area,
+          alongside the existing branches.
+        - The fallback `<p>State: {session.state}</p>` continues
+          to render for `'export' | 'done'`.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [ ] T-10-15: Eval fixtures for the new LLM stages
+      Goal: One captured input/expected snapshot for each of
+      `propose_image_slots`, `compose_image_prompt`, and
+      `stock_keywords` so the Epic 12 harness can replay them.
+      Touches:
+      `tests/eval/fixtures/propose_image_slots/habr-longread-1.json`,
+      `tests/eval/fixtures/compose_image_prompt/habr-longread-1.json`,
+      `tests/eval/fixtures/stock_keywords/habr-longread-1.json`,
+      `tests/eval/README.md`,
+      `tests/unit/pipeline/propose-image-slots.test.ts`,
+      `tests/unit/pipeline/compose-image-prompt.test.ts`,
+      `tests/unit/pipeline/stock-keywords.test.ts`.
+      Acceptance:
+        - Each fixture has shape `{ "input": {...}, "expected": {
+          "schemaRef": "<stageExport>.outputSchema", "snapshot":
+          {...} } }`. Inputs reuse the Habr long-read profile +
+          plan + section drafts already seeded for earlier
+          fixtures (copy from `propose_decoration` /
+          `run_review`) so the chain stays consistent. Snapshots
+          contain plausible values (1 hero brief + 2 inline
+          slots; one full `ImagePrompt`; 4 keywords).
+        - `tests/eval/README.md` table grows by three rows to
+          sixteen.
+        - Each of the three stage tests is extended (or, where
+          freshly created in T-10-4 / T-10-5 / T-10-7, includes a
+          second case) that loads the fixture, stubs
+          `routeJsonChat` to return `expected.snapshot`, and
+          asserts the stage's return deep-equals the snapshot.
+        - `pnpm test` exits 0.
+      Notes: `prerender_images` is NOT eval-fixtured — it doesn't
+      route through `routeJsonChat` and image generations are
+      non-deterministic.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 11 — Export
 
