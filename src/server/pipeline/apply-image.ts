@@ -13,12 +13,7 @@ type ApplyImageResult =
   | { ok: true; revisedDraftMd: string }
   | {
       ok: false;
-      error:
-        | 'not_found'
-        | 'session_invalid'
-        | 'plan_invalid'
-        | 'section_missing'
-        | 'already_chosen';
+      error: 'not_found' | 'session_invalid' | 'plan_invalid' | 'section_missing';
     };
 
 function planIndexFor(plan: Plan, sectionId: string): number {
@@ -72,29 +67,41 @@ export async function applyImageSelection({
   const slot = await findSlot(userId, sessionId, slotId);
   if (!slot) return { ok: false, error: 'not_found' };
 
-  if (slot.chosenCandidateId) {
-    return { ok: false, error: 'already_chosen' };
-  }
-
   const candidate = slot.candidates.find((c) => c.id === candidateId);
   if (!candidate) return { ok: false, error: 'not_found' };
 
-  if (slot.kind === 'inline') {
+  const previousCandidate = slot.chosenCandidateId
+    ? slot.candidates.find((c) => c.id === slot.chosenCandidateId)
+    : null;
+  const sameAsBefore = slot.chosenCandidateId === candidateId;
+
+  if (slot.kind === 'inline' && !sameAsBefore) {
     if (!slot.sectionId || slot.paragraphIndex === undefined) {
       return { ok: false, error: 'section_missing' };
     }
     const sectionRow = await getSectionDraft(userId, sessionId, slot.sectionId);
     if (!sectionRow) return { ok: false, error: 'section_missing' };
-    const inlineMd = renderImageMarkdown(candidate, slot.altText ?? '');
-    const nextContentMd = insertParagraph(
-      sectionRow.contentMd,
-      slot.paragraphIndex,
-      inlineMd,
-    );
+    const newInlineMd = renderImageMarkdown(candidate, slot.altText ?? '');
+
+    let nextContentMd: string;
+    if (previousCandidate) {
+      const oldInlineMd = renderImageMarkdown(previousCandidate, slot.altText ?? '');
+      nextContentMd = sectionRow.contentMd.includes(oldInlineMd)
+        ? sectionRow.contentMd.replace(oldInlineMd, newInlineMd)
+        : insertParagraph(sectionRow.contentMd, slot.paragraphIndex, newInlineMd);
+    } else {
+      nextContentMd = insertParagraph(
+        sectionRow.contentMd,
+        slot.paragraphIndex,
+        newInlineMd,
+      );
+    }
     await upsertSectionDraft(userId, sessionId, slot.sectionId, nextContentMd);
   }
 
-  await setSlotChoice(userId, sessionId, slotId, candidateId);
+  if (!sameAsBefore) {
+    await setSlotChoice(userId, sessionId, slotId, candidateId);
+  }
   const freshImageState = await getImageState(userId, sessionId);
   const revisedDraftMd = await composeDraftMd(userId, sessionId, plan, freshImageState);
   await updateSessionDraft(userId, sessionId, revisedDraftMd);

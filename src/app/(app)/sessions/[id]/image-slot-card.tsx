@@ -50,7 +50,7 @@ export function ImageSlotCard({
   }
 
   async function handleSelect(candidateId: string) {
-    if (slot.chosenCandidateId) return;
+    if (slot.chosenCandidateId === candidateId) return;
     setBusy('select');
     const result = await selectCandidateAction(sessionId, slot.id, candidateId);
     setBusy(null);
@@ -139,7 +139,7 @@ export function ImageSlotCard({
               key={c.id}
               candidate={c}
               chosen={slot.chosenCandidateId === c.id}
-              disabled={busy !== null || !!slot.chosenCandidateId}
+              disabled={busy !== null || slot.chosenCandidateId === c.id}
               onSelect={handleSelect}
             />
           ))}

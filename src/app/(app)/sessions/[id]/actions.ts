@@ -629,8 +629,7 @@ export async function selectCandidateAction(
         | 'not_found'
         | 'session_invalid'
         | 'plan_invalid'
-        | 'section_missing'
-        | 'already_chosen';
+        | 'section_missing';
     }
 > {
   const user = await requireUser();

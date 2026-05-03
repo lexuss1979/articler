@@ -4403,7 +4403,37 @@ Decisions taken (defaults — change before implementation if needed):
       below the fold; could be revisited.
 
 - [x] T-11-16: Shared readable stylesheet for HTML and PDF
-      (see notes above)
+      Goal: The exported HTML (and the in-app preview iframe) and
+      the PDF render currently look bare-browser-default, which
+      is ugly. Add one shared editorial stylesheet that both
+      formats use; the preview iframe and the downloaded `.html`
+      pick it up automatically because they share `renderHtmlArticle`.
+      Touches: `src/server/export/styles.ts`,
+      `src/server/export/html.ts`, `src/server/export/pdf.ts`,
+      `tests/unit/export/html.test.ts`.
+      Acceptance:
+        - New module `src/server/export/styles.ts` exports
+          `ARTICLE_STYLESHEET: string` — a short CSS string
+          covering: system-font body, ~42rem container, headings
+          (h1..h6) sizing/spacing, paragraph spacing, responsive
+          centred images with light corner radius, `<sub>` styled
+          as a centred caption under the preceding image, links,
+          `code`/`pre` (GitHub-ish background), blockquote, `hr`,
+          GFM tables.
+        - `renderHtmlArticle` injects `<style>${ARTICLE_STYLESHEET}
+          </style>` into the document `<head>`.
+        - `renderPdfArticle` replaces its local `PRINT_STYLESHEET`
+          with the shared one (so in-app preview, downloaded
+          `.html`, and `.pdf` look consistent).
+        - HTML test asserts the style tag is present and contains
+          a few load-bearing markers (e.g. `max-width:42rem`,
+          `font-family`, `blockquote`).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: kept as a single CSS string (no per-element classes
+      added to the renderer) so we don't have to touch the
+      remark/rehype/docx pipelines. The DOCX renderer keeps its
+      own paragraph/run styling — DOCX has its own format and
+      doesn't consume CSS.
 
 - [x] T-11-17: Render images in the article preview iframe
       Goal: The preview iframe currently shows the article text
@@ -4437,37 +4467,65 @@ Decisions taken (defaults — change before implementation if needed):
       app, which is what we need for `/api/images/`. Article
       content is the user's own draft, so the trust boundary is
       already inside the user.
-      Goal: The exported HTML (and the in-app preview iframe) and
-      the PDF render currently look bare-browser-default, which
-      is ugly. Add one shared editorial stylesheet that both
-      formats use; the preview iframe and the downloaded `.html`
-      pick it up automatically because they share `renderHtmlArticle`.
-      Touches: `src/server/export/styles.ts`,
-      `src/server/export/html.ts`, `src/server/export/pdf.ts`,
-      `tests/unit/export/html.test.ts`.
+
+- [x] T-11-18: Allow re-selecting a chosen image candidate
+      Goal: Once the user picks a candidate for a slot, they
+      can't change their mind — both the UI and the server reject
+      it. Allow re-selection. Hero re-selection just swaps the
+      chosen candidate (composer reads it from imageState). Inline
+      re-selection replaces the previously-inserted image
+      markdown in the section draft with the new candidate's
+      markdown at the same position.
+      Touches: `src/server/pipeline/apply-image.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `src/app/(app)/sessions/[id]/image-slot-card.tsx`,
+      `tests/unit/pipeline/apply-image.test.ts`.
       Acceptance:
-        - New module `src/server/export/styles.ts` exports
-          `ARTICLE_STYLESHEET: string` — a short CSS string
-          covering: system-font body, ~42rem container, headings
-          (h1..h6) sizing/spacing, paragraph spacing, responsive
-          centred images with light corner radius, `<sub>` styled
-          as a centred caption under the preceding image, links,
-          `code`/`pre` (GitHub-ish background), blockquote, `hr`,
-          GFM tables.
-        - `renderHtmlArticle` injects `<style>${ARTICLE_STYLESHEET}
-          </style>` into the document `<head>`.
-        - `renderPdfArticle` replaces its local `PRINT_STYLESHEET`
-          with the shared one (so in-app preview, downloaded
-          `.html`, and `.pdf` look consistent).
-        - HTML test asserts the style tag is present and contains
-          a few load-bearing markers (e.g. `max-width:42rem`,
-          `font-family`, `blockquote`).
+        - `apply-image.ts` no longer returns `'already_chosen'`.
+          The error variant is removed from the union.
+        - For hero re-selection: skip the section-draft branch;
+          `setSlotChoice` overwrites; composer re-runs and
+          rebuilds `draft_md` with the new chosen hero.
+        - For inline re-selection: locate the previously-chosen
+          candidate's markdown via `renderImageMarkdown(oldCand,
+          slot.altText)`; if that exact string is present in the
+          current section draft, replace it with the new
+          candidate's markdown (string `replace`, single
+          occurrence). If not present (user manually edited),
+          fall back to `insertParagraph` at the slot's stored
+          `paragraphIndex`.
+        - Same-candidate re-apply (user clicks the
+          already-chosen tile) is a no-op for both kinds and
+          returns `{ ok: true, revisedDraftMd }`.
+        - `actions.ts` `selectCandidateAction` return-type union
+          drops `'already_chosen'`.
+        - `image-slot-card.tsx`: `handleSelect` no longer
+          short-circuits when `chosenCandidateId` is set;
+          `<CandidateThumb>` is disabled only for the
+          currently-chosen tile (so the user can't re-click the
+          one already selected, but can pick any other).
+        - Tests:
+          - The existing `'returns already_chosen ...'` test is
+            removed.
+          - New test: re-selecting a hero swaps
+            `chosenCandidateId` and the composer renders the new
+            URL.
+          - New test: re-selecting an inline candidate produces
+            a section draft whose old-image markdown is replaced
+            by the new-image markdown at the same position
+            (verify via `mocks.upsertSectionDraft` argument).
+          - New test: re-applying the same candidate is a no-op
+            (returns ok, no string replacement, no insert).
         - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
-      Notes: kept as a single CSS string (no per-element classes
-      added to the renderer) so we don't have to touch the
-      remark/rehype/docx pipelines. The DOCX renderer keeps its
-      own paragraph/run styling — DOCX has its own format and
-      doesn't consume CSS.
+      Notes: deletion-and-replacement of inline image markdown
+      via string replace is fragile if the user manually edited
+      the surrounding text — the fallback to `insertParagraph` at
+      the original `paragraphIndex` keeps the slot reapplyable in
+      that case (price: a duplicate image may end up in the
+      section if the user partially edited around the old image).
+      A future task could persist the inline image position
+      out-of-band so the composer is the single source of truth
+      for image insertion.
 
 ---
 
