@@ -15,6 +15,7 @@ import type { ZodIssue } from 'zod';
 import { startRunner, resolveUserInput, cancelPendingInput } from '../../../../server/pipeline/runner';
 import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
 import { runReview } from '../../../../server/pipeline/run-review';
+import { runFactCheck } from '../../../../server/pipeline/run-fact-check';
 import {
   setFindingStatus,
   getFindingForUser,
@@ -238,4 +239,17 @@ export async function savePlanEditsAction(
   }
   await updateSessionPlan(user.id, sessionId, parsed.data);
   return { ok: true };
+}
+
+export async function startFactCheckAction(
+  sessionId: number,
+  force?: boolean,
+): Promise<
+  | { ok: true; roundId: number; claimCount: number; verdictCount: number }
+  | { ok: false; error: 'session_invalid' | 'no_draft' }
+> {
+  const user = await requireUser();
+  const result = await runFactCheck({ sessionId, userId: user.id, force: !!force });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
 }
