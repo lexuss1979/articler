@@ -3018,7 +3018,7 @@ join image-slot rows the same column can be migrated then.
           calling the stage.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-9-6: Decoration server actions
+- [x] T-9-6: Decoration server actions
       Goal: Server actions that wire the pane to the orchestrator
       and the per-suggestion helpers.
       Touches: `src/app/(app)/sessions/[id]/actions.ts`,

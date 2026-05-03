@@ -20,6 +20,9 @@ import { regenerateSection } from '../../../../server/pipeline/regenerate-sectio
 import { runReview } from '../../../../server/pipeline/run-review';
 import { runFactCheck } from '../../../../server/pipeline/run-fact-check';
 import { applyRevisions } from '../../../../server/pipeline/apply-revisions';
+import { runDecoration } from '../../../../server/pipeline/run-decoration';
+import { applyDecoration } from '../../../../server/pipeline/apply-decoration';
+import { setSuggestionStatus } from '../../../../server/sessions/decoration-repo';
 import {
   setClaimStatus,
   getClaimWithLatestVerdict,
@@ -302,6 +305,59 @@ export async function acceptClaimCorrectionAction(
     revalidatePath('/sessions/' + sessionId);
   }
   return result;
+}
+
+export async function startDecorationAction(
+  sessionId: number,
+): Promise<
+  | { ok: true; roundId: string; suggestionCount: number }
+  | { ok: false; error: 'session_invalid' | 'no_draft' }
+> {
+  const user = await requireUser();
+  const result = await runDecoration({ sessionId, userId: user.id });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function acceptDecorationAction(
+  sessionId: number,
+  suggestionId: unknown,
+): Promise<
+  | { ok: true; revisedDraftMd: string }
+  | { ok: false; error: 'validation' | 'not_found' | 'session_invalid' | 'plan_invalid' | 'section_missing' }
+> {
+  const user = await requireUser();
+  const parsed = z.string().min(1).max(80).safeParse(suggestionId);
+  if (!parsed.success) return { ok: false, error: 'validation' };
+  const result = await applyDecoration({
+    sessionId,
+    userId: user.id,
+    suggestionId: parsed.data,
+  });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function rejectDecorationAction(
+  sessionId: number,
+  suggestionId: unknown,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'validation' }> {
+  const user = await requireUser();
+  const parsed = z.string().min(1).max(80).safeParse(suggestionId);
+  if (!parsed.success) return { ok: false, error: 'validation' };
+  const row = await setSuggestionStatus(user.id, sessionId, parsed.data, 'rejected');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function finishDecorationAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'no_pending_decoration' }> {
+  await requireUser();
+  const resolved = resolveUserInput(sessionId, { action: 'finish' });
+  if (!resolved) return { ok: false, error: 'no_pending_decoration' };
+  return { ok: true };
 }
 
 export async function setActiveCriticsAction(
