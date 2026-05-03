@@ -3164,7 +3164,7 @@ join image-slot rows the same column can be migrated then.
           | done`).
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-9-10: Eval fixture for `propose_decoration` + fixture-driven
+- [x] T-9-10: Eval fixture for `propose_decoration` + fixture-driven
       unit test
       Goal: Capture one input/expected snapshot for the new
       stage so the Epic 12 harness can replay it.

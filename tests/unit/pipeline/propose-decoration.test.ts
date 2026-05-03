@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -142,5 +144,48 @@ describe('proposeDecoration stage', () => {
     expect(mockRouteJsonChat).toHaveBeenCalledTimes(1);
     const callArgs = mockRouteJsonChat.mock.calls[0][0] as { user: string };
     expect(callArgs.user).toBe('');
+  });
+});
+
+describe('proposeDecoration stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: {
+        profile: typeof profile;
+        plan: typeof plan;
+        sectionDrafts: typeof sectionDrafts;
+      };
+      expected: { snapshot: { suggestions: unknown[] } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/propose_decoration/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-opus',
+      modelClass: 'smart' as const,
+      promptTokens: 100,
+      completionTokens: 100,
+      latencyMs: 400,
+    });
+
+    const { proposeDecoration } = await import(
+      '../../../src/server/pipeline/stages/propose-decoration'
+    );
+    const result = await proposeDecoration.run(
+      {
+        ...fixture.input,
+        profile: {
+          ...fixture.input.profile,
+          createdAt: new Date(fixture.input.profile.createdAt as unknown as string),
+        },
+      } as Parameters<typeof proposeDecoration.run>[0],
+      makeCtx(),
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });
