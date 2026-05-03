@@ -3083,7 +3083,7 @@ join image-slot rows the same column can be migrated then.
           advances to `'illustration'`.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-9-8: `<DecorationPane />` shell + `<SuggestionCard />`
+- [x] T-9-8: `<DecorationPane />` shell + `<SuggestionCard />`
       Goal: Workbench pane for the `'decoration'` state that
       lists suggestions per round and exposes per-suggestion
       actions plus a "Finish decoration" button.
