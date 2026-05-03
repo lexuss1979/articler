@@ -35,4 +35,36 @@ describe('<ExportPane />', () => {
     expect(html).toContain('href="/api/sessions/42/export?format=md"');
     expect(html).toContain('href="/api/sessions/42/export?format=pdf"');
   });
+
+  it('renders an iframe preview when previewHtml is passed', () => {
+    const previewHtml = '<!doctype html><html><body><h1>Hi</h1></body></html>';
+    const html = renderToString(
+      React.createElement(ExportPane, {
+        sessionId: 42,
+        state: 'export',
+        previewHtml,
+      }),
+    );
+    expect(html).toContain('<iframe');
+    expect(html).toContain('title="Article preview"');
+    expect(html).toContain('sandbox=""');
+    expect(html).toContain('srcDoc=');
+    expect(html).toContain('&lt;h1&gt;Hi&lt;/h1&gt;');
+  });
+
+  it('does not render an iframe when previewHtml is missing or null', () => {
+    const html = renderToString(
+      React.createElement(ExportPane, { sessionId: 42, state: 'export' }),
+    );
+    expect(html).not.toContain('<iframe');
+
+    const htmlNull = renderToString(
+      React.createElement(ExportPane, {
+        sessionId: 42,
+        state: 'export',
+        previewHtml: null,
+      }),
+    );
+    expect(htmlNull).not.toContain('<iframe');
+  });
 });

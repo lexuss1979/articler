@@ -10,8 +10,12 @@ const FORMATS = [
   { fmt: 'pdf', label: 'PDF' },
 ] as const;
 
-export function ExportPane(props: { sessionId: number; state: 'export' | 'done' }) {
-  const { sessionId, state } = props;
+export function ExportPane(props: {
+  sessionId: number;
+  state: 'export' | 'done';
+  previewHtml?: string | null;
+}) {
+  const { sessionId, state, previewHtml } = props;
   const [finishing, setFinishing] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -38,6 +42,17 @@ export function ExportPane(props: { sessionId: number; state: 'export' | 'done' 
 
   return (
     <div className="flex flex-col gap-4 h-full">
+      {previewHtml ? (
+        <div className="flex-1 min-h-0 border rounded overflow-hidden bg-white">
+          <iframe
+            title="Article preview"
+            srcDoc={previewHtml}
+            sandbox=""
+            className="w-full h-full min-h-[60vh]"
+          />
+        </div>
+      ) : null}
+
       <div className="shrink-0 flex flex-col gap-2">
         <h3 className="text-sm font-medium text-gray-700">Download</h3>
         <div className="grid grid-cols-2 gap-2">
@@ -53,8 +68,6 @@ export function ExportPane(props: { sessionId: number; state: 'export' | 'done' 
           ))}
         </div>
       </div>
-
-      <div className="flex-1" />
 
       <div className="shrink-0 flex flex-col gap-2 pt-2 border-t">
         {state === 'done' ? (

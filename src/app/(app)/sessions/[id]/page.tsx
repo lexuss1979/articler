@@ -9,6 +9,10 @@ import { parseDecorationState } from '../../../../server/sessions/decoration';
 import { parseImageState } from '../../../../server/sessions/images';
 import { listSessionRounds, listRoundFindings } from '../../../../server/sessions/critique-repo';
 import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claims-repo';
+import { getProfile } from '../../../../server/profiles/repo';
+import { parseMarkupRules } from '../../../../server/profiles/markup';
+import { renderMarkdownArticle } from '../../../../server/export/markdown';
+import { renderHtmlArticle } from '../../../../server/export/html';
 import { BriefForm } from './brief-form';
 import { ChatPane } from './chat-pane';
 import { PlanningPane } from './planning-pane';
@@ -64,6 +68,20 @@ export default async function SessionPage({
           contentMd: s.contentMd,
         })),
       };
+    }
+  }
+
+  let exportPreviewHtml: string | null = null;
+  if (session.state === 'export' || session.state === 'done') {
+    const profile = await getProfile(user.id, session.profileId);
+    if (profile) {
+      const rules = parseMarkupRules(profile.markupRules);
+      const imageState = parseImageState(session.images);
+      const { contentMd } = await renderMarkdownArticle({
+        session: { id: session.id, draftMd: session.draftMd },
+        imageState,
+      });
+      exportPreviewHtml = await renderHtmlArticle(contentMd, rules);
     }
   }
 
@@ -142,7 +160,11 @@ export default async function SessionPage({
               initialState={illustrationData.imageState}
             />
           ) : session.state === 'export' || session.state === 'done' ? (
-            <ExportPane sessionId={id} state={session.state} />
+            <ExportPane
+              sessionId={id}
+              state={session.state}
+              previewHtml={exportPreviewHtml}
+            />
           ) : (
             <p className="text-sm text-gray-500">State: {session.state}</p>
           )}

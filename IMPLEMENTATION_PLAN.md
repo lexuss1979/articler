@@ -4356,7 +4356,7 @@ Decisions taken (defaults — change before implementation if needed):
       (`renderMarkdownArticle`) does not change — once the hero
       ref is back in `draft_md`, it will be picked up.
 
-- [ ] T-11-15: Article preview on the export/done screen
+- [x] T-11-15: Article preview on the export/done screen
       Goal: When a session reaches `'export'` or `'done'`, the
       user sees a rendered preview of the finished article on the
       same screen as the download buttons — not just a list of
