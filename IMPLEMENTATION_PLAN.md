@@ -4551,3 +4551,43 @@ surfaces the remaining budget.
 Intent: a small driver that, given the repo, decides whether to run the
 planner or the implementer prompt next, executes lint/typecheck/test
 between iterations, and commits on green.
+
+## Epic 15 — Post-draft polish via sentence-level diff
+
+**Status: TBD (design open)**
+Intent: an interactive co-editor that proposes small humanization edits
+at sentence granularity — short focused presets ("shorter sentences",
+"kill cliches", "personal voice", "concrete over abstract", "one
+rhetorical question", "break monotonous rhythm"), each ~10–30-line
+prompt — and surfaces the result as a diff with per-hunk
+accept / reject / edit-and-accept. Lives as an independent action,
+NOT a new pipeline state. Open design questions: batch vs sequential
+apply; single active variant vs many; structured JSON output from the
+LLM (`[{ original, replacement, reason? }]`) so alignment between
+original and rewrite is robust. Risk: LLM-driven rewriting can break
+facts/numbers — must trigger fact-check after polish, AND constrain via
+prompt. Reference notes in memory `project_next_session_agenda.md`.
+
+## Epic 16 — Author voice priming at session start
+
+**Status: TBD**
+Intent: before the planning agent generates anything, ask the author
+for their own opinions, lived experience, memories, attitudes about the
+topic — a short free-form input that gives the article a piece of the
+author's actual voice. Hypothesis: priming the smart model with the
+author's own takes (even a paragraph or two) makes the resulting
+drafts noticeably more alive and less generic than briefs alone.
+Initial scope: optional voice-priming step between brief submission
+and angle proposal; threaded into the drafting context for every
+section. Test as A/B: same brief with vs. without priming.
+
+## Epic 17 — Dictation / voice transcription
+
+**Status: TBD**
+Intent: capability to dictate any long-form input instead of typing.
+Pipeline: capture audio → transcribe (whisper-class model) → fast-model
+cleanup pass (remove disfluencies, repeats, false starts, light
+syntactic smoothing) → editable text in the same form field. Used by
+the brief, the voice-priming step (Epic 16), custom critic / polish
+prompt fragments, free-form revision instructions. Cross-cutting;
+worth landing as a reusable widget once and wiring into existing forms.
