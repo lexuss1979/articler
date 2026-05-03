@@ -6,6 +6,7 @@ import { listSectionDrafts } from '../../../../server/sessions/section-drafts-re
 import { planSchema } from '../../../../server/sessions/plan';
 import { parseActiveCritics } from '../../../../server/sessions/critics';
 import { parseDecorationState } from '../../../../server/sessions/decoration';
+import { parseImageState } from '../../../../server/sessions/images';
 import { listSessionRounds, listRoundFindings } from '../../../../server/sessions/critique-repo';
 import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claims-repo';
 import { BriefForm } from './brief-form';
@@ -15,6 +16,7 @@ import { ResearchPane } from './research-pane';
 import { DraftingPane } from './drafting-pane';
 import { ReviewPane } from './review-pane';
 import { DecorationPane } from './decoration-pane';
+import { IllustrationPane } from './illustration-pane';
 import { DevResetPanel } from './dev-reset-panel';
 
 export default async function SessionPage({
@@ -60,6 +62,17 @@ export default async function SessionPage({
           sectionId: s.sectionId,
           contentMd: s.contentMd,
         })),
+      };
+    }
+  }
+
+  let illustrationData = null;
+  if (session.state === 'illustration') {
+    const parsed = planSchema.safeParse(session.plan);
+    if (parsed.success) {
+      illustrationData = {
+        plan: parsed.data,
+        imageState: parseImageState(session.images),
       };
     }
   }
@@ -120,6 +133,12 @@ export default async function SessionPage({
               plan={decorationData.plan}
               initialState={decorationData.decorationState}
               sectionDrafts={decorationData.sectionDrafts}
+            />
+          ) : session.state === 'illustration' && illustrationData ? (
+            <IllustrationPane
+              sessionId={id}
+              plan={illustrationData.plan}
+              initialState={illustrationData.imageState}
             />
           ) : (
             <p className="text-sm text-gray-500">State: {session.state}</p>

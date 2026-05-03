@@ -3823,7 +3823,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
       fine — the `/api/images/...` route serves them. Stock
       thumbnails point at the Unsplash CDN URLs we cached.
 
-- [ ] T-10-14: Page wiring for `'illustration'` state
+- [x] T-10-14: Page wiring for `'illustration'` state
       Goal: `sessions/[id]/page.tsx` mounts `<IllustrationPane />`
       when `session.state === 'illustration'`, loading the slots
       server-side.
