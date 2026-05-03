@@ -4187,7 +4187,7 @@ Decisions taken (defaults — change before implementation if needed):
       `fs.readFile(attachment.absSourcePath)` inside the route
       (not in `renderMarkdownArticle`).
 
-- [ ] T-11-9: Runner — `'export'` state park + transition to
+- [x] T-11-9: Runner — `'export'` state park + transition to
       `'done'`
       Goal: When the runner enters the `'export'` case it parks
       for `export_done`; on resolve it transitions to `'done'`.

@@ -54,11 +54,11 @@ vi.mock('../../../src/server/pipeline/stages/draft-section', () => ({
   draftSection: { run: vi.fn() },
 }));
 
-function makeIllustrationSession() {
+function makeExportSession() {
   return {
     id: 10,
     userId: 1,
-    state: 'illustration',
+    state: 'export',
     plan: null,
     brief: null,
     profileId: 1,
@@ -68,10 +68,10 @@ function makeIllustrationSession() {
 
 afterEach(() => vi.clearAllMocks());
 
-describe('startRunner — illustration state', () => {
-  it('emits awaiting_user with prompt illustration_done when entering illustration', async () => {
+describe('startRunner — export state', () => {
+  it('emits awaiting_user with prompt export_done when entering export state', async () => {
     mocks.getSessionFn
-      .mockResolvedValueOnce(makeIllustrationSession())
+      .mockResolvedValueOnce(makeExportSession())
       .mockResolvedValue(null);
     mocks.emitEventFn.mockResolvedValue({
       id: 1,
@@ -93,8 +93,7 @@ describe('startRunner — illustration state', () => {
       expect(
         calls.some(
           ([, k, p]) =>
-            k === 'awaiting_user' &&
-            (p as { prompt: string }).prompt === 'illustration_done',
+            k === 'awaiting_user' && (p as { prompt: string }).prompt === 'export_done',
         ),
       ).toBe(true);
     });
@@ -103,9 +102,9 @@ describe('startRunner — illustration state', () => {
     await runnerPromise;
   });
 
-  it('transitions to export and emits state_changed after resolving illustration_done', async () => {
+  it('transitions to done and emits state_changed after resolving export_done', async () => {
     mocks.getSessionFn
-      .mockResolvedValueOnce(makeIllustrationSession())
+      .mockResolvedValueOnce(makeExportSession())
       .mockResolvedValue(null);
     mocks.emitEventFn.mockResolvedValue({
       id: 1,
@@ -130,16 +129,16 @@ describe('startRunner — illustration state', () => {
     resolveUserInput(10, { action: 'finish' });
     await runnerPromise;
 
-    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 10, 'export');
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 10, 'done');
     const stateChangedCalls = (
       mocks.emitEventFn.mock.calls as [number, string, unknown][]
     ).filter(([, k]) => k === 'state_changed');
-    expect(stateChangedCalls.at(-1)?.[2]).toMatchObject({ state: 'export' });
+    expect(stateChangedCalls.at(-1)?.[2]).toMatchObject({ state: 'done' });
   });
 
-  it('chains into a recursive startRunner so the export park activates immediately', async () => {
+  it('does not chain into a recursive startRunner ("done" is terminal)', async () => {
     mocks.getSessionFn
-      .mockResolvedValueOnce(makeIllustrationSession())
+      .mockResolvedValueOnce(makeExportSession())
       .mockResolvedValue(null);
     mocks.emitEventFn.mockResolvedValue({
       id: 1,
@@ -164,6 +163,6 @@ describe('startRunner — illustration state', () => {
     resolveUserInput(10, { action: 'finish' });
     await runnerPromise;
 
-    expect(mocks.getSessionFn).toHaveBeenCalledTimes(2);
+    expect(mocks.getSessionFn).toHaveBeenCalledTimes(1);
   });
 });

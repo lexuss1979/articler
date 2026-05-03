@@ -304,6 +304,14 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
 
       await updateSessionState(userId, sessionId, 'export');
       await ctx.emit('state_changed', { state: 'export' });
+      await startRunner(sessionId, userId, true);
+      break;
+    }
+    case 'export': {
+      await ctx.userInput('export_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'done');
+      await ctx.emit('state_changed', { state: 'done' });
       break;
     }
     default:
