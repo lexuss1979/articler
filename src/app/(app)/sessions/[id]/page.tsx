@@ -5,6 +5,7 @@ import { listSessionSources } from '../../../../server/sessions/sources-repo';
 import { listSectionDrafts } from '../../../../server/sessions/section-drafts-repo';
 import { planSchema } from '../../../../server/sessions/plan';
 import { parseActiveCritics } from '../../../../server/sessions/critics';
+import { parseDecorationState } from '../../../../server/sessions/decoration';
 import { listSessionRounds, listRoundFindings } from '../../../../server/sessions/critique-repo';
 import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claims-repo';
 import { BriefForm } from './brief-form';
@@ -13,6 +14,7 @@ import { PlanningPane } from './planning-pane';
 import { ResearchPane } from './research-pane';
 import { DraftingPane } from './drafting-pane';
 import { ReviewPane } from './review-pane';
+import { DecorationPane } from './decoration-pane';
 import { DevResetPanel } from './dev-reset-panel';
 
 export default async function SessionPage({
@@ -42,6 +44,23 @@ export default async function SessionPage({
     draftingPlan = parsed.success ? parsed.data : null;
     if (draftingPlan) {
       initialSectionDrafts = await listSectionDrafts(user.id, id);
+    }
+  }
+
+  let decorationData = null;
+  if (session.state === 'decoration') {
+    const parsed = planSchema.safeParse(session.plan);
+    if (parsed.success) {
+      const decorationState = parseDecorationState(session.decoration);
+      const sectionDrafts = await listSectionDrafts(user.id, id);
+      decorationData = {
+        plan: parsed.data,
+        decorationState,
+        sectionDrafts: sectionDrafts.map((s) => ({
+          sectionId: s.sectionId,
+          contentMd: s.contentMd,
+        })),
+      };
     }
   }
 
@@ -94,6 +113,13 @@ export default async function SessionPage({
               draftMd={session.draftMd ?? ''}
               revisedDraftMd={session.revisedDraftMd}
               revisionStatus={session.revisionStatus}
+            />
+          ) : session.state === 'decoration' && decorationData ? (
+            <DecorationPane
+              sessionId={id}
+              plan={decorationData.plan}
+              initialState={decorationData.decorationState}
+              sectionDrafts={decorationData.sectionDrafts}
             />
           ) : (
             <p className="text-sm text-gray-500">State: {session.state}</p>

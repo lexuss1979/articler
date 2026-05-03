@@ -3142,7 +3142,7 @@ join image-slot rows the same column can be migrated then.
       proper rendering. If a renderer is later wanted,
       `react-markdown` is the obvious choice.
 
-- [ ] T-9-9: Page wiring for `'decoration'` state
+- [x] T-9-9: Page wiring for `'decoration'` state
       Goal: `sessions/[id]/page.tsx` mounts `<DecorationPane />`
       when `session.state === 'decoration'`, loading the
       suggestions and section drafts server-side.
