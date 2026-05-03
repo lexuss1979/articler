@@ -3874,13 +3874,390 @@ is deferred). This keeps the runner contract identical to Epic 9.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 11 — Export
 
-**Status: TBD**
-Intent: Markdown (canonical), HTML (per-profile rules), DOCX, PDF.
-Export route returns a downloadable artifact bundle (article + images).
+**Status: planned**
+**Goal:** From a session in `'export'` state, the user can download the
+finished article as Markdown, HTML, DOCX, or PDF — each containing the
+chosen images. Markdown and HTML ship as a zip with a sidecar `images/`
+folder; DOCX and PDF embed images directly. The runner advances
+`'export' → 'done'` on user confirmation. Profile `markup_rules` are
+honored by the HTML pipeline.
+
+Decisions taken (defaults — change before implementation if needed):
+- PDF backend: Playwright Chromium at runtime (architecture-preferred).
+  The production image gets Chromium installed in T-11-2.
+- HTML pipeline: `remark` + `remark-gfm` + `remark-rehype` +
+  `rehype-stringify` (architecture-prescribed).
+- DOCX library: `docx` (architecture-prescribed).
+- Bundle archiver: `jszip` (pure JS, no native deps).
+- v1 `markup_rules` fields: `{ flavor: 'standard' | 'habr',
+  headingShift: integer (-2..3) }`. Existing `{}` profiles parse to
+  `{ flavor: 'standard', headingShift: 0 }`.
+- Stock images are always re-bundled from the local cache so a zip
+  bundle is offline-usable; attribution preserved as `<sub>…</sub>`.
+- Download filename pattern: `article-<sessionId>.<ext>`
+  (e.g. `article-42.docx`, `article-42-md.zip`).
+- Tables, footnotes, and inline raw-HTML beyond `<sub>` are out of
+  scope for v1 renderers.
+
+### Tasks
+
+- [ ] T-11-1: v1 `markup_rules` schema + parser
+      Goal: Define a typed v1 schema for profile `markup_rules` with
+      backward-compatible defaults so HTML / DOCX renderers can rely
+      on it.
+      Touches: `src/server/profiles/markup.ts`,
+      `src/server/profiles/schema.ts`,
+      `tests/unit/profiles/markup-schema.test.ts`.
+      Acceptance:
+        - `markup.ts` exports `markupRulesSchema` (zod) with shape
+          `{ flavor: z.enum(['standard','habr']).default('standard'),
+          headingShift: z.number().int().min(-2).max(3).default(0) }`,
+          and `parseMarkupRules(value: unknown): MarkupRules` that
+          returns the parsed object on success or the defaults on
+          failure (mirrors `parseImageState`).
+        - `profileInputSchema.markupRules` is replaced by
+          `markupRulesSchema` (still optional via `.default({})` so
+          existing API callers that send `{}` keep working).
+        - Unit test asserts: empty object → defaults; valid full
+          object round-trips; invalid `flavor` falls back to
+          defaults via `parseMarkupRules`; `headingShift` outside
+          range fails strict parse but `parseMarkupRules` returns
+          defaults.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: no DB migration — `markupRules` jsonb column is
+      unchanged; only the validation layer tightens.
+
+- [ ] T-11-2: Install export dependencies + ship Chromium in the
+      production image
+      Goal: Add the runtime libraries the renderers need and make
+      Playwright's Chromium available inside the `runner` Docker
+      stage so PDF export works in `docker compose up`.
+      Touches: `package.json`, `pnpm-lock.yaml`, `Dockerfile`.
+      Acceptance:
+        - `pnpm add remark remark-parse remark-gfm remark-rehype
+          rehype-stringify rehype-raw unified docx jszip playwright`
+          adds them to `dependencies` (NOT devDependencies). The
+          existing `@playwright/test` devDependency stays for e2e.
+        - `Dockerfile`'s `runner` stage installs Chromium via
+          `RUN npx playwright install --with-deps chromium` (run as
+          root before the `USER nextjs` directive); the resulting
+          image still boots and serves on container port 3000.
+        - `pnpm install --frozen-lockfile` succeeds locally and
+          inside the `deps` stage.
+        - `docker build -t articler-web .` succeeds.
+        - `pnpm typecheck` exits 0 (so the new module typings
+          resolve).
+      Notes: image size will grow by ~250 MB. Acceptable for v1.
+
+- [ ] T-11-3: Markdown article renderer + image manifest
+      Goal: Produce the canonical Markdown body of the export plus a
+      manifest of bundle-relative image attachments, with image
+      refs rewritten from `/api/images/...` and external Unsplash
+      URLs to relative `images/<slotId>.<ext>` paths.
+      Touches: `src/server/export/markdown.ts`,
+      `tests/unit/export/markdown.test.ts`.
+      Acceptance:
+        - Exports `renderMarkdownArticle({ session, imageState }: {
+          session: { draftMd: string | null; id: number };
+          imageState: ImageState }): Promise<{ contentMd: string;
+          attachments: ImageAttachment[] }>` and the type
+          `ImageAttachment = { bundlePath: string; absSourcePath:
+          string; mime: 'image/png' | 'image/jpeg' | 'image/webp' }`.
+        - For each slot in `imageState.slots` with a
+          `chosenCandidateId`: derive the candidate's expected
+          markdown URL the same way `renderImageMarkdown`
+          constructs it (`localPath` for generated, `sourceUrl ??
+          localPath` for stock); replace literal URL occurrences
+          inside `contentMd` with `images/<slotId>.<ext>`; add an
+          `ImageAttachment` whose `absSourcePath` is derived from
+          `candidate.localPath` by stripping `/api/images/` and
+          joining `IMAGES_ROOT`, and `mime` is inferred from the
+          file extension.
+        - Empty `draftMd` → `contentMd: ''`, `attachments: []`.
+        - Image refs that don't match any chosen candidate are
+          left untouched.
+        - Unit test feeds a sample `draftMd` with one hero
+          generated image ref and one inline stock ref (with
+          `<sub>` attribution); asserts both URLs are rewritten,
+          the `<sub>` block survives, and the manifest contains
+          two attachments with the expected `bundlePath` /
+          `absSourcePath` / `mime`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: filesystem reads happen later (in T-11-7); this
+      module is pure (string-in, manifest-out).
+
+- [ ] T-11-4: HTML article renderer (remark/rehype, markup-rules
+      aware)
+      Goal: Convert Markdown to standalone HTML applying the
+      profile's `markup_rules`.
+      Touches: `src/server/export/html.ts`,
+      `tests/unit/export/html.test.ts`.
+      Acceptance:
+        - Exports `renderHtmlArticle(markdown: string, rules:
+          MarkupRules): Promise<string>` that builds a `unified()`
+          pipeline: `remarkParse → remarkGfm → remarkRehype({
+          allowDangerousHtml: true }) → rehypeRaw → rehypeStringify`
+          and returns the HTML body wrapped in a minimal
+          `<!doctype html><html><head><meta charset="utf-8">
+          <title>Article</title></head><body>…</body></html>`
+          envelope.
+        - `headingShift` is applied via a custom remark transformer:
+          for each heading node, set `depth = clamp(depth +
+          rules.headingShift, 1, 6)`.
+        - `flavor: 'habr'` defaults `headingShift` to `-1` when the
+          caller passes `0`, and wraps top-level headings in an
+          extra newline (no other transformations for v1; document
+          this as the v1 Habr stub).
+        - `flavor: 'standard'` produces clean semantic HTML with
+          GFM tables disabled in DOCX/PDF (no impact here).
+        - `<sub>…</sub>` blocks survive the round-trip
+          (`allowDangerousHtml + rehypeRaw` enables this).
+        - Unit test snapshots two cases: standard flavor with
+          `headingShift: 0` over a markdown sample with H1/H2/code
+          fence/list/image+`<sub>`; Habr flavor with `headingShift:
+          0` over the same sample (asserts H1→H2 shift).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: tables/footnotes intentionally rely on default GFM
+      behavior; no extra config in v1.
+
+- [ ] T-11-5: DOCX article renderer
+      Goal: Build a Word document from the Markdown article with
+      embedded images.
+      Touches: `src/server/export/docx.ts`,
+      `tests/unit/export/docx.test.ts`.
+      Acceptance:
+        - Exports `renderDocxArticle({ contentMd, attachments,
+          rules }: { contentMd: string; attachments:
+          ImageAttachment[]; rules: MarkupRules }): Promise<Buffer>`.
+        - Uses `unified() + remarkParse + remarkGfm` to build the
+          mdast, then walks the AST mapping nodes to `docx`
+          primitives:
+            - `heading` → `Paragraph` with
+              `HeadingLevel.HEADING_1..6` (offset by
+              `rules.headingShift`, clamped 1..6).
+            - `paragraph` → `Paragraph` with mixed `TextRun`s
+              (bold/italic/link).
+            - `list` (ordered/unordered) → `Paragraph`s with the
+              relevant numbering or bullet style.
+            - `code` (block) → preformatted `Paragraph` (single
+              `TextRun` with `font: 'Courier New'`).
+            - `blockquote` → `Paragraph` with `style: 'IntenseQuote'`
+              (use `docx` built-in style).
+            - `image` (`url` matches an attachment's `bundlePath`)
+              → `ImageRun` reading bytes from
+              `attachment.absSourcePath`; `transformation: { width:
+              480, height: 270 }` for v1 (no aspect detection).
+            - Unknown / unsupported nodes (table, footnote,
+              raw HTML) → skipped with a single
+              `Paragraph(TextRun({ text: '[unsupported: <kind>]',
+              italics: true }))` placeholder so output is never
+              empty for valid-looking input.
+        - Unit test feeds a markdown sample (heading + paragraph
+          + bullet list + image referencing a fixture PNG copied
+          into a tmp dir) plus the matching attachments, calls
+          `renderDocxArticle`, then:
+            - asserts the buffer starts with the ZIP magic `PK\x03\x04`,
+            - opens the buffer with `JSZip` and asserts it contains
+              `word/document.xml` and `word/media/image1.png` (or
+              similarly named entry).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: this task adds a small fixture under
+      `tests/unit/export/fixtures/` (a 1×1 PNG is fine).
+
+- [ ] T-11-6: PDF article renderer (Playwright Chromium)
+      Goal: Render the HTML form of the article to PDF bytes,
+      embedding images by serving them from a tmp directory.
+      Touches: `src/server/export/pdf.ts`,
+      `tests/unit/export/pdf.test.ts`.
+      Acceptance:
+        - Exports `renderPdfArticle({ html, attachments }: { html:
+          string; attachments: ImageAttachment[] }): Promise<Buffer>`.
+        - Implementation: `mkdtempSync` a working dir, write
+          `index.html` (with a tiny embedded print stylesheet —
+          system font, max-width:42rem, `img { max-width: 100%; }`),
+          copy each attachment from its `absSourcePath` into the
+          dir under `attachment.bundlePath` (creating
+          subdirectories), launch `chromium.launch({ headless:
+          true })`, open a new page, call `page.goto('file://' +
+          path.join(tmpDir, 'index.html'))`, then `page.pdf({
+          format: 'A4', margin: { top: '20mm', right: '15mm',
+          bottom: '20mm', left: '15mm' } })`. Always close the
+          browser and remove the tmp dir.
+        - Unit test mocks `playwright` via `vi.mock('playwright',
+          () => ({ chromium: { launch: vi.fn().mockResolvedValue(
+          { newPage: vi.fn().mockResolvedValue({ goto: vi.fn(),
+          pdf: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7'))
+          }), close: vi.fn() }) } }))`; asserts the returned
+          buffer starts with `%PDF-`, that `goto` was called with
+          a `file://` URL inside an `os.tmpdir()` subtree, and
+          that the tmp dir is cleaned up afterwards.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: real PDF rendering is not exercised in unit tests
+      (no Chromium in CI). It ships in the docker image via
+      T-11-2.
+
+- [ ] T-11-7: Zip bundle assembler
+      Goal: Pack arbitrary files into a zip buffer; used by the
+      route to ship MD/HTML bundles.
+      Touches: `src/server/export/bundle.ts`,
+      `tests/unit/export/bundle.test.ts`.
+      Acceptance:
+        - Exports `buildZipBundle(files: Array<{ path: string;
+          bytes: Buffer | string }>): Promise<Buffer>` using
+          `jszip`.
+        - Exports `buildAttributionsReadme(attachments:
+          ImageAttachment[], imageState: ImageState): string` that
+          returns plain text listing each stock candidate's
+          attribution (skips generated). Returns `'No external
+          attributions.\n'` if none.
+        - Unit test calls `buildZipBundle` with three entries
+          (`article.md`, `images/hero.png`, `README.txt`), parses
+          the result back with `JSZip`, and asserts all three
+          entries exist with their expected payloads.
+        - Second unit test calls `buildAttributionsReadme` over
+          one stock + one generated slot; asserts only the stock
+          line appears with its attribution string.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [ ] T-11-8: Export route handler
+      Goal: `GET /api/sessions/:id/export?format=md|html|docx|pdf`
+      returns a downloadable artifact gated by ownership and
+      session state.
+      Touches: `src/app/api/sessions/[id]/export/route.ts`,
+      `tests/unit/api/export-route.test.ts`.
+      Acceptance:
+        - `requireUser` enforced; `getSession(user.id, id)` ensures
+          ownership; if `session.state` is not `'export'` or
+          `'done'` returns `409 { error: 'wrong_state' }`.
+        - Validates `format` query param against `z.enum(['md',
+          'html', 'docx', 'pdf'])`; on miss returns `400 { error:
+          'bad_format' }`.
+        - For all formats: load the session's profile, parse
+          `markupRules` via `parseMarkupRules`, parse `imageState`
+          via `parseImageState`, call `renderMarkdownArticle` to
+          get `{ contentMd, attachments }`.
+        - `format=md`: build a zip via `buildZipBundle` containing
+          `article.md` (`contentMd`), `images/<slot>.<ext>` (read
+          from `attachment.absSourcePath`), and `README.txt`
+          (`buildAttributionsReadme(...)`). Response headers:
+          `Content-Type: application/zip`,
+          `Content-Disposition: attachment;
+          filename="article-<id>-md.zip"`.
+        - `format=html`: same, but the article entry is
+          `article.html` produced by `renderHtmlArticle(contentMd,
+          rules)`. Filename `article-<id>-html.zip`.
+        - `format=docx`: call `renderDocxArticle({ contentMd,
+          attachments, rules })`; respond with bytes,
+          `Content-Type: application/vnd.openxmlformats-
+          officedocument.wordprocessingml.document`,
+          `filename="article-<id>.docx"`.
+        - `format=pdf`: call `renderHtmlArticle` then
+          `renderPdfArticle({ html, attachments })`; respond with
+          `Content-Type: application/pdf`,
+          `filename="article-<id>.pdf"`.
+        - Unit test mocks `requireUser`, `getSession`,
+          `getProfile`, and the four renderers; for each format
+          asserts the renderer is called with the right inputs,
+          the response status is 200, the content type matches,
+          and the disposition filename matches the pattern.
+          Negative cases: missing format → 400; wrong state → 409;
+          unowned session → 404 (returned by `getSession` ⇒ null
+          ⇒ route maps to 404).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: read attachment bytes using
+      `fs.readFile(attachment.absSourcePath)` inside the route
+      (not in `renderMarkdownArticle`).
+
+- [ ] T-11-9: Runner — `'export'` state park + transition to
+      `'done'`
+      Goal: When the runner enters the `'export'` case it parks
+      for `export_done`; on resolve it transitions to `'done'`.
+      The previous `'illustration'` case is updated so it kicks
+      the runner forward into `'export'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-export.test.ts`.
+      Acceptance:
+        - The `'illustration'` case is updated to call
+          `await startRunner(sessionId, userId, true)` immediately
+          after transitioning to `'export'` (matching the existing
+          `'decoration' → 'illustration'` chain).
+        - A new `case 'export':` parks via
+          `ctx.userInput('export_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'done')`, emits
+          `state_changed` (`{ state: 'done' }`), and does NOT
+          recurse into `startRunner` (`'done'` is terminal).
+        - Unit test (mirrors
+          `tests/unit/pipeline/runner-decoration.test.ts`) stubs
+          `getSession` to return an `export` session and
+          `updateSessionState`; drives the runner; asserts an
+          `awaiting_user` event with `prompt: 'export_done'`
+          fires; calls `resolveUserInput` and asserts state
+          advances to `'done'`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [ ] T-11-10: `finishExportAction` server action
+      Goal: Server action the UI calls to confirm the user is
+      done downloading; resolves the runner's `export_done` park.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/finish-export-action.test.ts`.
+      Acceptance:
+        - Adds `finishExportAction(sessionId: number): Promise<{
+          ok: true } | { ok: false; error:
+          'no_pending_export' }>` mirroring `finishDecorationAction`
+          / `finishIllustrationAction`: calls `requireUser`,
+          asserts ownership via `getSession`, calls
+          `resolveUserInput(sessionId, { action: 'finish' })`,
+          maps `false` → `'no_pending_export'`.
+        - Unit test mocks `requireUser`, `getSession`, and
+          `resolveUserInput`; asserts ownership check rejects
+          (returns `'no_pending_export'`) when `getSession`
+          returns null; asserts the action threads `user.id`;
+          asserts `'no_pending_export'` when `resolveUserInput`
+          returns `false`; asserts `{ ok: true }` on resolve.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [ ] T-11-11: `<ExportPane />` + page wiring for `'export'` /
+      `'done'` states
+      Goal: Workbench pane for the `'export'` state with one
+      download button per format and a "Mark as done" action.
+      `'done'` state shows the same downloads with a banner.
+      Touches:
+      `src/app/(app)/sessions/[id]/export-pane.tsx`,
+      `src/app/(app)/sessions/[id]/page.tsx`,
+      `tests/unit/sessions/export-pane.test.tsx`.
+      Acceptance:
+        - `export-pane.tsx` is a `'use client'` component with
+          props `{ sessionId: number; state: 'export' | 'done' }`.
+        - Renders four download links — `Markdown (.zip)`,
+          `HTML (.zip)`, `DOCX`, `PDF` — each as `<a download
+          href={'/api/sessions/' + sessionId + '/export?format=' +
+          fmt}>`.
+        - When `state === 'export'`: also renders a `Mark as done`
+          button calling `finishExportAction(sessionId)`; on
+          `error: 'no_pending_export'` shows a "Resume" link that
+          POSTs to `startSessionAction` (mirror the pattern from
+          `decoration-pane.tsx`).
+        - When `state === 'done'`: shows a static banner "Article
+          complete." in place of the button; downloads remain
+          enabled.
+        - `page.tsx` mounts `<ExportPane sessionId={id}
+          state={session.state} />` when `session.state ===
+          'export' || session.state === 'done'`, replacing the
+          existing fallback `<p>State: {session.state}</p>` for
+          those two states only.
+        - Component-level smoke test (Vitest + Testing Library)
+          renders the pane in `state='export'`, asserts all four
+          download links exist with correct `href`s, and the
+          `Mark as done` button is present. Second case
+          `state='done'` asserts the banner replaces the button.
+        - `pnpm typecheck`, `pnpm lint`, `pnpm test` exit 0.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 12 — Eval harness
 
