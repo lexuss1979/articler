@@ -8,6 +8,8 @@ services:
       AUTH_URL: http://localhost:18080
     env_file:
       - .env
+    volumes:
+      - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy
