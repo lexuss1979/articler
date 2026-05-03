@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionEvents } from './use-session-events';
-import { startDecorationAction, finishDecorationAction } from './actions';
+import {
+  finishDecorationAction,
+  startDecorationAction,
+  startSessionAction,
+} from './actions';
 import { SuggestionCard } from './suggestion-card';
 import type { Plan } from '../../../../server/sessions/plan';
 import type {
@@ -28,6 +32,8 @@ export function DecorationPane(props: {
   const [activeTasks, setActiveTasks] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
 
   const events = useSessionEvents(sessionId);
   const processedCount = useRef(0);
@@ -131,8 +137,22 @@ export function DecorationPane(props: {
 
   async function handleFinish() {
     setFinishing(true);
+    setFinishError(null);
     const result = await finishDecorationAction(sessionId);
-    if (!result.ok) setFinishing(false);
+    if (!result.ok) {
+      setFinishing(false);
+      setFinishError(result.error);
+    }
+  }
+
+  async function handleResume() {
+    setResuming(true);
+    setFinishError(null);
+    try {
+      await startSessionAction(sessionId);
+    } finally {
+      setResuming(false);
+    }
   }
 
   return (
@@ -194,7 +214,7 @@ export function DecorationPane(props: {
         })}
       </div>
 
-      <div className="shrink-0 flex flex-col gap-1 pt-2 border-t">
+      <div className="shrink-0 flex flex-col gap-2 pt-2 border-t">
         <button
           onClick={() => void handleFinish()}
           disabled={!canFinish || finishing}
@@ -206,6 +226,20 @@ export function DecorationPane(props: {
           <p className="text-xs text-gray-400 text-center">
             Run decoration at least once before finishing
           </p>
+        )}
+        {finishError === 'no_pending_decoration' && (
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-amber-700">
+              Runner is not parked for this session. This usually happens after a server restart. Click Resume, then try Finish again.
+            </p>
+            <button
+              onClick={() => void handleResume()}
+              disabled={resuming}
+              className="text-xs px-3 py-1.5 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-40 self-start"
+            >
+              {resuming ? 'Resuming…' : 'Resume runner'}
+            </button>
+          </div>
         )}
       </div>
     </div>
