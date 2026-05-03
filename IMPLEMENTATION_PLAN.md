@@ -2851,7 +2851,7 @@ join image-slot rows the same column can be migrated then.
           clamps to `'a\n\nX'`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-9-2: Decoration persistence helpers
+- [x] T-9-2: Decoration persistence helpers
       Goal: User-scoped read/append/status helpers for
       `sessions.decoration` JSONB.
       Touches: `src/server/sessions/decoration-repo.ts`,
