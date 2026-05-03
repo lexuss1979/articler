@@ -3929,7 +3929,7 @@ Decisions taken (defaults — change before implementation if needed):
       Notes: no DB migration — `markupRules` jsonb column is
       unchanged; only the validation layer tightens.
 
-- [ ] T-11-2: Install export dependencies + ship Chromium in the
+- [x] T-11-2: Install export dependencies + ship Chromium in the
       production image
       Goal: Add the runtime libraries the renderers need and make
       Playwright's Chromium available inside the `runner` Docker
@@ -3937,19 +3937,34 @@ Decisions taken (defaults — change before implementation if needed):
       Touches: `package.json`, `pnpm-lock.yaml`, `Dockerfile`.
       Acceptance:
         - `pnpm add remark remark-parse remark-gfm remark-rehype
-          rehype-stringify rehype-raw unified docx jszip playwright`
-          adds them to `dependencies` (NOT devDependencies). The
-          existing `@playwright/test` devDependency stays for e2e.
-        - `Dockerfile`'s `runner` stage installs Chromium via
-          `RUN npx playwright install --with-deps chromium` (run as
-          root before the `USER nextjs` directive); the resulting
-          image still boots and serves on container port 3000.
-        - `pnpm install --frozen-lockfile` succeeds locally and
-          inside the `deps` stage.
+          rehype-stringify rehype-raw unified docx jszip
+          playwright@1.59.1` adds them to `dependencies` (NOT
+          devDependencies). The existing `@playwright/test`
+          devDependency stays for e2e. `playwright` is pinned to
+          the same version as `@playwright/test` so they share one
+          Chromium revision.
+        - The Docker base FROM is changed from `node:22-alpine` to
+          `node:22-bookworm-slim` (apt-based) so Playwright's
+          `--with-deps` install path works. The `addgroup`/
+          `adduser` invocation is replaced with `groupadd`/
+          `useradd` from the passwd package, which is the Debian-
+          standard equivalent.
+        - `Dockerfile`'s `runner` stage sets
+          `ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`, then runs
+          `RUN npx --yes playwright@1.59.1 install --with-deps
+          chromium` (as root, before the `USER nextjs` directive).
+          The browsers land in `/ms-playwright` so the unprivileged
+          `nextjs` user can read them at runtime.
+        - The `deps` and `builder` stages set
+          `ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so the install
+          step doesn't redundantly download Chromium during
+          `pnpm install` (the runner stage handles that once).
+        - `pnpm install --frozen-lockfile` succeeds locally.
         - `docker build -t articler-web .` succeeds.
         - `pnpm typecheck` exits 0 (so the new module typings
           resolve).
-      Notes: image size will grow by ~250 MB. Acceptable for v1.
+      Notes: image size will grow by ~400 MB (Debian base + apt
+      deps + Chromium). Acceptable for v1.
 
 - [ ] T-11-3: Markdown article renderer + image manifest
       Goal: Produce the canonical Markdown body of the export plus a
