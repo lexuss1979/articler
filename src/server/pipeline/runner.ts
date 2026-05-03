@@ -238,6 +238,14 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'review');
       await ctx.emit('state_changed', { state: 'review' });
+      await startRunner(sessionId, userId);
+      break;
+    }
+    case 'review': {
+      await ctx.userInput('review_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'decoration');
+      await ctx.emit('state_changed', { state: 'decoration' });
       break;
     }
     default:

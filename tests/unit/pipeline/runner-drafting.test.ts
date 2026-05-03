@@ -100,9 +100,9 @@ afterEach(() => vi.clearAllMocks());
 
 describe('startRunner — drafting state', () => {
   it('drafts each section in order, prevSections accumulates correctly', async () => {
-    mocks.getSessionFn.mockResolvedValue({
-      id: 10, userId: 1, state: 'drafting', plan, brief, profileId: 1, mode: 'new',
-    });
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 10, userId: 1, state: 'drafting', plan, brief, profileId: 1, mode: 'new' })
+      .mockResolvedValueOnce(null); // recursive startRunner after transitioning to review should be a no-op
     mocks.getProfileFn.mockResolvedValue(profile);
     mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 10, kind: '', payload: {}, ts: new Date() });
     mocks.updateSessionStateFn.mockResolvedValue({ id: 10 });
@@ -160,12 +160,9 @@ describe('startRunner — drafting state', () => {
 
   it('passes rewriteSourceArticles from brief when mode is rewrite', async () => {
     const sourceArticles = [{ url: 'https://original.com', content: 'Original content.' }];
-    mocks.getSessionFn.mockResolvedValue({
-      id: 10, userId: 1, state: 'drafting',
-      plan,
-      brief: { ...brief, sourceArticles },
-      profileId: 1, mode: 'rewrite',
-    });
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 10, userId: 1, state: 'drafting', plan, brief: { ...brief, sourceArticles }, profileId: 1, mode: 'rewrite' })
+      .mockResolvedValueOnce(null);
     mocks.getProfileFn.mockResolvedValue(profile);
     mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 10, kind: '', payload: {}, ts: new Date() });
     mocks.updateSessionStateFn.mockResolvedValue({ id: 10 });

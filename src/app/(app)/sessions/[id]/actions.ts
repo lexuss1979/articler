@@ -155,6 +155,15 @@ export async function finishDraftAction(
   return { ok: true };
 }
 
+export async function finishReviewAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'no_pending_review' }> {
+  await requireUser();
+  const resolved = resolveUserInput(sessionId, { action: 'finish' });
+  if (!resolved) return { ok: false, error: 'no_pending_review' };
+  return { ok: true };
+}
+
 const DEV_STATES = ['planning', 'research', 'drafting', 'review'] as const;
 type DevState = (typeof DEV_STATES)[number];
 
