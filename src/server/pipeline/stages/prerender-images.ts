@@ -7,7 +7,20 @@ import {
   type ImagePrompt,
 } from '../../sessions/images';
 import { saveImageFromB64, saveImageFromUrl } from '../../images/storage';
+import { OpenRouterError } from '../../llm/openrouter';
 import type { Stage } from '../stage';
+
+function formatErr(err: unknown): string {
+  if (err instanceof OpenRouterError) {
+    const body =
+      typeof err.body === 'string'
+        ? err.body.slice(0, 800)
+        : JSON.stringify(err.body).slice(0, 800);
+    return `OpenRouterError ${err.status}: ${body}`;
+  }
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
+}
 
 const inputSchema = z.object({
   sessionId: z.number().int().positive(),
@@ -61,10 +74,7 @@ export const prerenderImages: Stage<
       const settledCall = settled[i]!;
       if (settledCall.status !== 'fulfilled') {
         console.error(
-          `[prerender_images] routeImage call ${i} rejected:`,
-          settledCall.reason instanceof Error
-            ? `${settledCall.reason.name}: ${settledCall.reason.message}`
-            : settledCall.reason,
+          `[prerender_images] routeImage call ${i} rejected: ${formatErr(settledCall.reason)}`,
         );
         continue;
       }
@@ -109,8 +119,7 @@ export const prerenderImages: Stage<
         });
       } catch (err) {
         console.error(
-          `[prerender_images] save failed for candidate ${i}:`,
-          err instanceof Error ? `${err.name}: ${err.message}` : err,
+          `[prerender_images] save failed for candidate ${i}: ${formatErr(err)}`,
         );
         continue;
       }
