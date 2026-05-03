@@ -2978,7 +2978,7 @@ join image-slot rows the same column can be migrated then.
           status.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-9-5: `runDecoration` orchestrator
+- [x] T-9-5: `runDecoration` orchestrator
       Goal: Top-level wrapper (analogue of `run-review.ts`) that
       validates the session, calls the stage with prepared inputs,
       persists a new round, and emits artifact events.
