@@ -89,10 +89,68 @@ export function openrouterChat(args: {
   return post<ChatResponse>('/api/v1/chat/completions', { stream: false, ...args });
 }
 
-export function openrouterImage(args: {
+interface ChatImagesResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+      images?: Array<{ image_url?: { url?: string } }>;
+    };
+  }>;
+}
+
+export async function openrouterImage(args: {
   model: string;
   prompt: string;
   [key: string]: unknown;
 }): Promise<ImageResponse> {
-  return post<ImageResponse>('/api/v1/images/generations', args);
+  const { model, prompt, ...rest } = args;
+  const body = {
+    model,
+    messages: [{ role: 'user', content: prompt }],
+    modalities: ['image', 'text'],
+    stream: false,
+    ...rest,
+  };
+
+  const res = await undiciFetch(`https://openrouter.ai/api/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey()}`,
+    },
+    body: JSON.stringify(body),
+    dispatcher: getDispatcher(),
+  } as Parameters<typeof undiciFetch>[1]);
+
+  const responseBody = await res.text().catch(() => '');
+  if (!res.ok) {
+    throw new OpenRouterError(res.status, responseBody);
+  }
+
+  let parsed: ChatImagesResponse;
+  try {
+    parsed = JSON.parse(responseBody);
+  } catch {
+    throw new OpenRouterError(res.status, `Non-JSON response: ${responseBody.slice(0, 200)}`);
+  }
+
+  const images = parsed.choices?.[0]?.message?.images ?? [];
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new OpenRouterError(
+      200,
+      `No images in chat response: ${responseBody.slice(0, 500)}`,
+    );
+  }
+
+  const data: ImageResponse['data'] = images.map((img) => {
+    const url = img.image_url?.url;
+    if (!url) return {};
+    const dataMatch = url.match(/^data:([^;]+);base64,(.+)$/);
+    if (dataMatch) {
+      return { b64_json: dataMatch[2] };
+    }
+    return { url };
+  });
+
+  return { data };
 }
