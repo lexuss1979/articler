@@ -54,11 +54,11 @@ vi.mock('../../../src/server/pipeline/stages/draft-section', () => ({
   draftSection: { run: vi.fn() },
 }));
 
-function makeDecorationSession() {
+function makeIllustrationSession() {
   return {
     id: 10,
     userId: 1,
-    state: 'decoration',
+    state: 'illustration',
     plan: null,
     brief: null,
     profileId: 1,
@@ -68,11 +68,9 @@ function makeDecorationSession() {
 
 afterEach(() => vi.clearAllMocks());
 
-describe('startRunner — decoration state', () => {
-  it('emits awaiting_user with prompt decoration_done when entering decoration state', async () => {
-    mocks.getSessionFn
-      .mockResolvedValueOnce(makeDecorationSession())
-      .mockResolvedValue(null);
+describe('startRunner — illustration state', () => {
+  it('emits awaiting_user with prompt illustration_done when entering illustration', async () => {
+    mocks.getSessionFn.mockResolvedValue(makeIllustrationSession());
     mocks.emitEventFn.mockResolvedValue({
       id: 1,
       sessionId: 10,
@@ -93,7 +91,8 @@ describe('startRunner — decoration state', () => {
       expect(
         calls.some(
           ([, k, p]) =>
-            k === 'awaiting_user' && (p as { prompt: string }).prompt === 'decoration_done',
+            k === 'awaiting_user' &&
+            (p as { prompt: string }).prompt === 'illustration_done',
         ),
       ).toBe(true);
     });
@@ -102,10 +101,8 @@ describe('startRunner — decoration state', () => {
     await runnerPromise;
   });
 
-  it('transitions to illustration and emits state_changed after resolving decoration_done', async () => {
-    mocks.getSessionFn
-      .mockResolvedValueOnce(makeDecorationSession())
-      .mockResolvedValue(null);
+  it('transitions to export and emits state_changed after resolving illustration_done', async () => {
+    mocks.getSessionFn.mockResolvedValue(makeIllustrationSession());
     mocks.emitEventFn.mockResolvedValue({
       id: 1,
       sessionId: 10,
@@ -129,17 +126,15 @@ describe('startRunner — decoration state', () => {
     resolveUserInput(10, { action: 'finish' });
     await runnerPromise;
 
-    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 10, 'illustration');
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 10, 'export');
     const stateChangedCalls = (
       mocks.emitEventFn.mock.calls as [number, string, unknown][]
     ).filter(([, k]) => k === 'state_changed');
-    expect(stateChangedCalls.at(-1)?.[2]).toMatchObject({ state: 'illustration' });
+    expect(stateChangedCalls.at(-1)?.[2]).toMatchObject({ state: 'export' });
   });
 
-  it('chains into a recursive startRunner so the illustration park activates immediately', async () => {
-    mocks.getSessionFn
-      .mockResolvedValueOnce(makeDecorationSession())
-      .mockResolvedValue(null);
+  it('does not call startRunner recursively (export runner is Epic 11)', async () => {
+    mocks.getSessionFn.mockResolvedValue(makeIllustrationSession());
     mocks.emitEventFn.mockResolvedValue({
       id: 1,
       sessionId: 10,
@@ -163,6 +158,6 @@ describe('startRunner — decoration state', () => {
     resolveUserInput(10, { action: 'finish' });
     await runnerPromise;
 
-    expect(mocks.getSessionFn).toHaveBeenCalledTimes(2);
+    expect(mocks.getSessionFn).toHaveBeenCalledTimes(1);
   });
 });

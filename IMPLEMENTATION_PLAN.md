@@ -3724,7 +3724,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           `no_pending_illustration` when nothing is parked.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-12: Runner — `'illustration'` state park + transition to
+- [x] T-10-12: Runner — `'illustration'` state park + transition to
       `'export'`
       Goal: When the runner enters the `'illustration'` case it
       parks for `illustration_done`; on resolve it transitions to
