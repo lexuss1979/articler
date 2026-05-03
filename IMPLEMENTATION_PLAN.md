@@ -2006,7 +2006,26 @@ is captured.
 
 ## Epic 8 — Review: critics + fact-checker
 
-**Status: planned**
+**Status: shipped (T-8-1 … T-8-18 complete; redesigned post-T-8-18)**
+
+> **Post-shipping redesign (commit `b0ccb78`):** the parallel-critics
+> design from T-8-6/T-8-7 was replaced with a single strong-model
+> review call composing selected lenses, plus a new `apply-revisions`
+> stage that rewrites the full draft from filtered findings. Per-finding
+> actions from T-8-8 (`dismiss/apply/rewriteFromFinding`) and the
+> custom-critic UI were removed; severity is now `critical/medium/minor`
+> with a deterministic critical+medium rewrite gate, minor stays
+> informational. Two new `sessions` columns
+> (`revised_draft_md`, `revision_status`) hold the pending revision; the
+> review UI gained a 3-column "before / after / applied comments" screen.
+> The `run_critic` stage was deleted; `run_review` is now the canonical
+> stage with its own eval fixture (replacing `run_critic/`). Original
+> task acceptance criteria below describe the pre-redesign shape; treat
+> them as historical context for the directories touched, not as the
+> current contract. Drafting also gained resilience (resumable on
+> crash, runner lock, fallback on null LLM content) shipped in the
+> same commit.
+
 **Goal:** When the user finishes drafting the session enters
 `'review'`. The workbench swaps to a two-tab review pane. The
 **Critique** tab lets the user run a panel of critic personas
@@ -2277,7 +2296,7 @@ for the four new stages.
           events were emitted in order with the expected payloads.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-7: `runReview` orchestration helper + `startReviewAction`
+- [x] T-8-7: `runReview` orchestration helper + `startReviewAction`
       Goal: A non-runner code path that, on user request, creates a
       new `'critique'` round, fans out the session's active critics
       in parallel, and persists each critic's findings.
@@ -2330,7 +2349,7 @@ for the four new stages.
       `ctx`, so the chat reflects live critic progress. No extra
       code in the orchestrator.
 
-- [ ] T-8-8: Per-finding action server actions
+- [x] T-8-8: Per-finding action server actions
       Goal: Server actions for dismiss / apply verbatim / send-to-
       drafter on a single finding.
       Touches: `src/app/(app)/sessions/[id]/actions.ts`,
@@ -2371,7 +2390,7 @@ for the four new stages.
       are approximate. v1 marks as applied; v2 can add surgical
       replace once spans are anchor-stable.
 
-- [ ] T-8-9: `extract_claims` stage
+- [x] T-8-9: `extract_claims` stage
       Goal: A `Stage` that extracts factual claims from the draft
       with span info and check-worthiness.
       Touches: `src/server/pipeline/stages/extract-claims.ts`,
@@ -2397,7 +2416,7 @@ for the four new stages.
           worthiness ladder.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-10: `verify_claim` stage with sources reuse
+- [x] T-8-10: `verify_claim` stage with sources reuse
       Goal: A `Stage` that gathers evidence for a single claim,
       reusing accepted sources from the session before issuing a
       search query.
@@ -2443,7 +2462,7 @@ for the four new stages.
       net-positive even with false positives — the adjudicator
       filters noise downstream.
 
-- [ ] T-8-11: `adjudicate_claim` stage
+- [x] T-8-11: `adjudicate_claim` stage
       Goal: A `Stage` that emits a verdict + justification + citation
       list given a claim and its evidence pool.
       Touches: `src/server/pipeline/stages/adjudicate-claim.ts`,
@@ -2476,7 +2495,7 @@ for the four new stages.
           fires without calling `routeJsonChat`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-12: `runFactCheck` orchestration helper +
+- [x] T-8-12: `runFactCheck` orchestration helper +
       `startFactCheckAction`
       Goal: A non-runner code path that runs the three-stage
       fact-check pipeline with `span_hash` idempotency.
@@ -2531,7 +2550,7 @@ for the four new stages.
           asserts `force` is forwarded.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-13: Per-claim action server actions
+- [x] T-8-13: Per-claim action server actions
       Goal: Server actions for accept-correction / dismiss-verdict /
       mark-as-opinion on a single claim.
       Touches: `src/app/(app)/sessions/[id]/actions.ts`,
@@ -2566,7 +2585,7 @@ for the four new stages.
           `acceptClaimCorrectionAction` short-circuits on `verified`.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-14: Active critics configuration + ad-hoc critic action
+- [x] T-8-14: Active critics configuration + ad-hoc critic action
       Goal: Server action that updates `sessions.active_critics`
       with a new built-in enabledIds list and/or an appended
       custom critic.
@@ -2593,7 +2612,7 @@ for the four new stages.
           before persistence.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-15: Runner — `'review'` state park + `finishReviewAction`
+- [x] T-8-15: Runner — `'review'` state park + `finishReviewAction`
       Goal: When the runner enters the `'review'` case it emits
       a `state_changed` and parks for `review_done`; on resolve it
       transitions to `'decoration'`. Drafting transitions out are
@@ -2626,7 +2645,7 @@ for the four new stages.
           the input and asserts state advances to `'decoration'`.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-16: Workbench `<ReviewPane />` shell + Critique tab +
+- [x] T-8-16: Workbench `<ReviewPane />` shell + Critique tab +
       page wiring
       Goal: While `session.state === 'review'`, the workbench
       shows a two-tab pane. The Critique tab shows past rounds and
@@ -2678,7 +2697,7 @@ for the four new stages.
       future "back to review" affordance. The button is disabled
       with an inline hint.
 
-- [ ] T-8-17: Fact-check tab UI in `<ReviewPane />`
+- [x] T-8-17: Fact-check tab UI in `<ReviewPane />`
       Goal: The Fact-check tab shows claims with their latest
       verdicts and per-claim actions, plus a "Run fact-check"
       button.
@@ -2712,7 +2731,7 @@ for the four new stages.
           rendering).
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-8-18: Eval fixtures for the four review stages
+- [x] T-8-18: Eval fixtures for the four review stages
       Goal: Capture one input/expected snapshot per new stage so
       the Epic 12 harness can replay them.
       Touches:
