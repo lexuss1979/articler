@@ -3966,7 +3966,7 @@ Decisions taken (defaults — change before implementation if needed):
       Notes: image size will grow by ~400 MB (Debian base + apt
       deps + Chromium). Acceptable for v1.
 
-- [ ] T-11-3: Markdown article renderer + image manifest
+- [x] T-11-3: Markdown article renderer + image manifest
       Goal: Produce the canonical Markdown body of the export plus a
       manifest of bundle-relative image attachments, with image
       refs rewritten from `/api/images/...` and external Unsplash
