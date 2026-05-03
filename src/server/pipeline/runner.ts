@@ -288,6 +288,14 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
 
       await updateSessionState(userId, sessionId, 'decoration');
       await ctx.emit('state_changed', { state: 'decoration' });
+      await startRunner(sessionId, userId, true);
+      break;
+    }
+    case 'decoration': {
+      await ctx.userInput('decoration_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'illustration');
+      await ctx.emit('state_changed', { state: 'illustration' });
       break;
     }
     default:

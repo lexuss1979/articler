@@ -3053,7 +3053,7 @@ join image-slot rows the same column can be migrated then.
           `no_pending_decoration` when nothing is parked.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-9-7: Runner — `'decoration'` state park + transition to
+- [x] T-9-7: Runner — `'decoration'` state park + transition to
       `'illustration'`
       Goal: When the runner enters the `'decoration'` case it
       emits a `state_changed` (already done by the upstream
