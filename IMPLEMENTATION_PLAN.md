@@ -4272,6 +4272,136 @@ Decisions taken (defaults — change before implementation if needed):
           `state='done'` asserts the banner replaces the button.
         - `pnpm typecheck`, `pnpm lint`, `pnpm test` exit 0.
 
+- [ ] T-11-12: Surface render errors as JSON in the export route
+      Goal: When a renderer throws (e.g. Playwright Chromium can't
+      launch in dev/WSL2), the route must return a structured JSON
+      error with the right status — never the raw HTML/text error
+      page that the browser saves as `.txt`.
+      Touches: `src/app/api/sessions/[id]/export/route.ts`,
+      `tests/unit/api/export-route.test.ts`.
+      Acceptance:
+        - Each format branch wraps its renderer + zip calls in a
+          try/catch.
+        - For `format=pdf`: when the caught error message matches
+          one of the Playwright-launch failure signatures
+          (`browserType.launch`, `Executable doesn't exist`,
+          `libnspr4`, `error while loading shared libraries`,
+          `was not found`), return `503 { error:
+          'pdf_unavailable', message }`. Other PDF errors fall
+          through to the generic 500 path.
+        - All other render failures return `500 { error:
+          'render_failed', format, message }`.
+        - Tests:
+          - PDF renderer rejects with a Chromium-launch-shaped
+            error → response 503 with `error: 'pdf_unavailable'`
+            in the JSON body.
+          - PDF renderer rejects with a generic error → 500 with
+            `error: 'render_failed'`.
+          - DOCX/HTML/MD renderer rejects → 500 with `error:
+            'render_failed'` and `format` matching the request.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: do not log full stack traces in the response body;
+      only the `Error.message` text. The full error stays in
+      console / `appendRunLog`-style logs (out of scope here).
+
+- [ ] T-11-13: Skip empty README from md/html bundles
+      Goal: When there are no external attributions, do not
+      include a `README.txt` file in the zip — today the bundle
+      ships a `README.txt` containing the sentinel "No external
+      attributions.\n", which is noise.
+      Touches: `src/app/api/sessions/[id]/export/route.ts`,
+      `tests/unit/api/export-route.test.ts`.
+      Acceptance:
+        - In the md/html branches, call
+          `buildAttributionsReadme(...)` and only push a
+          `README.txt` entry when the result is NOT equal to the
+          sentinel `'No external attributions.\n'`.
+        - Test: empty attachments → md zip has NO `README.txt`
+          entry; with at least one stock attribution → md zip
+          DOES contain `README.txt`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [ ] T-11-14: Hero survives subsequent inline image applies
+      Goal: Selecting an inline image after a hero must NOT erase
+      the hero from `draft_md`. Today `applyImageSelection` for
+      inline rebuilds `draft_md` from `section_drafts` only —
+      hero is gone because it was only ever inlined into the
+      composed `draft_md` and never persisted into a section
+      draft.
+      Touches: `src/server/pipeline/apply-image.ts`,
+      `tests/unit/pipeline/apply-image.test.ts`.
+      Acceptance:
+        - `composeFromSectionDrafts` is extended to take an
+          `imageState: ImageState` argument and, after composing
+          the section bodies, prepend the rendered hero image
+          markdown if a `hero` slot has a `chosenCandidateId` (use
+          `renderImageMarkdown` with the slot's `altText`).
+        - Both inline and hero branches of `applyImageSelection`
+          call this single composer; the bespoke hero branch (the
+          `${imageMd}\n\n${composed}` template) is removed.
+        - For the hero branch the order is: `setSlotChoice` first
+          (so `imageState` reflects the new choice), THEN compose,
+          THEN `updateSessionDraft`. Inline branch keeps its
+          existing order but uses the new composer.
+        - Tests:
+          - Existing hero test still passes (`prepends hero image
+            and honors plan order`).
+          - New test: a hero slot already has `chosenCandidateId`
+            in `imageState`; applying an inline slot produces a
+            `revisedDraftMd` that contains BOTH the hero ref AND
+            the inline ref.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: this fixes the bug where md/html bundles dropped
+      the hero image. Markdown export logic itself
+      (`renderMarkdownArticle`) does not change — once the hero
+      ref is back in `draft_md`, it will be picked up.
+
+- [ ] T-11-15: Article preview on the export/done screen
+      Goal: When a session reaches `'export'` or `'done'`, the
+      user sees a rendered preview of the finished article on the
+      same screen as the download buttons — not just a list of
+      buttons.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/export-pane.tsx`,
+      `tests/unit/sessions/export-pane.test.ts`.
+      Acceptance:
+        - `page.tsx` server-renders the article HTML for
+          `state in {export, done}`: load the session's profile,
+          parse `markupRules` via `parseMarkupRules`, parse
+          `imageState` via `parseImageState`, call
+          `renderMarkdownArticle({ session, imageState })` and
+          then `renderHtmlArticle(contentMd, rules)`. Pass the
+          resulting `previewHtml` string to
+          `<ExportPane previewHtml={...} ... />`.
+        - `<ExportPane>` accepts an optional `previewHtml: string`
+          prop. When present, renders an `<iframe srcDoc={previewHtml}
+          sandbox="" title="Article preview" />` in the top half
+          of the pane (full width, min height ~60vh, with a
+          subtle border). The download buttons + Mark as done /
+          banner stay at the bottom.
+        - The iframe uses `sandbox=""` (no scripts, no same-origin
+          access) so the article's HTML is rendered safely; image
+          refs that point at `/api/sessions/...` paths still
+          resolve because the iframe inherits the parent origin
+          for relative URLs (sandbox does not block image loads).
+          Note: the export bundle's relative `images/<slot>.<ext>`
+          refs WILL be broken inside the preview (no sidecar
+          folder served) — this is fine; the in-app draft still
+          uses `/api/images/...` URLs which DO resolve. The
+          preview shows the in-app draft markdown, not the bundle
+          markdown.
+        - Existing tests still pass; one new test asserts the
+          iframe with `srcDoc` is rendered when `previewHtml` is
+          passed and absent otherwise.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: the preview reuses `renderMarkdownArticle` purely
+      to fold the chosen images into `draft_md` (preview shows
+      `/api/images/...` URLs, not bundle paths — those work in
+      the iframe because the parent origin serves them).
+      Decision needed: layout — top/bottom split is the simplest
+      and was chosen to keep download buttons always visible
+      below the fold; could be revisited.
+
 ---
 
 <!-- PLANING_CHECKPOINT -->
