@@ -2769,14 +2769,434 @@ for the four new stages.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 9 — Decoration suggestions
 
-**Status: TBD**
-Intent: `propose_decoration` stage; UI overlay on the draft showing
-proposed callouts/quotes/code blocks/tables; per-suggestion accept/reject
-applying the change to `draft_md`.
+**Status: planned**
+
+**Goal:** When the user clicks "Finish review" the session transitions
+to `'decoration'`. The workbench swaps to a `<DecorationPane />` that
+shows the locked draft alongside a list of proposed insertions
+(pull-quotes, callouts, code blocks, comparison tables, info boxes).
+A "Run decoration" button calls a single-shot `propose_decoration`
+LLM stage that returns a structured `{ suggestions: [...] }` payload;
+the suggestions persist on `sessions.decoration` (JSONB — no new
+tables) keyed by `{ sectionId, paragraphIndex }` anchors. Per
+suggestion, the user can **accept** (the helper deterministically
+inserts the suggestion's `contentMd` into the corresponding
+`section_drafts` row at `paragraphIndex` and recomposes
+`sessions.draftMd`) or **reject** (status flip only). Repeat
+"Run decoration" appends a new round, preserving prior statuses. When
+the user clicks "Finish decoration", the runner transitions to
+`'illustration'`. One eval fixture is captured for the new stage.
+
+Decision needed: keep decoration suggestions in `sessions.decoration`
+JSONB or introduce a `decoration_suggestions` table? Default: **JSONB**
+on `sessions.decoration` — the column already exists in the schema
+(see `drizzle/0009_*` / current `schema.ts`), volume is bounded
+(≤ 30 suggestions per session), and there is no cross-session query
+pattern that demands a relational table. If Epic 10 later needs to
+join image-slot rows the same column can be migrated then.
+
+### Tasks
+
+- [ ] T-9-1: Decoration domain schemas + paragraph helpers
+      Goal: Typed shapes for decoration suggestions and the persisted
+      `sessions.decoration` payload, plus pure helpers for splitting
+      and rejoining a section's markdown by paragraphs.
+      Touches: `src/server/sessions/decoration.ts`,
+      `tests/unit/sessions/decoration-schema.test.ts`.
+      Acceptance:
+        - Exports `decorationKindSchema = z.enum(['pull_quote',
+          'callout', 'code_block', 'comparison_table', 'info_box'])`.
+        - Exports `suggestionStatusSchema = z.enum(['proposed',
+          'accepted', 'rejected'])`.
+        - Exports `decorationSuggestionSchema`: `{ id: z.string()
+          .min(1).max(60), kind: decorationKindSchema, sectionId:
+          z.string().min(1).max(120), paragraphIndex: z.number().int()
+          .min(0).max(500), contentMd: z.string().min(1).max(4000),
+          rationale: z.string().min(1).max(800), status:
+          suggestionStatusSchema.default('proposed') }`.
+        - Exports `proposeDecorationResponseSchema = z.object({
+          suggestions: z.array(decorationSuggestionSchema.omit({ id:
+          true, status: true })).max(30) })` — the schema the
+          `propose_decoration` stage emits (no id/status, both
+          assigned by the orchestrator).
+        - Exports `decorationRoundSchema = z.object({ id: z.string()
+          .min(1), draftHash: z.string().min(1), createdAt:
+          z.string(), suggestions: z.array(decorationSuggestionSchema)
+          })`.
+        - Exports `decorationStateSchema = z.object({ rounds:
+          z.array(decorationRoundSchema).default([]) })` and
+          `parseDecorationState(value: unknown): DecorationState`
+          which returns `{ rounds: [] }` on null/invalid input.
+        - Exports the helper `splitParagraphs(md: string): string[]`
+          that splits on `/\n{2,}/` and trims trailing whitespace per
+          chunk; an empty string returns `[]`.
+        - Exports `joinParagraphs(paragraphs: string[]): string` that
+          rejoins with `'\n\n'`.
+        - Exports `insertParagraph(md: string, index: number,
+          contentMd: string): string` that splits, clamps `index` to
+          `[0, paragraphs.length]`, splices `contentMd.trim()` in,
+          and rejoins; clamping is silent (no throw).
+        - Exports type aliases `DecorationKind`, `DecorationSuggestion`,
+          `DecorationRound`, `DecorationState`,
+          `ProposeDecorationResponse` via `z.infer<...>`.
+        - Unit test asserts each schema accepts a valid hand-built
+          value and rejects one obvious violation per schema (kind =
+          `'banner'`, paragraphIndex = `-1`, empty `contentMd`);
+          asserts `parseDecorationState(null)` returns `{ rounds: [] }`;
+          asserts `splitParagraphs('a\n\nb\n\n\nc')` length is 3;
+          asserts `insertParagraph('a\n\nb', 1, 'X')` equals
+          `'a\n\nX\n\nb'`; asserts `insertParagraph('a', 99, 'X')`
+          clamps to `'a\n\nX'`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [ ] T-9-2: Decoration persistence helpers
+      Goal: User-scoped read/append/status helpers for
+      `sessions.decoration` JSONB.
+      Touches: `src/server/sessions/decoration-repo.ts`,
+      `tests/unit/sessions/decoration-repo.test.ts`.
+      Acceptance:
+        - Exports `getDecorationState(userId, sessionId):
+          Promise<DecorationState>` that loads the session
+          (ownership-checked via `getSession`), runs
+          `parseDecorationState(session.decoration)`, returns the
+          parsed value or `{ rounds: [] }` for foreign/missing
+          sessions.
+        - Exports `appendDecorationRound(userId, sessionId, round:
+          { draftHash: string; suggestions:
+          ProposeDecorationResponse['suggestions'] }):
+          Promise<DecorationRound | null>` that:
+          - generates `roundId = 'r_' + Date.now() + '_' +
+            randomBytes(4).toString('hex')`;
+          - assigns each suggestion `id = 's_' + roundId + '_' + i`
+            and `status = 'proposed'`;
+          - reads existing state, appends the new round, persists
+            via `db.update(sessions)` with the ownership predicate
+            and `updatedAt = new Date()`;
+          - returns the new round, or `null` if the update affected
+            zero rows.
+        - Exports `setSuggestionStatus(userId, sessionId,
+          suggestionId, status: 'accepted' | 'rejected'):
+          Promise<DecorationSuggestion | null>` that mutates the
+          matching suggestion's status across all rounds, persists
+          the updated state, returns the updated suggestion or
+          `null` if not found / not owned.
+        - Exports `findSuggestion(userId, sessionId, suggestionId):
+          Promise<{ round: DecorationRound; suggestion:
+          DecorationSuggestion } | null>`.
+        - Unit test mocks the db client (mirroring
+          `tests/unit/sessions/critique-repo.test.ts`); asserts a
+          foreign session yields `null` from
+          `appendDecorationRound`; asserts append produces
+          deterministic suggestion ids in order; asserts
+          `setSuggestionStatus` flips status and rejects unknown
+          ids.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-9-3: `propose_decoration` stage
+      Goal: Single-shot smart-model stage that takes the locked
+      draft + plan + profile and returns structured decoration
+      suggestions.
+      Touches: `src/server/pipeline/stages/propose-decoration.ts`,
+      `tests/unit/pipeline/propose-decoration.test.ts`.
+      Acceptance:
+        - Exports `proposeDecoration: Stage<{ profile: ProfileRow;
+          plan: Plan; sectionDrafts: Array<{ sectionId: string;
+          contentMd: string }> }, ProposeDecorationResponse>` with
+          `name: 'propose_decoration'`, `modelClass: 'smart'`,
+          `inputSchema` and `outputSchema =
+          proposeDecorationResponseSchema`.
+        - System prompt instructs the model to (a) propose at most
+          ~12 high-impact decorations, (b) cite a `sectionId` from
+          the provided sections, (c) set `paragraphIndex` to the
+          paragraph slot WITHIN that section's `contentMd` (split
+          on blank lines) where the decoration should appear (0 =
+          before first paragraph, N = after last), (d) emit
+          `contentMd` as ready-to-paste markdown for the chosen
+          `kind` (e.g. `> ...` for `pull_quote`,
+          ```` ```\n...\n``` ```` for `code_block`, GFM table for
+          `comparison_table`, fenced or HTML callout for `callout` /
+          `info_box` per the profile's `markupRules`), (e) keep
+          `rationale` to one sentence, (f) respond with valid JSON
+          `{ suggestions: [...] }` only.
+        - User-prompt content is built like `run-review`: each
+          section is rendered as `## ${title} [sectionId=${id}]`
+          followed by the section's `contentMd`.
+        - The stage emits `task_started` and `task_completed`
+          events with `{ stage: 'propose_decoration', count:
+          result.suggestions.length }` (matching `run-review`).
+        - Calls `routeJsonChat({ system, user, schema:
+          proposeDecorationResponseSchema, class: 'smart' })` and
+          returns `result`.
+        - Unit test mocks `routeJsonChat` (vi.mock pattern from
+          `run-review-stage.test.ts`); asserts the returned shape
+          matches the mock; asserts `class: 'smart'` is passed;
+          asserts the system prompt mentions every allowed `kind`
+          enum value; asserts an empty `sectionDrafts` array still
+          yields a valid call.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-9-4: Apply-decoration helper (deterministic edit)
+      Goal: Pure persistence helper that takes one accepted
+      suggestion, updates its section's `section_drafts.contentMd`
+      via `insertParagraph`, and recomposes `sessions.draftMd` from
+      all `section_drafts` rows in plan order.
+      Touches: `src/server/pipeline/apply-decoration.ts`,
+      `tests/unit/pipeline/apply-decoration.test.ts`.
+      Acceptance:
+        - Exports `applyDecoration({ sessionId, userId,
+          suggestionId }):
+          Promise<{ ok: true; revisedDraftMd: string }
+          | { ok: false; error: 'not_found' | 'session_invalid'
+          | 'plan_invalid' | 'section_missing' }>`.
+        - Resolves the session (ownership), parses
+          `session.plan` via `planSchema` (errors → `plan_invalid`),
+          looks up the suggestion via `findSuggestion`; if missing
+          → `not_found`.
+        - Loads the section's draft via `getSectionDraft(userId,
+          sessionId, sectionId)`; if missing → `section_missing`.
+        - Computes `nextContentMd = insertParagraph(currentContentMd,
+          paragraphIndex, contentMd)`; calls `upsertSectionDraft` to
+          persist.
+        - Recomposes `revisedDraftMd` by calling
+          `listSectionDrafts(userId, sessionId)`, then ordering rows
+          by `plan.sections.findIndex(s => s.id === row.sectionId)`
+          (sections not in plan keep their natural db order at the
+          tail), and joining `contentMd`s with `'\n\n'`.
+        - Calls `updateSessionDraft(userId, sessionId,
+          revisedDraftMd)` and `setSuggestionStatus(userId,
+          sessionId, suggestionId, 'accepted')`.
+        - Returns `{ ok: true, revisedDraftMd }`.
+        - Unit test mocks `getSession`, `getSectionDraft`,
+          `upsertSectionDraft`, `listSectionDrafts`,
+          `updateSessionDraft`, and the decoration repo; asserts a
+          missing suggestion yields `not_found`; asserts the
+          rebuilt draftMd contains the inserted snippet at the
+          expected position; asserts plan order is honored when
+          recomposing; asserts the suggestion ends in `accepted`
+          status.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-9-5: `runDecoration` orchestrator
+      Goal: Top-level wrapper (analogue of `run-review.ts`) that
+      validates the session, calls the stage with prepared inputs,
+      persists a new round, and emits artifact events.
+      Touches: `src/server/pipeline/run-decoration.ts`,
+      `tests/unit/pipeline/run-decoration.test.ts`.
+      Acceptance:
+        - Exports `async function runDecoration({ sessionId,
+          userId }): Promise<{ ok: true; roundId: string;
+          suggestionCount: number } | { ok: false; error:
+          'session_invalid' | 'no_draft' }>`.
+        - Loads `getSession`, `getProfile`, parses `planSchema`;
+          returns `session_invalid` on any failure. Returns
+          `no_draft` if `session.draftMd` is null/empty.
+        - Computes `draftHash = spanHash(session.draftMd)` (reuse
+          the helper from `src/server/sessions/claims.ts`).
+        - Builds a minimal `ctx` with a real `emit`
+          (`emitEvent(sessionId, ...)`), a no-op `userInput`
+          (mirrors `run-review.ts`), no-op `log.append`, and an
+          unused `llm` placeholder.
+        - Calls `proposeDecoration.run({ profile, plan,
+          sectionDrafts: await listSectionDrafts(userId,
+          sessionId) }, ctx)`.
+        - Calls `appendDecorationRound(userId, sessionId,
+          { draftHash, suggestions: result.suggestions })`; if it
+          returns null treats that as `session_invalid`.
+        - For each persisted suggestion emits
+          `artifact_updated` with `{ kind:
+          'decoration_suggestion', suggestion }`. After the loop
+          emits `artifact_updated` with `{ kind:
+          'decoration_round', roundId: round.id,
+          suggestionCount }`.
+        - Returns `{ ok: true, roundId: round.id,
+          suggestionCount: round.suggestions.length }`.
+        - Unit test mocks the stage and the repo helpers; asserts
+          the happy path emits both event kinds in order; asserts
+          a missing draft short-circuits to `no_draft` BEFORE
+          calling the stage.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-9-6: Decoration server actions
+      Goal: Server actions that wire the pane to the orchestrator
+      and the per-suggestion helpers.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/decoration-actions.test.ts`.
+      Acceptance:
+        - Adds `startDecorationAction(sessionId): Promise<{ ok:
+          true; roundId: string; suggestionCount: number } | {
+          ok: false; error: ... }>` that calls `requireUser` then
+          `runDecoration({ sessionId, userId: user.id })`;
+          revalidates the session path on success.
+        - Adds `acceptDecorationAction(sessionId, suggestionId):
+          Promise<{ ok: true; revisedDraftMd: string } | { ok:
+          false; error: string }>` that calls `requireUser` then
+          `applyDecoration({ sessionId, userId: user.id,
+          suggestionId })`; revalidates on success. Validates
+          `suggestionId` via `z.string().min(1).max(80)`.
+        - Adds `rejectDecorationAction(sessionId, suggestionId):
+          Promise<{ ok: true } | { ok: false; error:
+          'not_found' | 'validation' }>` that calls
+          `setSuggestionStatus(user.id, sessionId, suggestionId,
+          'rejected')`; revalidates on success.
+        - Adds `finishDecorationAction(sessionId): Promise<{ ok:
+          true } | { ok: false; error:
+          'no_pending_decoration' }>` mirroring
+          `finishReviewAction`: calls `resolveUserInput(sessionId,
+          { action: 'finish' })`.
+        - Unit test mocks `requireUser`, `runDecoration`,
+          `applyDecoration`, `setSuggestionStatus`, and
+          `resolveUserInput`; asserts each action passes
+          `user.id` through; asserts validation rejects an empty
+          `suggestionId`; asserts `finishDecorationAction` returns
+          `no_pending_decoration` when nothing is parked.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-9-7: Runner — `'decoration'` state park + transition to
+      `'illustration'`
+      Goal: When the runner enters the `'decoration'` case it
+      emits a `state_changed` (already done by the upstream
+      review case) and parks for `decoration_done`; on resolve it
+      transitions to `'illustration'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-decoration.test.ts`.
+      Acceptance:
+        - The `'review'` case in `runner.ts` is updated to call
+          `await startRunner(sessionId, userId, true)` immediately
+          after transitioning to `'decoration'` (matching the
+          `'planning' → 'research' → 'drafting' → 'review'`
+          chain) so the decoration park activates without waiting
+          for a fresh runner kick.
+        - A new `case 'decoration':` parks via
+          `ctx.userInput('decoration_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'illustration')`,
+          emits `state_changed` (`{ state: 'illustration' }`),
+          and does NOT recursively call `startRunner` (the
+          illustration runner is Epic 10).
+        - Unit test (mirrors `tests/unit/pipeline/runner-review.test.ts`)
+          stubs `getSession` to return a `decoration` session and
+          `updateSessionState`; drives the runner; asserts an
+          `awaiting_user` event with `prompt: 'decoration_done'`
+          fires; calls `resolveUserInput` and asserts state
+          advances to `'illustration'`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [ ] T-9-8: `<DecorationPane />` shell + `<SuggestionCard />`
+      Goal: Workbench pane for the `'decoration'` state that
+      lists suggestions per round and exposes per-suggestion
+      actions plus a "Finish decoration" button.
+      Touches:
+      `src/app/(app)/sessions/[id]/decoration-pane.tsx`,
+      `src/app/(app)/sessions/[id]/suggestion-card.tsx`.
+      Acceptance:
+        - `decoration-pane.tsx` is a `'use client'` component
+          with props `{ sessionId: number; plan: Plan;
+          initialState: DecorationState; sectionDrafts:
+          Array<{ sectionId: string; contentMd: string }> }`.
+          Local state mirrors `initialState.rounds`; resyncs
+          when `initialState` identity changes (same pattern as
+          `review-pane.tsx`).
+        - Subscribes via `useSessionEvents` and on
+          `artifact_updated` with `kind ===
+          'decoration_suggestion'` appends to the matching
+          round (creating it if missing), and on `kind ===
+          'decoration_round'` records the round shell.
+        - Renders a "Run decoration" button calling
+          `startDecorationAction` (disabled while the latest
+          `task_started/task_completed` for stage
+          `propose_decoration` is in flight; spinner reuses the
+          same activeTasks pattern as `review-pane.tsx`).
+        - Renders rounds most-recent-first; each round expands
+          to a list of `<SuggestionCard>`s grouped by
+          `sectionId` (in plan order).
+        - `<SuggestionCard>` displays: `kind` pill, section
+          title (clickable button stub calling a passed
+          `scrollToSection(id)` prop, which in this task can be
+          a no-op), `paragraphIndex`, the rendered `contentMd`
+          inside a styled preview block (use a `<pre>` for
+          `code_block`, `<blockquote>` for `pull_quote`,
+          neutral box for others — no markdown renderer
+          required, this is a v1 preview), the rationale, and
+          two buttons "Accept" → `acceptDecorationAction`,
+          "Reject" → `rejectDecorationAction`. After accept the
+          card is shown in a faded `applied` state; after
+          reject in a muted `rejected` state. Disabled when
+          `status !== 'proposed'`.
+        - A "Finish decoration" button at the bottom of the
+          pane calls `finishDecorationAction(sessionId)`.
+          Disabled until at least one round exists OR there is
+          at least one accepted suggestion (so a user who
+          rejects everything can still finish — guard purely
+          on `rounds.length > 0`).
+        - Includes one component-level unit test (Vitest +
+          Testing Library, alongside existing component tests
+          if any — otherwise just typecheck): renders the pane
+          with one round and asserts the section title, kind
+          pill, accept/reject buttons, and the rendered
+          `contentMd` are present.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Notes: a real markdown renderer is not required for v1;
+      previews are intentionally raw. Epic 11 (export) handles
+      proper rendering. If a renderer is later wanted,
+      `react-markdown` is the obvious choice.
+
+- [ ] T-9-9: Page wiring for `'decoration'` state
+      Goal: `sessions/[id]/page.tsx` mounts `<DecorationPane />`
+      when `session.state === 'decoration'`, loading the
+      suggestions and section drafts server-side.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`.
+      Acceptance:
+        - When `session.state === 'decoration'`, the page
+          parses `planSchema` (skip render with the existing
+          fallback `<p>` if invalid), loads `decorationState =
+          parseDecorationState(session.decoration)` and
+          `sectionDrafts = await listSectionDrafts(user.id,
+          id)`, and mounts `<DecorationPane sessionId={id}
+          plan={plan} initialState={decorationState}
+          sectionDrafts={sectionDrafts} />` inside the
+          workbench area, alongside the existing branches for
+          `briefing | planning | research | drafting | review`.
+        - The fallback `<p className="text-sm text-gray-500">
+          State: {session.state}</p>` continues to render for
+          states that have no pane yet (`illustration | export
+          | done`).
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [ ] T-9-10: Eval fixture for `propose_decoration` + fixture-driven
+      unit test
+      Goal: Capture one input/expected snapshot for the new
+      stage so the Epic 12 harness can replay it.
+      Touches:
+      `tests/eval/fixtures/propose_decoration/habr-longread-1.json`,
+      `tests/eval/README.md`,
+      `tests/unit/pipeline/propose-decoration.test.ts`.
+      Acceptance:
+        - Adds `tests/eval/fixtures/propose_decoration/
+          habr-longread-1.json` with shape `{ "input": {...},
+          "expected": { "schemaRef":
+          "proposeDecoration.outputSchema", "snapshot": {...} } }`.
+          The `input` reuses the Habr long-read profile + plan +
+          (non-empty) `sectionDrafts` already seeded for the
+          earlier review fixtures (e.g. copy from
+          `tests/eval/fixtures/run_review/habr-longread-1.json`)
+          so the chain stays consistent; `snapshot` contains 3-5
+          plausible suggestions covering at least three distinct
+          `kind` values.
+        - Updates `tests/eval/README.md` so the table grows by
+          one row to thirteen.
+        - Extends `tests/unit/pipeline/propose-decoration.test.ts`
+          (created in T-9-3) with one additional case that loads
+          the fixture, stubs `routeJsonChat` to return
+          `expected.snapshot`, and asserts the stage's return
+          deep-equals `expected.snapshot`.
+        - `pnpm test` exits 0.
+      Notes: No real LLM calls; the eval harness ships in Epic 12.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 10 — Image subsystem
 
