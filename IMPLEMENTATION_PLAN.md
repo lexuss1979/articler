@@ -3625,7 +3625,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           asserts plan order is honored.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-10: `runIllustration` orchestrator
+- [x] T-10-10: `runIllustration` orchestrator
       Goal: One-shot wrapper (analogue of `run-decoration.ts`) that
       validates the session, calls `propose_image_slots`, persists
       the resulting slots, and emits artifact events.
