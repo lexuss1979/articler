@@ -2208,7 +2208,7 @@ for the four new stages.
           resolves to `null` / `[]` as appropriate.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-5: Claims repo helpers
+- [x] T-8-5: Claims repo helpers
       Goal: User-scoped persistence for claims, verdicts, and
       evidence, plus the span-hash idempotency lookup.
       Touches: `src/server/sessions/claims-repo.ts`,
