@@ -4,11 +4,15 @@ import { getSession } from '../../../../server/sessions/repo';
 import { listSessionSources } from '../../../../server/sessions/sources-repo';
 import { listSectionDrafts } from '../../../../server/sessions/section-drafts-repo';
 import { planSchema } from '../../../../server/sessions/plan';
+import { parseActiveCritics } from '../../../../server/sessions/critics';
+import { listSessionRounds, listRoundFindings } from '../../../../server/sessions/critique-repo';
+import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claims-repo';
 import { BriefForm } from './brief-form';
 import { ChatPane } from './chat-pane';
 import { PlanningPane } from './planning-pane';
 import { ResearchPane } from './research-pane';
 import { DraftingPane } from './drafting-pane';
+import { ReviewPane } from './review-pane';
 import { DevResetPanel } from './dev-reset-panel';
 
 export default async function SessionPage({
@@ -41,6 +45,27 @@ export default async function SessionPage({
     }
   }
 
+  let reviewData = null;
+  if (session.state === 'review') {
+    const [critiqueRoundsRaw, factCheckRounds, claimsWithVerdicts] = await Promise.all([
+      listSessionRounds(user.id, id, 'critique'),
+      listSessionRounds(user.id, id, 'factcheck'),
+      listSessionClaimsWithVerdicts(user.id, id),
+    ]);
+    const critiqueRounds = await Promise.all(
+      critiqueRoundsRaw.map(async (r) => ({
+        ...r,
+        findings: await listRoundFindings(user.id, r.id),
+      })),
+    );
+    reviewData = {
+      critiqueRounds,
+      factCheckRounds,
+      claimsWithVerdicts,
+      activeCriticIds: parseActiveCritics(session.activeCritics).enabledIds,
+    };
+  }
+
   return (
     <div className="flex h-full gap-4">
       <div className="flex-1 min-h-0 border rounded flex flex-col overflow-hidden">
@@ -59,6 +84,14 @@ export default async function SessionPage({
             <ResearchPane sessionId={id} initialSources={researchSources ?? []} plan={researchPlan} />
           ) : session.state === 'drafting' && draftingPlan ? (
             <DraftingPane sessionId={id} plan={draftingPlan} initialSections={initialSectionDrafts ?? []} />
+          ) : session.state === 'review' && reviewData ? (
+            <ReviewPane
+              sessionId={id}
+              initialCritiqueRounds={reviewData.critiqueRounds}
+              initialFactCheckRounds={reviewData.factCheckRounds}
+              initialClaims={reviewData.claimsWithVerdicts}
+              activeCriticIds={reviewData.activeCriticIds}
+            />
           ) : (
             <p className="text-sm text-gray-500">State: {session.state}</p>
           )}

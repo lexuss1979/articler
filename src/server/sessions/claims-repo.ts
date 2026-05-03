@@ -62,6 +62,32 @@ export async function listSessionClaims(userId: number, sessionId: number) {
   return db.select().from(claims).where(eq(claims.sessionId, sessionId)).orderBy(asc(claims.id));
 }
 
+export async function listSessionClaimsWithVerdicts(userId: number, sessionId: number) {
+  const [owned] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)));
+  if (!owned) return [];
+
+  const rows = await db
+    .select({ claim: claims, verdict: claimVerdicts })
+    .from(claims)
+    .leftJoin(claimVerdicts, eq(claimVerdicts.claimId, claims.id))
+    .where(eq(claims.sessionId, sessionId))
+    .orderBy(asc(claims.id), desc(claimVerdicts.id));
+
+  // Deduplicate: keep only the latest verdict per claim
+  const seen = new Set<number>();
+  const result: Array<{ claim: typeof rows[0]['claim']; verdict: typeof rows[0]['verdict'] }> = [];
+  for (const row of rows) {
+    if (!seen.has(row.claim.id)) {
+      seen.add(row.claim.id);
+      result.push(row);
+    }
+  }
+  return result;
+}
+
 export async function findClaimBySpanHash(userId: number, sessionId: number, spanHash: string) {
   const [owned] = await db
     .select({ id: sessions.id })
