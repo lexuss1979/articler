@@ -1,0 +1,37 @@
+{
+  "input": {
+    "claim": {
+      "span": {
+        "sectionId": "mechanics",
+        "charStart": 0,
+        "charEnd": 40,
+        "text": "Anthropic's TTL is 5 minutes"
+      },
+      "claimType": "factual",
+      "checkWorthiness": "medium"
+    },
+    "acceptedSources": [
+      {
+        "id": 1,
+        "url": "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
+        "title": "Prompt caching - Anthropic",
+        "summary": "Official Anthropic documentation on prompt caching, including TTL and pricing details.",
+        "rawExcerpt": "Anthropic prompt caching TTL is 5 minutes. Cache reads cost 10% of the base input token price."
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "verifyClaim.outputSchema",
+    "snapshot": {
+      "evidence": [
+        {
+          "url": "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
+          "snippet": "Anthropic prompt caching TTL is 5 minutes. Cache reads cost 10% of the base input token price.",
+          "supports": true,
+          "sourceId": 1
+        }
+      ],
+      "cached": true
+    }
+  }
+}

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -148,5 +150,34 @@ describe('runCritic stage', () => {
     await runCritic.run({ critic, plan, profile, sectionDrafts }, ctx);
 
     expect(mockRouteJsonChat.mock.calls[0][0]).toMatchObject({ class: 'smart' });
+  });
+});
+
+describe('runCritic stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot when routeJsonChat returns it', async () => {
+    type Fixture = { input: unknown; expected: { snapshot: { findings: unknown[] } } };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/run_critic/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-sonnet',
+      modelClass: 'smart' as const,
+      promptTokens: 100,
+      completionTokens: 100,
+      latencyMs: 400,
+    });
+
+    const { runCritic } = await import('../../../src/server/pipeline/stages/run-critic');
+    const ctx = makeCtx();
+    const result = await runCritic.run(
+      fixture.input as Parameters<typeof runCritic.run>[0],
+      ctx,
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

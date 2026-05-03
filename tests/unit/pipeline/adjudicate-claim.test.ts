@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -114,5 +116,39 @@ describe('adjudicateClaim stage', () => {
 
     expect(ctx._emitted.map(([k]) => k)).toEqual(['task_started', 'task_completed']);
     expect(ctx._emitted[1][1]).toMatchObject({ verdict: 'unverifiable' });
+  });
+});
+
+describe('adjudicateClaim stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot when routeJsonChat returns it', async () => {
+    type Fixture = {
+      input: unknown;
+      expected: { snapshot: { verdict: string; justification: string; citationUrls: string[] } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/adjudicate_claim/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    mockRouteJsonChat.mockResolvedValue({
+      result: fixture.expected.snapshot,
+      modelUsed: 'claude-sonnet',
+      modelClass: 'smart' as const,
+      promptTokens: 100,
+      completionTokens: 100,
+      latencyMs: 400,
+    });
+
+    const { adjudicateClaim } = await import(
+      '../../../src/server/pipeline/stages/adjudicate-claim'
+    );
+    const ctx = makeCtx();
+    const result = await adjudicateClaim.run(
+      fixture.input as Parameters<typeof adjudicateClaim.run>[0],
+      ctx,
+    );
+    expect(result).toEqual(fixture.expected.snapshot);
   });
 });

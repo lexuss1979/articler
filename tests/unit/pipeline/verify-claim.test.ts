@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRouteJsonChat = vi.fn();
@@ -129,5 +131,30 @@ describe('verifyClaim stage', () => {
     const ctx = makeCtx();
     await verifyClaim.run({ claim, acceptedSources: [] }, ctx);
     expect(ctx._emitted.map(([k]) => k)).toEqual(['task_started', 'task_completed']);
+  });
+});
+
+describe('verifyClaim stage — fixture: habr-longread-1', () => {
+  it('returns expected.snapshot (cache hit path) without calling routeJsonChat', async () => {
+    type Fixture = {
+      input: unknown;
+      expected: { snapshot: { evidence: unknown[]; cached: boolean } };
+    };
+    const fixture = JSON.parse(
+      readFileSync(
+        join(__dirname, '../../eval/fixtures/verify_claim/habr-longread-1.json'),
+        'utf8',
+      ),
+    ) as Fixture;
+
+    const { verifyClaim } = await import('../../../src/server/pipeline/stages/verify-claim');
+    const ctx = makeCtx();
+    const result = await verifyClaim.run(
+      fixture.input as Parameters<typeof verifyClaim.run>[0],
+      ctx,
+    );
+    expect(result.cached).toBe(fixture.expected.snapshot.cached);
+    expect(result.evidence).toHaveLength((fixture.expected.snapshot.evidence as unknown[]).length);
+    expect(mockRouteJsonChat).not.toHaveBeenCalled();
   });
 });
