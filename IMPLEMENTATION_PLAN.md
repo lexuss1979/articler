@@ -3452,7 +3452,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           `sectionDrafts` array still yields a valid call.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-5: `compose_image_prompt` stage
+- [x] T-10-5: `compose_image_prompt` stage
       Goal: Smart-model stage that produces a structured
       `ImagePrompt` JSON for a single slot.
       Touches: `src/server/pipeline/stages/compose-image-prompt.ts`,
