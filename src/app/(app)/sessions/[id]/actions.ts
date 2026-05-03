@@ -8,6 +8,7 @@ import {
   updateSessionBrief,
   updateSessionPlan,
   updateSessionState,
+  updateSessionActiveCritics,
 } from '../../../../server/sessions/repo';
 import { briefSchema } from '../../../../server/sessions/brief';
 import { planSchema } from '../../../../server/sessions/plan';
@@ -29,6 +30,7 @@ import {
   setSourceSection,
 } from '../../../../server/sessions/sources-repo';
 import { regenerateInstructionSchema } from '../../../../server/sessions/draft';
+import { activeCriticsSchema } from '../../../../server/sessions/critics';
 
 export async function startSessionAction(sessionId: number): Promise<void> {
   const user = await requireUser();
@@ -283,10 +285,7 @@ export async function markClaimOpinionAction(
 export async function acceptClaimCorrectionAction(
   sessionId: number,
   claimId: number,
-): Promise<
-  | { ok: true }
-  | { ok: false; error: 'not_found' | 'no_correction_needed' | 'regenerate_failed' }
-> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await requireUser();
   const row = await getClaimWithLatestVerdict(user.id, claimId);
   if (!row) return { ok: false, error: 'not_found' };
@@ -305,4 +304,33 @@ export async function acceptClaimCorrectionAction(
     revalidatePath('/sessions/' + sessionId);
   }
   return result;
+}
+
+export async function setActiveCriticsAction(
+  sessionId: number,
+  payload: unknown,
+): Promise<{ ok: true } | { ok: false; error: 'validation' | 'not_found' }> {
+  const user = await requireUser();
+
+  // Pre-process: fill empty custom critic ids before schema validation
+  const now = Date.now();
+  let preprocessed = payload;
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { custom?: unknown }).custom)) {
+    const p = payload as { enabledIds?: unknown; custom: Array<Record<string, unknown>> };
+    preprocessed = {
+      ...p,
+      custom: p.custom.map((c, i) => ({
+        ...c,
+        id: c.id === '' ? 'custom_' + now + '_' + i : c.id,
+      })),
+    };
+  }
+
+  const parsed = activeCriticsSchema.safeParse(preprocessed);
+  if (!parsed.success) return { ok: false, error: 'validation' };
+
+  const row = await updateSessionActiveCritics(user.id, sessionId, parsed.data);
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
 }

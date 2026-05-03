@@ -3,6 +3,7 @@ import { db } from '../db/client';
 import { profiles, sessions } from '../db/schema';
 import type { BriefInput } from './brief';
 import type { Plan } from './plan';
+import type { ActiveCritics } from './critics';
 
 export class ProfileNotOwnedError extends Error {
   constructor() {
@@ -68,6 +69,15 @@ export async function updateSessionDraft(userId: number, id: number, draftMd: st
   const [row] = await db
     .update(sessions)
     .set({ draftMd, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function updateSessionActiveCritics(userId: number, id: number, activeCritics: ActiveCritics) {
+  const [row] = await db
+    .update(sessions)
+    .set({ activeCritics, updatedAt: new Date() })
     .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
     .returning();
   return row ?? null;
