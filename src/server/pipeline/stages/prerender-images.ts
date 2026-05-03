@@ -7,20 +7,7 @@ import {
   type ImagePrompt,
 } from '../../sessions/images';
 import { saveImageFromB64, saveImageFromUrl } from '../../images/storage';
-import { OpenRouterError } from '../../llm/openrouter';
 import type { Stage } from '../stage';
-
-function formatErr(err: unknown): string {
-  if (err instanceof OpenRouterError) {
-    const body =
-      typeof err.body === 'string'
-        ? err.body.slice(0, 800)
-        : JSON.stringify(err.body).slice(0, 800);
-    return `OpenRouterError ${err.status}: ${body}`;
-  }
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
-}
 
 const inputSchema = z.object({
   sessionId: z.number().int().positive(),
@@ -72,20 +59,10 @@ export const prerenderImages: Stage<
     const candidates: ImageCandidate[] = [];
     for (let i = 0; i < settled.length; i++) {
       const settledCall = settled[i]!;
-      if (settledCall.status !== 'fulfilled') {
-        console.error(
-          `[prerender_images] routeImage call ${i} rejected: ${formatErr(settledCall.reason)}`,
-        );
-        continue;
-      }
+      if (settledCall.status !== 'fulfilled') continue;
       const response = settledCall.value;
       const first = response.data[0];
-      if (!first) {
-        console.error(
-          `[prerender_images] routeImage call ${i} returned empty data array; modelUsed=${response.modelUsed}`,
-        );
-        continue;
-      }
+      if (!first) continue;
       const candidateId = makeCandidateId(i);
       try {
         let saved: { localPath: string; absPath: string };
@@ -105,9 +82,6 @@ export const prerenderImages: Stage<
             url: first.url,
           });
         } else {
-          console.error(
-            `[prerender_images] candidate ${i} has neither b64_json nor url; keys=${Object.keys(first).join(',')}`,
-          );
           continue;
         }
         candidates.push({
@@ -117,10 +91,7 @@ export const prerenderImages: Stage<
           model: response.modelUsed,
           createdAt: new Date().toISOString(),
         });
-      } catch (err) {
-        console.error(
-          `[prerender_images] save failed for candidate ${i}: ${formatErr(err)}`,
-        );
+      } catch {
         continue;
       }
     }
