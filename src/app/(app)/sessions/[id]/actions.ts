@@ -21,6 +21,10 @@ import {
   getFindingForUser,
 } from '../../../../server/sessions/critique-repo';
 import {
+  setClaimStatus,
+  getClaimWithLatestVerdict,
+} from '../../../../server/sessions/claims-repo';
+import {
   setSourceStatus,
   setSourceSection,
 } from '../../../../server/sessions/sources-repo';
@@ -251,5 +255,54 @@ export async function startFactCheckAction(
   const user = await requireUser();
   const result = await runFactCheck({ sessionId, userId: user.id, force: !!force });
   if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+export async function dismissClaimAction(
+  sessionId: number,
+  claimId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await setClaimStatus(user.id, claimId, 'dismissed');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function markClaimOpinionAction(
+  sessionId: number,
+  claimId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await setClaimStatus(user.id, claimId, 'opinion');
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function acceptClaimCorrectionAction(
+  sessionId: number,
+  claimId: number,
+): Promise<
+  | { ok: true }
+  | { ok: false; error: 'not_found' | 'no_correction_needed' | 'regenerate_failed' }
+> {
+  const user = await requireUser();
+  const row = await getClaimWithLatestVerdict(user.id, claimId);
+  if (!row) return { ok: false, error: 'not_found' };
+  if (row.verdict?.verdict === 'verified') return { ok: false, error: 'no_correction_needed' };
+  const sectionId = (row.claim.span as { sectionId: string }).sectionId;
+  const instruction =
+    '[fact-check] ' +
+    (row.verdict?.verdict ?? 'unverifiable') +
+    ': ' +
+    (row.verdict?.justification ?? 'No verdict available.') +
+    ' — claim text: ' +
+    row.claim.claimText;
+  const result = await regenerateSection({ sessionId, userId: user.id, sectionId, instruction });
+  if (result.ok) {
+    await setClaimStatus(user.id, claimId, 'dismissed');
+    revalidatePath('/sessions/' + sessionId);
+  }
   return result;
 }

@@ -127,6 +127,17 @@ export async function insertClaimEvidence(
     .returning();
 }
 
+export async function getClaimWithLatestVerdict(userId: number, claimId: number) {
+  const [row] = await db
+    .select({ claim: claims, verdict: claimVerdicts })
+    .from(claims)
+    .leftJoin(claimVerdicts, eq(claimVerdicts.claimId, claims.id))
+    .where(and(eq(claims.id, claimId), inArray(claims.sessionId, ownedSessionIds(userId))))
+    .orderBy(desc(claimVerdicts.id))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function listClaimVerdicts(userId: number, claimId: number) {
   const [owned] = await db
     .select({ id: claims.id })
