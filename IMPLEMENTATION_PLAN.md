@@ -2937,7 +2937,7 @@ join image-slot rows the same column can be migrated then.
           yields a valid call.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-9-4: Apply-decoration helper (deterministic edit)
+- [x] T-9-4: Apply-decoration helper (deterministic edit)
       Goal: Pure persistence helper that takes one accepted
       suggestion, updates its section's `section_drafts.contentMd`
       via `insertParagraph`, and recomposes `sessions.draftMd` from
