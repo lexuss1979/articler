@@ -3903,7 +3903,7 @@ Decisions taken (defaults — change before implementation if needed):
 
 ### Tasks
 
-- [ ] T-11-1: v1 `markup_rules` schema + parser
+- [x] T-11-1: v1 `markup_rules` schema + parser
       Goal: Define a typed v1 schema for profile `markup_rules` with
       backward-compatible defaults so HTML / DOCX renderers can rely
       on it.

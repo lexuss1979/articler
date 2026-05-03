@@ -55,7 +55,7 @@ const validInput = {
   audience: 'General readers',
   targetVolumeMin: 800,
   targetVolumeMax: 1200,
-  markupRules: {},
+  markupRules: { flavor: 'standard' as const, headingShift: 0 },
   extraPrompt: '',
 };
 
