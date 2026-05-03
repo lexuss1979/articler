@@ -11,8 +11,8 @@ export const MODEL_ROUTING = {
     primary: process.env.LLM_SEARCH_PRIMARY ?? 'perplexity/sonar-pro',
   },
   image: {
-    primary: process.env.LLM_IMAGE_PRIMARY ?? 'google/nano-banana',
-    secondary: process.env.LLM_IMAGE_SECONDARY ?? 'openai/image-2',
+    primary: process.env.LLM_IMAGE_PRIMARY ?? 'google/gemini-3.1-flash-image-preview',
+    secondary: process.env.LLM_IMAGE_SECONDARY ?? 'openai/gpt-5.4-image-2',
   },
 };
 
