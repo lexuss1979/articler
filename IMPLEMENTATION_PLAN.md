@@ -2133,7 +2133,7 @@ for the four new stages.
           returns the defaults.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-3: Claim + verdict + evidence schemas + spanHash helper
+- [x] T-8-3: Claim + verdict + evidence schemas + spanHash helper
       Goal: Typed shapes for the three fact-check stages plus the
       span-hash idempotency helper.
       Touches: `src/server/sessions/claims.ts`,
