@@ -59,10 +59,23 @@ export const prerenderImages: Stage<
     const candidates: ImageCandidate[] = [];
     for (let i = 0; i < settled.length; i++) {
       const settledCall = settled[i]!;
-      if (settledCall.status !== 'fulfilled') continue;
+      if (settledCall.status !== 'fulfilled') {
+        console.error(
+          `[prerender_images] routeImage call ${i} rejected:`,
+          settledCall.reason instanceof Error
+            ? `${settledCall.reason.name}: ${settledCall.reason.message}`
+            : settledCall.reason,
+        );
+        continue;
+      }
       const response = settledCall.value;
       const first = response.data[0];
-      if (!first) continue;
+      if (!first) {
+        console.error(
+          `[prerender_images] routeImage call ${i} returned empty data array; modelUsed=${response.modelUsed}`,
+        );
+        continue;
+      }
       const candidateId = makeCandidateId(i);
       try {
         let saved: { localPath: string; absPath: string };
@@ -82,6 +95,9 @@ export const prerenderImages: Stage<
             url: first.url,
           });
         } else {
+          console.error(
+            `[prerender_images] candidate ${i} has neither b64_json nor url; keys=${Object.keys(first).join(',')}`,
+          );
           continue;
         }
         candidates.push({
@@ -91,7 +107,11 @@ export const prerenderImages: Stage<
           model: response.modelUsed,
           createdAt: new Date().toISOString(),
         });
-      } catch {
+      } catch (err) {
+        console.error(
+          `[prerender_images] save failed for candidate ${i}:`,
+          err instanceof Error ? `${err.name}: ${err.message}` : err,
+        );
         continue;
       }
     }
