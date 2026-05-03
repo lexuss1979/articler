@@ -3522,7 +3522,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           a `localPath`; asserts an all-fail run throws.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-7: `stock_keywords` stage
+- [x] T-10-7: `stock_keywords` stage
       Goal: Fast-model stage that turns a slot brief into 3–6
       stock-photo search keywords.
       Touches: `src/server/pipeline/stages/stock-keywords.ts`,
