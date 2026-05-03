@@ -4,14 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useSessionEvents } from './use-session-events';
 import { finishReviewAction } from './actions';
 import { CritiqueTab } from './critique-tab';
+import { FactCheckTab } from './factcheck-tab';
 import type { CritiqueRoundWithFindings } from './critique-tab';
+import type { ClaimWithVerdict } from './factcheck-tab';
 import type { InferSelectModel } from 'drizzle-orm';
-import type { critiqueRounds, claims, claimVerdicts } from '../../../../server/db/schema';
+import type { critiqueRounds, critiqueFindings } from '../../../../server/db/schema';
 
 type FactCheckRoundRow = InferSelectModel<typeof critiqueRounds>;
-type ClaimRow = InferSelectModel<typeof claims>;
-type VerdictRow = InferSelectModel<typeof claimVerdicts>;
-type ClaimWithVerdict = { claim: ClaimRow; verdict: VerdictRow | null };
 
 export function ReviewPane({
   sessionId,
@@ -30,6 +29,7 @@ export function ReviewPane({
   const [critiqueRounds, setCritiqueRounds] = useState(initialCritiqueRounds);
   const [factCheckRounds, setFactCheckRounds] = useState(initialFactCheckRounds);
   const [claimsWithVerdicts, setClaimsWithVerdicts] = useState(initialClaims);
+  const [activeTasks, setActiveTasks] = useState<Set<string>>(new Set());
   const [finishing, setFinishing] = useState(false);
 
   const events = useSessionEvents(sessionId);
@@ -38,16 +38,25 @@ export function ReviewPane({
   useEffect(() => {
     const newEvents = events.slice(processedCount.current);
     for (const e of newEvents) {
-      if (e.kind === 'artifact_updated') {
+      if (e.kind === 'task_started') {
+        const payload = e.payload as { stage?: string };
+        if (payload.stage) setActiveTasks((prev) => new Set(prev).add(payload.stage!));
+      } else if (e.kind === 'task_completed') {
+        const payload = e.payload as { stage?: string };
+        if (payload.stage) {
+          setActiveTasks((prev) => {
+            const next = new Set(prev);
+            next.delete(payload.stage!);
+            return next;
+          });
+        }
+      } else if (e.kind === 'artifact_updated') {
         const payload = e.payload as {
           kind: string;
-          finding?: InferSelectModel<typeof import('../../../../server/db/schema').critiqueFindings>;
+          finding?: InferSelectModel<typeof critiqueFindings>;
           roundId?: number;
-          findingCount?: number;
           claimId?: number;
           verdict?: string;
-          claimCount?: number;
-          verdictCount?: number;
         };
         if (payload.kind === 'finding' && payload.finding) {
           const f = payload.finding;
@@ -143,13 +152,11 @@ export function ReviewPane({
             activeCriticIds={activeCriticIds}
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-gray-400">
-              {claimsWithVerdicts.length === 0
-                ? 'No fact-check runs yet.'
-                : `${claimsWithVerdicts.length} claim${claimsWithVerdicts.length !== 1 ? 's' : ''} checked.`}
-            </p>
-          </div>
+          <FactCheckTab
+            sessionId={sessionId}
+            claimsWithVerdicts={claimsWithVerdicts}
+            activeTasks={activeTasks}
+          />
         )}
       </div>
 
