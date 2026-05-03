@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../db/client';
-import { claimEvidence, claims, claimVerdicts, sessions } from '../db/schema';
-import type { CheckWorthiness, ClaimSpan, ClaimType } from './claims';
+import { claimEvidence, claims, claimVerdicts, critiqueRounds, sessions } from '../db/schema';
+import type { CheckWorthiness, ClaimSpan, ClaimType, Verdict } from './claims';
 
 type InsertClaimFields = {
   span: ClaimSpan;
@@ -12,7 +12,7 @@ type InsertClaimFields = {
 };
 
 type InsertVerdictFields = {
-  verdict: string;
+  verdict: Verdict;
   justification: string;
 };
 
@@ -38,6 +38,12 @@ export async function insertClaim(
     .from(sessions)
     .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)));
   if (!owned) return null;
+
+  const [round] = await db
+    .select({ id: critiqueRounds.id })
+    .from(critiqueRounds)
+    .where(and(eq(critiqueRounds.id, roundId), eq(critiqueRounds.sessionId, sessionId)));
+  if (!round) return null;
 
   const [row] = await db
     .insert(claims)

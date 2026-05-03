@@ -134,9 +134,18 @@ describe('insertClaim', () => {
     expect(dbMocks.insert).not.toHaveBeenCalled();
   });
 
-  it('inserts with status open when session is owned', async () => {
+  it('returns null when roundId does not belong to session', async () => {
     const { insertClaim } = await import('../../../src/server/sessions/claims-repo');
-    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }]));
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }])); // session owned
+    // round check uses default → returns []
+    expect(await insertClaim(1, 10, 99, fields)).toBeNull();
+    expect(dbMocks.insert).not.toHaveBeenCalled();
+  });
+
+  it('inserts with status open when session and round are owned', async () => {
+    const { insertClaim } = await import('../../../src/server/sessions/claims-repo');
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }])); // session
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 2 }])); // round
     const result = await insertClaim(1, 10, 2, fields);
     expect(result).toBe(sampleClaim);
     const values = (dbMocks.insertValues.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
@@ -149,7 +158,8 @@ describe('insertClaim', () => {
     const { insertClaim } = await import('../../../src/server/sessions/claims-repo');
     const { eq } = await import('drizzle-orm');
     const { sessions } = await import('../../../src/server/db/schema');
-    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }]));
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }])); // session
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 2 }])); // round
     await insertClaim(7, 10, 2, fields);
     const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
     expect(calls.some(([col, val]) => col === sessions.userId && val === 7)).toBe(true);
@@ -248,7 +258,7 @@ describe('setClaimStatus', () => {
 });
 
 describe('insertClaimVerdict', () => {
-  const fields = { verdict: 'verified', justification: 'Source confirms claim.' };
+  const fields = { verdict: 'verified' as const, justification: 'Source confirms claim.' };
 
   it('returns null when claim is not owned', async () => {
     const { insertClaimVerdict } = await import('../../../src/server/sessions/claims-repo');
