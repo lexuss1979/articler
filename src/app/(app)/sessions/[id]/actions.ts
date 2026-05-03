@@ -14,6 +14,7 @@ import { planSchema } from '../../../../server/sessions/plan';
 import type { ZodIssue } from 'zod';
 import { startRunner, resolveUserInput, cancelPendingInput } from '../../../../server/pipeline/runner';
 import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
+import { runReview } from '../../../../server/pipeline/run-review';
 import {
   setSourceStatus,
   setSourceSection,
@@ -158,6 +159,18 @@ export async function devResetSessionAction(
   void startRunner(sessionId, user.id);
   revalidatePath('/sessions/' + sessionId);
   return { ok: true };
+}
+
+export async function startReviewAction(
+  sessionId: number,
+): Promise<
+  | { ok: true; roundId: number; findingCount: number }
+  | { ok: false; error: 'session_invalid' | 'no_draft' }
+> {
+  const user = await requireUser();
+  const result = await runReview({ sessionId, userId: user.id });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
 }
 
 export async function savePlanEditsAction(
