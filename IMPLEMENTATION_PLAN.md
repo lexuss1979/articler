@@ -4083,7 +4083,7 @@ Decisions taken (defaults — change before implementation if needed):
       Notes: this task adds a small fixture under
       `tests/unit/export/fixtures/` (a 1×1 PNG is fine).
 
-- [ ] T-11-6: PDF article renderer (Playwright Chromium)
+- [x] T-11-6: PDF article renderer (Playwright Chromium)
       Goal: Render the HTML form of the article to PDF bytes,
       embedding images by serving them from a tmp directory.
       Touches: `src/server/export/pdf.ts`,
