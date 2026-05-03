@@ -4403,6 +4403,40 @@ Decisions taken (defaults — change before implementation if needed):
       below the fold; could be revisited.
 
 - [x] T-11-16: Shared readable stylesheet for HTML and PDF
+      (see notes above)
+
+- [x] T-11-17: Render images in the article preview iframe
+      Goal: The preview iframe currently shows the article text
+      without images: (a) `page.tsx` runs `renderMarkdownArticle`
+      which rewrites image refs to bundle-relative
+      `images/<slot>.<ext>` paths (no sidecar folder is served);
+      (b) the iframe uses `sandbox=""` (empty), giving srcdoc an
+      opaque origin so `/api/images/...` paths can't resolve
+      against parent origin anyway.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/export-pane.tsx`,
+      `tests/unit/sessions/export-pane.test.ts`.
+      Acceptance:
+        - `page.tsx` no longer threads `renderMarkdownArticle`
+          output into `previewHtml`. Instead it feeds the raw
+          `session.draftMd` (or empty string) directly to
+          `renderHtmlArticle(rawMd, rules)`. The
+          `renderMarkdownArticle` import is dropped if no longer
+          used here.
+        - `<ExportPane>` renders the iframe with
+          `sandbox="allow-same-origin"` (no `allow-scripts`,
+          `allow-forms`, etc.) so srcdoc inherits the parent's
+          origin and absolute `/api/images/...` paths resolve.
+        - Existing iframe tests stay green; one assertion is
+          updated from `sandbox=""` to
+          `sandbox="allow-same-origin"`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: `allow-same-origin` without `allow-scripts` is safe
+      — the iframe still cannot run JS or open popups; it just
+      counts as same-origin so cookies and CORS see it as the
+      app, which is what we need for `/api/images/`. Article
+      content is the user's own draft, so the trust boundary is
+      already inside the user.
       Goal: The exported HTML (and the in-app preview iframe) and
       the PDF render currently look bare-browser-default, which
       is ugly. Add one shared editorial stylesheet that both

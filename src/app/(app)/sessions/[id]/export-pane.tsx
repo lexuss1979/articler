@@ -47,7 +47,7 @@ export function ExportPane(props: {
           <iframe
             title="Article preview"
             srcDoc={previewHtml}
-            sandbox=""
+            sandbox="allow-same-origin"
             className="w-full h-full min-h-[60vh]"
           />
         </div>

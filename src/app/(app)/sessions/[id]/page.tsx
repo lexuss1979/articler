@@ -11,7 +11,6 @@ import { listSessionRounds, listRoundFindings } from '../../../../server/session
 import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claims-repo';
 import { getProfile } from '../../../../server/profiles/repo';
 import { parseMarkupRules } from '../../../../server/profiles/markup';
-import { renderMarkdownArticle } from '../../../../server/export/markdown';
 import { renderHtmlArticle } from '../../../../server/export/html';
 import { BriefForm } from './brief-form';
 import { ChatPane } from './chat-pane';
@@ -76,12 +75,7 @@ export default async function SessionPage({
     const profile = await getProfile(user.id, session.profileId);
     if (profile) {
       const rules = parseMarkupRules(profile.markupRules);
-      const imageState = parseImageState(session.images);
-      const { contentMd } = await renderMarkdownArticle({
-        session: { id: session.id, draftMd: session.draftMd },
-        imageState,
-      });
-      exportPreviewHtml = await renderHtmlArticle(contentMd, rules);
+      exportPreviewHtml = await renderHtmlArticle(session.draftMd ?? '', rules);
     }
   }
 

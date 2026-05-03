@@ -47,7 +47,7 @@ describe('<ExportPane />', () => {
     );
     expect(html).toContain('<iframe');
     expect(html).toContain('title="Article preview"');
-    expect(html).toContain('sandbox=""');
+    expect(html).toContain('sandbox="allow-same-origin"');
     expect(html).toContain('srcDoc=');
     expect(html).toContain('&lt;h1&gt;Hi&lt;/h1&gt;');
   });
