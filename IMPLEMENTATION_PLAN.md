@@ -4003,7 +4003,7 @@ Decisions taken (defaults — change before implementation if needed):
       Notes: filesystem reads happen later (in T-11-7); this
       module is pure (string-in, manifest-out).
 
-- [ ] T-11-4: HTML article renderer (remark/rehype, markup-rules
+- [x] T-11-4: HTML article renderer (remark/rehype, markup-rules
       aware)
       Goal: Convert Markdown to standalone HTML applying the
       profile's `markup_rules`.
@@ -4021,10 +4021,12 @@ Decisions taken (defaults — change before implementation if needed):
         - `headingShift` is applied via a custom remark transformer:
           for each heading node, set `depth = clamp(depth +
           rules.headingShift, 1, 6)`.
-        - `flavor: 'habr'` defaults `headingShift` to `-1` when the
-          caller passes `0`, and wraps top-level headings in an
-          extra newline (no other transformations for v1; document
-          this as the v1 Habr stub).
+        - `flavor: 'habr'` defaults `headingShift` to `+1` when the
+          caller passes `0` (Habr article body uses H2 as the top
+          slot; H1 is reserved for the title set by the platform),
+          and wraps top-level headings in an extra newline (no
+          other transformations for v1; document this as the v1
+          Habr stub).
         - `flavor: 'standard'` produces clean semantic HTML with
           GFM tables disabled in DOCX/PDF (no impact here).
         - `<sub>…</sub>` blocks survive the round-trip
