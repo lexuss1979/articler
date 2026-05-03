@@ -3578,7 +3578,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
       Notes: Pexels / Pixabay are out of scope here per the epic's
       decision default. Their env keys remain in `.env.example`.
 
-- [ ] T-10-9: Apply-image helper (deterministic draft insert)
+- [x] T-10-9: Apply-image helper (deterministic draft insert)
       Goal: Pure persistence helper that, given a chosen candidate,
       inserts its Markdown image reference into the appropriate
       section's `section_drafts.contentMd` (inline) or prepends to
