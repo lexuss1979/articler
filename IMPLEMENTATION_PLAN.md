@@ -4304,7 +4304,7 @@ Decisions taken (defaults — change before implementation if needed):
       only the `Error.message` text. The full error stays in
       console / `appendRunLog`-style logs (out of scope here).
 
-- [ ] T-11-13: Skip empty README from md/html bundles
+- [x] T-11-13: Skip empty README from md/html bundles
       Goal: When there are no external attributions, do not
       include a `README.txt` file in the zip — today the bundle
       ships a `README.txt` containing the sentinel "No external

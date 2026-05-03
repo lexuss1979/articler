@@ -118,7 +118,7 @@ describe('GET /api/sessions/[id]/export', () => {
     expect(res.status).toBe(404);
   });
 
-  it('format=md returns a zip with the right headers and packs article.md + README.txt', async () => {
+  it('format=md returns a zip with the right headers and skips README when no attributions', async () => {
     const res = await getExport('10', 'format=md');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/zip');
@@ -131,8 +131,23 @@ describe('GET /api/sessions/[id]/export', () => {
     }>;
     const paths = bundleArg.map((e) => e.path);
     expect(paths).toContain('article.md');
-    expect(paths).toContain('README.txt');
+    expect(paths).not.toContain('README.txt');
     expect(mocks.renderHtmlArticleFn).not.toHaveBeenCalled();
+  });
+
+  it('format=md includes README.txt when buildAttributionsReadme returns a non-sentinel string', async () => {
+    mocks.buildAttributionsReadmeFn.mockReturnValue(
+      'images/hero.jpg — Photo by Jane / Unsplash\n',
+    );
+    const res = await getExport('10', 'format=md');
+    expect(res.status).toBe(200);
+    const bundleArg = mocks.buildZipBundleFn.mock.calls[0]![0] as Array<{
+      path: string;
+      bytes: unknown;
+    }>;
+    const readmeEntry = bundleArg.find((e) => e.path === 'README.txt');
+    expect(readmeEntry).toBeTruthy();
+    expect(readmeEntry?.bytes).toContain('Photo by Jane');
   });
 
   it('format=html returns a zip wrapping the rendered HTML', async () => {

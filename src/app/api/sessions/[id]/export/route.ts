@@ -19,6 +19,8 @@ import {
 
 const formatSchema = z.enum(['md', 'html', 'docx', 'pdf']);
 
+const EMPTY_README_SENTINEL = 'No external attributions.\n';
+
 async function readAttachmentBytes(
   attachments: ImageAttachment[],
 ): Promise<Array<{ path: string; bytes: Buffer }>> {
@@ -92,10 +94,11 @@ export async function GET(
   if (format === 'md') {
     try {
       const imageBytes = await readAttachmentBytes(attachments);
+      const readme = buildAttributionsReadme(attachments, imageState);
       const zip = await buildZipBundle([
         { path: 'article.md', bytes: contentMd },
         ...imageBytes,
-        { path: 'README.txt', bytes: buildAttributionsReadme(attachments, imageState) },
+        ...(readme === EMPTY_README_SENTINEL ? [] : [{ path: 'README.txt', bytes: readme }]),
       ]);
       return new Response(new Uint8Array(zip), {
         headers: {
@@ -112,10 +115,11 @@ export async function GET(
     try {
       const html = await renderHtmlArticle(contentMd, rules);
       const imageBytes = await readAttachmentBytes(attachments);
+      const readme = buildAttributionsReadme(attachments, imageState);
       const zip = await buildZipBundle([
         { path: 'article.html', bytes: html },
         ...imageBytes,
-        { path: 'README.txt', bytes: buildAttributionsReadme(attachments, imageState) },
+        ...(readme === EMPTY_README_SENTINEL ? [] : [{ path: 'README.txt', bytes: readme }]),
       ]);
       return new Response(new Uint8Array(zip), {
         headers: {
