@@ -4115,7 +4115,7 @@ Decisions taken (defaults — change before implementation if needed):
       (no Chromium in CI). It ships in the docker image via
       T-11-2.
 
-- [ ] T-11-7: Zip bundle assembler
+- [x] T-11-7: Zip bundle assembler
       Goal: Pack arbitrary files into a zip buffer; used by the
       route to ship MD/HTML bundles.
       Touches: `src/server/export/bundle.ts`,
