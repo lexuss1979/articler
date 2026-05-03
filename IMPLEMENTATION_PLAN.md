@@ -2894,7 +2894,7 @@ join image-slot rows the same column can be migrated then.
           ids.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-9-3: `propose_decoration` stage
+- [x] T-9-3: `propose_decoration` stage
       Goal: Single-shot smart-model stage that takes the locked
       draft + plan + profile and returns structured decoration
       suggestions.
