@@ -4039,7 +4039,7 @@ Decisions taken (defaults — change before implementation if needed):
       Notes: tables/footnotes intentionally rely on default GFM
       behavior; no extra config in v1.
 
-- [ ] T-11-5: DOCX article renderer
+- [x] T-11-5: DOCX article renderer
       Goal: Build a Word document from the Markdown article with
       embedded images.
       Touches: `src/server/export/docx.ts`,
