@@ -3319,7 +3319,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           is escaped.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-2: Image persistence helpers (`sessions.images` JSONB)
+- [x] T-10-2: Image persistence helpers (`sessions.images` JSONB)
       Goal: User-scoped read/write helpers for the image state on the
       `sessions.images` column, mirroring `decoration-repo.ts`.
       Touches: `src/server/sessions/images-repo.ts`,
