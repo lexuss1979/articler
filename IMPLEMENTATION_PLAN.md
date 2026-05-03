@@ -4321,7 +4321,7 @@ Decisions taken (defaults — change before implementation if needed):
           DOES contain `README.txt`.
         - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
 
-- [ ] T-11-14: Hero survives subsequent inline image applies
+- [x] T-11-14: Hero survives subsequent inline image applies
       Goal: Selecting an inline image after a hero must NOT erase
       the hero from `draft_md`. Today `applyImageSelection` for
       inline rebuilds `draft_md` from `section_drafts` only —

@@ -1,8 +1,8 @@
 import { getSession, updateSessionDraft } from '../sessions/repo';
 import { planSchema, type Plan } from '../sessions/plan';
 import { insertParagraph } from '../sessions/decoration';
-import { renderImageMarkdown } from '../sessions/images';
-import { findSlot, setSlotChoice } from '../sessions/images-repo';
+import { renderImageMarkdown, type ImageState } from '../sessions/images';
+import { findSlot, getImageState, setSlotChoice } from '../sessions/images-repo';
 import {
   getSectionDraft,
   listSectionDrafts,
@@ -26,16 +26,29 @@ function planIndexFor(plan: Plan, sectionId: string): number {
   return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
 }
 
-async function composeFromSectionDrafts(
+async function composeDraftMd(
   userId: number,
   sessionId: number,
   plan: Plan,
+  imageState: ImageState,
 ): Promise<string> {
   const allDrafts = await listSectionDrafts(userId, sessionId);
   const ordered = [...allDrafts].sort(
     (a, b) => planIndexFor(plan, a.sectionId) - planIndexFor(plan, b.sectionId),
   );
-  return ordered.map((r) => r.contentMd).join('\n\n');
+  const body = ordered.map((r) => r.contentMd).join('\n\n');
+
+  const heroSlot = imageState.slots.find(
+    (s) => s.kind === 'hero' && s.chosenCandidateId,
+  );
+  if (!heroSlot) return body;
+  const heroCandidate = heroSlot.candidates.find(
+    (c) => c.id === heroSlot.chosenCandidateId,
+  );
+  if (!heroCandidate) return body;
+
+  const heroMd = renderImageMarkdown(heroCandidate, heroSlot.altText ?? '');
+  return body.length > 0 ? `${heroMd}\n\n${body}` : heroMd;
 }
 
 export async function applyImageSelection({
@@ -66,29 +79,25 @@ export async function applyImageSelection({
   const candidate = slot.candidates.find((c) => c.id === candidateId);
   if (!candidate) return { ok: false, error: 'not_found' };
 
-  const imageMd = renderImageMarkdown(candidate, slot.altText ?? '');
-
-  let revisedDraftMd: string;
   if (slot.kind === 'inline') {
     if (!slot.sectionId || slot.paragraphIndex === undefined) {
       return { ok: false, error: 'section_missing' };
     }
     const sectionRow = await getSectionDraft(userId, sessionId, slot.sectionId);
     if (!sectionRow) return { ok: false, error: 'section_missing' };
+    const inlineMd = renderImageMarkdown(candidate, slot.altText ?? '');
     const nextContentMd = insertParagraph(
       sectionRow.contentMd,
       slot.paragraphIndex,
-      imageMd,
+      inlineMd,
     );
     await upsertSectionDraft(userId, sessionId, slot.sectionId, nextContentMd);
-    revisedDraftMd = await composeFromSectionDrafts(userId, sessionId, plan);
-  } else {
-    const composed = await composeFromSectionDrafts(userId, sessionId, plan);
-    revisedDraftMd = composed.length > 0 ? `${imageMd}\n\n${composed}` : imageMd;
   }
 
-  await updateSessionDraft(userId, sessionId, revisedDraftMd);
   await setSlotChoice(userId, sessionId, slotId, candidateId);
+  const freshImageState = await getImageState(userId, sessionId);
+  const revisedDraftMd = await composeDraftMd(userId, sessionId, plan, freshImageState);
+  await updateSessionDraft(userId, sessionId, revisedDraftMd);
 
   return { ok: true, revisedDraftMd };
 }

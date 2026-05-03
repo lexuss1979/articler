@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   updateSessionDraft: vi.fn(),
   findSlot: vi.fn(),
   setSlotChoice: vi.fn(),
+  getImageState: vi.fn(),
   getSectionDraft: vi.fn(),
   upsertSectionDraft: vi.fn(),
   listSectionDrafts: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('../../../src/server/sessions/repo', () => ({
 vi.mock('../../../src/server/sessions/images-repo', () => ({
   findSlot: mocks.findSlot,
   setSlotChoice: mocks.setSlotChoice,
+  getImageState: mocks.getImageState,
 }));
 vi.mock('../../../src/server/sessions/section-drafts-repo', () => ({
   getSectionDraft: mocks.getSectionDraft,
@@ -35,11 +37,18 @@ const validPlan = {
 
 const validSession = { id: 10, userId: 1, plan: validPlan, draftMd: 'old' };
 
-const generatedCandidate = {
+const generatedHeroCandidate = {
   id: 'c1',
   source: 'generated' as const,
-  localPath: '/api/images/10/slot_a/c1.png',
+  localPath: '/api/images/10/slot_hero/c1.png',
   createdAt: '2026-05-03T10:00:00.000Z',
+};
+
+const generatedInlineCandidate = {
+  id: 'c2',
+  source: 'generated' as const,
+  localPath: '/api/images/10/slot_inline/c2.png',
+  createdAt: '2026-05-03T11:00:00.000Z',
 };
 
 afterEach(() => vi.clearAllMocks());
@@ -79,11 +88,11 @@ describe('applyImageSelection', () => {
   it('returns already_chosen when slot.chosenCandidateId is set', async () => {
     mocks.getSession.mockResolvedValue(validSession);
     mocks.findSlot.mockResolvedValue({
-      id: 'slot_a',
+      id: 'slot_hero',
       kind: 'hero',
       brief: 'b',
       mode: 'generate',
-      candidates: [generatedCandidate],
+      candidates: [generatedHeroCandidate],
       chosenCandidateId: 'c1',
     });
     const { applyImageSelection } = await import(
@@ -92,7 +101,7 @@ describe('applyImageSelection', () => {
     const result = await applyImageSelection({
       sessionId: 10,
       userId: 1,
-      slotId: 'slot_a',
+      slotId: 'slot_hero',
       candidateId: 'c1',
     });
     expect(result).toEqual({ ok: false, error: 'already_chosen' });
@@ -103,11 +112,11 @@ describe('applyImageSelection', () => {
   it('returns not_found when candidate id is missing on slot', async () => {
     mocks.getSession.mockResolvedValue(validSession);
     mocks.findSlot.mockResolvedValue({
-      id: 'slot_a',
+      id: 'slot_hero',
       kind: 'hero',
       brief: 'b',
       mode: 'generate',
-      candidates: [generatedCandidate],
+      candidates: [generatedHeroCandidate],
     });
     const { applyImageSelection } = await import(
       '../../../src/server/pipeline/apply-image'
@@ -116,7 +125,7 @@ describe('applyImageSelection', () => {
       await applyImageSelection({
         sessionId: 10,
         userId: 1,
-        slotId: 'slot_a',
+        slotId: 'slot_hero',
         candidateId: 'c_missing',
       }),
     ).toEqual({ ok: false, error: 'not_found' });
@@ -125,13 +134,13 @@ describe('applyImageSelection', () => {
   it('inserts inline image at the configured paragraph and persists', async () => {
     mocks.getSession.mockResolvedValue(validSession);
     mocks.findSlot.mockResolvedValue({
-      id: 'slot_a',
+      id: 'slot_inline',
       kind: 'inline',
       sectionId: 'intro',
       paragraphIndex: 1,
       brief: 'b',
       mode: 'generate',
-      candidates: [generatedCandidate],
+      candidates: [generatedInlineCandidate],
     });
     mocks.getSectionDraft.mockResolvedValue({
       id: 1,
@@ -145,12 +154,26 @@ describe('applyImageSelection', () => {
         id: 1,
         sessionId: 10,
         sectionId: 'intro',
-        contentMd: 'A\n\n![](/api/images/10/slot_a/c1.png)\n\nB',
+        contentMd: 'A\n\n![](/api/images/10/slot_inline/c2.png)\n\nB',
       },
       { id: 2, sessionId: 10, sectionId: 'body', contentMd: 'BODY' },
     ]);
     mocks.updateSessionDraft.mockResolvedValue({});
     mocks.setSlotChoice.mockResolvedValue({});
+    mocks.getImageState.mockResolvedValue({
+      slots: [
+        {
+          id: 'slot_inline',
+          kind: 'inline',
+          sectionId: 'intro',
+          paragraphIndex: 1,
+          brief: 'b',
+          mode: 'generate',
+          candidates: [generatedInlineCandidate],
+          chosenCandidateId: 'c2',
+        },
+      ],
+    });
 
     const { applyImageSelection } = await import(
       '../../../src/server/pipeline/apply-image'
@@ -158,33 +181,33 @@ describe('applyImageSelection', () => {
     const result = await applyImageSelection({
       sessionId: 10,
       userId: 1,
-      slotId: 'slot_a',
-      candidateId: 'c1',
+      slotId: 'slot_inline',
+      candidateId: 'c2',
     });
 
     expect(mocks.upsertSectionDraft).toHaveBeenCalledWith(
       1,
       10,
       'intro',
-      'A\n\n![](/api/images/10/slot_a/c1.png)\n\nB',
+      'A\n\n![](/api/images/10/slot_inline/c2.png)\n\nB',
     );
     expect(result).toEqual({
       ok: true,
-      revisedDraftMd: 'A\n\n![](/api/images/10/slot_a/c1.png)\n\nB\n\nBODY',
+      revisedDraftMd: 'A\n\n![](/api/images/10/slot_inline/c2.png)\n\nB\n\nBODY',
     });
-    expect(mocks.setSlotChoice).toHaveBeenCalledWith(1, 10, 'slot_a', 'c1');
+    expect(mocks.setSlotChoice).toHaveBeenCalledWith(1, 10, 'slot_inline', 'c2');
   });
 
   it('returns section_missing when inline slot has no matching section draft', async () => {
     mocks.getSession.mockResolvedValue(validSession);
     mocks.findSlot.mockResolvedValue({
-      id: 'slot_a',
+      id: 'slot_inline',
       kind: 'inline',
       sectionId: 'intro',
       paragraphIndex: 0,
       brief: 'b',
       mode: 'generate',
-      candidates: [generatedCandidate],
+      candidates: [generatedInlineCandidate],
     });
     mocks.getSectionDraft.mockResolvedValue(null);
     const { applyImageSelection } = await import(
@@ -194,8 +217,8 @@ describe('applyImageSelection', () => {
       await applyImageSelection({
         sessionId: 10,
         userId: 1,
-        slotId: 'slot_a',
-        candidateId: 'c1',
+        slotId: 'slot_inline',
+        candidateId: 'c2',
       }),
     ).toEqual({ ok: false, error: 'section_missing' });
   });
@@ -207,7 +230,7 @@ describe('applyImageSelection', () => {
       kind: 'hero',
       brief: 'b',
       mode: 'generate',
-      candidates: [generatedCandidate],
+      candidates: [generatedHeroCandidate],
     });
     mocks.listSectionDrafts.mockResolvedValue([
       { id: 2, sessionId: 10, sectionId: 'body', contentMd: 'BODY' },
@@ -215,6 +238,18 @@ describe('applyImageSelection', () => {
     ]);
     mocks.updateSessionDraft.mockResolvedValue({});
     mocks.setSlotChoice.mockResolvedValue({});
+    mocks.getImageState.mockResolvedValue({
+      slots: [
+        {
+          id: 'slot_hero',
+          kind: 'hero',
+          brief: 'b',
+          mode: 'generate',
+          candidates: [generatedHeroCandidate],
+          chosenCandidateId: 'c1',
+        },
+      ],
+    });
 
     const { applyImageSelection } = await import(
       '../../../src/server/pipeline/apply-image'
@@ -229,7 +264,78 @@ describe('applyImageSelection', () => {
     expect(mocks.upsertSectionDraft).not.toHaveBeenCalled();
     expect(result).toEqual({
       ok: true,
-      revisedDraftMd: '![](/api/images/10/slot_a/c1.png)\n\nINTRO\n\nBODY',
+      revisedDraftMd: '![](/api/images/10/slot_hero/c1.png)\n\nINTRO\n\nBODY',
     });
+  });
+
+  it('preserves a previously chosen hero when applying an inline image afterwards', async () => {
+    mocks.getSession.mockResolvedValue(validSession);
+    mocks.findSlot.mockResolvedValue({
+      id: 'slot_inline',
+      kind: 'inline',
+      sectionId: 'intro',
+      paragraphIndex: 0,
+      brief: 'b',
+      mode: 'generate',
+      candidates: [generatedInlineCandidate],
+    });
+    mocks.getSectionDraft.mockResolvedValue({
+      id: 1,
+      sessionId: 10,
+      sectionId: 'intro',
+      contentMd: 'INTRO',
+    });
+    mocks.upsertSectionDraft.mockResolvedValue({});
+    mocks.listSectionDrafts.mockResolvedValue([
+      {
+        id: 1,
+        sessionId: 10,
+        sectionId: 'intro',
+        contentMd: '![](/api/images/10/slot_inline/c2.png)\n\nINTRO',
+      },
+    ]);
+    mocks.updateSessionDraft.mockResolvedValue({});
+    mocks.setSlotChoice.mockResolvedValue({});
+    mocks.getImageState.mockResolvedValue({
+      slots: [
+        {
+          id: 'slot_hero',
+          kind: 'hero',
+          brief: 'h',
+          mode: 'generate',
+          candidates: [generatedHeroCandidate],
+          chosenCandidateId: 'c1',
+        },
+        {
+          id: 'slot_inline',
+          kind: 'inline',
+          sectionId: 'intro',
+          paragraphIndex: 0,
+          brief: 'b',
+          mode: 'generate',
+          candidates: [generatedInlineCandidate],
+          chosenCandidateId: 'c2',
+        },
+      ],
+    });
+
+    const { applyImageSelection } = await import(
+      '../../../src/server/pipeline/apply-image'
+    );
+    const result = await applyImageSelection({
+      sessionId: 10,
+      userId: 1,
+      slotId: 'slot_inline',
+      candidateId: 'c2',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.revisedDraftMd).toContain('/api/images/10/slot_hero/c1.png');
+      expect(result.revisedDraftMd).toContain('/api/images/10/slot_inline/c2.png');
+      expect(result.revisedDraftMd.indexOf('/api/images/10/slot_hero/c1.png')).toBeLessThan(
+        result.revisedDraftMd.indexOf('/api/images/10/slot_inline/c2.png'),
+      );
+    }
   });
 });
