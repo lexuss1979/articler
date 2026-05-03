@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
-  setFindingStatus: vi.fn(),
-  getFindingForUser: vi.fn(),
-  regenerateSection: vi.fn(),
+  applyRevisions: vi.fn(),
+  acceptRevisions: vi.fn(),
+  discardRevisions: vi.fn(),
   revalidatePath: vi.fn(),
   startRunner: vi.fn(),
   cancelPendingInput: vi.fn(),
@@ -12,12 +12,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/server/auth/require-user', () => ({ requireUser: mocks.requireUser }));
-vi.mock('../../../src/server/sessions/critique-repo', () => ({
-  setFindingStatus: mocks.setFindingStatus,
-  getFindingForUser: mocks.getFindingForUser,
-}));
-vi.mock('../../../src/server/pipeline/regenerate-section', () => ({
-  regenerateSection: mocks.regenerateSection,
+vi.mock('../../../src/server/pipeline/apply-revisions', () => ({
+  applyRevisions: mocks.applyRevisions,
 }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock('../../../src/server/pipeline/runner', () => ({
@@ -31,128 +27,112 @@ vi.mock('../../../src/server/sessions/repo', () => ({
   updateSessionBrief: vi.fn(),
   updateSessionPlan: vi.fn(),
   updateSessionState: vi.fn(),
+  updateSessionActiveCritics: vi.fn(),
+  acceptRevisions: mocks.acceptRevisions,
+  discardRevisions: mocks.discardRevisions,
 }));
 vi.mock('../../../src/server/sessions/sources-repo', () => ({
   setSourceStatus: vi.fn(),
   setSourceSection: vi.fn(),
 }));
+vi.mock('../../../src/server/pipeline/regenerate-section', () => ({
+  regenerateSection: vi.fn(),
+}));
+vi.mock('../../../src/server/sessions/claims-repo', () => ({
+  setClaimStatus: vi.fn(),
+  getClaimWithLatestVerdict: vi.fn(),
+}));
 vi.mock('../../../src/server/pipeline/run-review', () => ({ runReview: vi.fn() }));
+vi.mock('../../../src/server/pipeline/run-fact-check', () => ({ runFactCheck: vi.fn() }));
 
 afterEach(() => vi.clearAllMocks());
 
-const finding = {
-  id: 10,
-  roundId: 1,
-  criticId: 'editorial',
-  severity: 'minor',
-  span: { sectionId: 'intro', charStart: 0, charEnd: 5 },
-  problem: 'Weak opening.',
-  suggestedChange: 'Start stronger.',
-  rationale: 'First impression matters.',
-  status: 'open',
-};
+describe('applyRevisionsAction', () => {
+  it('returns validation error when findingIds is not a number array', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 1 });
+    const { applyRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await applyRevisionsAction(5, ['nope' as unknown as number]);
+    expect(result).toEqual({ ok: false, error: 'validation' });
+    expect(mocks.applyRevisions).not.toHaveBeenCalled();
+  });
 
-describe('dismissFindingAction', () => {
-  it('calls setFindingStatus with dismissed and returns ok:true', async () => {
+  it('forwards validated ids to applyRevisions and revalidates on success', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 7 });
+    mocks.applyRevisions.mockResolvedValue({
+      ok: true,
+      appliedFindingIds: [1, 2],
+      revisedDraftMd: '# new',
+    });
+
+    const { applyRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await applyRevisionsAction(5, [1, 2]);
+
+    expect(mocks.applyRevisions).toHaveBeenCalledWith({
+      sessionId: 5,
+      userId: 7,
+      findingIds: [1, 2],
+    });
+    expect(result).toEqual({ ok: true, appliedFindingIds: [1, 2], revisedDraftMd: '# new' });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith('/sessions/5');
+  });
+
+  it('does not revalidate when applyRevisions fails', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 7 });
+    mocks.applyRevisions.mockResolvedValue({ ok: false, error: 'no_findings' });
+
+    const { applyRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await applyRevisionsAction(5, [1, 2]);
+
+    expect(result).toEqual({ ok: false, error: 'no_findings' });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe('acceptRevisionsAction', () => {
+  it('calls acceptRevisions and returns ok on success', async () => {
     mocks.requireUser.mockResolvedValue({ id: 3 });
-    mocks.setFindingStatus.mockResolvedValue(finding);
+    mocks.acceptRevisions.mockResolvedValue({ id: 5 });
 
-    const { dismissFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await dismissFindingAction(5, 10);
+    const { acceptRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await acceptRevisionsAction(5);
 
-    expect(mocks.setFindingStatus).toHaveBeenCalledWith(3, 10, 'dismissed');
+    expect(mocks.acceptRevisions).toHaveBeenCalledWith(3, 5);
     expect(result).toEqual({ ok: true });
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/sessions/5');
   });
 
-  it('returns not_found when setFindingStatus returns null', async () => {
+  it('returns not_found when acceptRevisions returns null', async () => {
     mocks.requireUser.mockResolvedValue({ id: 3 });
-    mocks.setFindingStatus.mockResolvedValue(null);
+    mocks.acceptRevisions.mockResolvedValue(null);
 
-    const { dismissFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await dismissFindingAction(5, 99);
+    const { acceptRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await acceptRevisionsAction(5);
 
     expect(result).toEqual({ ok: false, error: 'not_found' });
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });
 
-describe('applyFindingAction', () => {
-  it('calls setFindingStatus with applied and returns ok:true', async () => {
-    mocks.requireUser.mockResolvedValue({ id: 7 });
-    mocks.setFindingStatus.mockResolvedValue(finding);
+describe('discardRevisionsAction', () => {
+  it('calls discardRevisions and returns ok on success', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 9 });
+    mocks.discardRevisions.mockResolvedValue({ id: 5 });
 
-    const { applyFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await applyFindingAction(5, 10);
+    const { discardRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await discardRevisionsAction(5);
 
-    expect(mocks.setFindingStatus).toHaveBeenCalledWith(7, 10, 'applied');
+    expect(mocks.discardRevisions).toHaveBeenCalledWith(9, 5);
     expect(result).toEqual({ ok: true });
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/sessions/5');
   });
 
-  it('returns not_found when setFindingStatus returns null', async () => {
-    mocks.requireUser.mockResolvedValue({ id: 7 });
-    mocks.setFindingStatus.mockResolvedValue(null);
+  it('returns not_found when discardRevisions returns null', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 9 });
+    mocks.discardRevisions.mockResolvedValue(null);
 
-    const { applyFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await applyFindingAction(5, 99);
-
-    expect(result).toEqual({ ok: false, error: 'not_found' });
-  });
-});
-
-describe('rewriteFromFindingAction', () => {
-  it('returns not_found when finding does not exist', async () => {
-    mocks.requireUser.mockResolvedValue({ id: 1 });
-    mocks.getFindingForUser.mockResolvedValue(null);
-
-    const { rewriteFromFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await rewriteFromFindingAction(5, 99);
+    const { discardRevisionsAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await discardRevisionsAction(5);
 
     expect(result).toEqual({ ok: false, error: 'not_found' });
-    expect(mocks.regenerateSection).not.toHaveBeenCalled();
-  });
-
-  it('builds instruction from criticId + problem + suggestedChange and calls regenerateSection', async () => {
-    mocks.requireUser.mockResolvedValue({ id: 2 });
-    mocks.getFindingForUser.mockResolvedValue(finding);
-    mocks.regenerateSection.mockResolvedValue({ ok: true, contentMd: '# Updated' });
-    mocks.setFindingStatus.mockResolvedValue({ ...finding, status: 'rewritten' });
-
-    const { rewriteFromFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await rewriteFromFindingAction(5, 10);
-
-    expect(mocks.regenerateSection).toHaveBeenCalledWith({
-      sessionId: 5,
-      userId: 2,
-      sectionId: 'intro',
-      instruction: '[critic editorial] Weak opening. — Start stronger.',
-    });
-    expect(result).toEqual({ ok: true, contentMd: '# Updated' });
-  });
-
-  it('marks finding as rewritten on successful regeneration', async () => {
-    mocks.requireUser.mockResolvedValue({ id: 2 });
-    mocks.getFindingForUser.mockResolvedValue(finding);
-    mocks.regenerateSection.mockResolvedValue({ ok: true, contentMd: '# New' });
-    mocks.setFindingStatus.mockResolvedValue({ ...finding, status: 'rewritten' });
-
-    const { rewriteFromFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    await rewriteFromFindingAction(5, 10);
-
-    expect(mocks.setFindingStatus).toHaveBeenCalledWith(2, 10, 'rewritten');
-    expect(mocks.revalidatePath).toHaveBeenCalledWith('/sessions/5');
-  });
-
-  it('does not mark as rewritten when regenerateSection fails', async () => {
-    mocks.requireUser.mockResolvedValue({ id: 2 });
-    mocks.getFindingForUser.mockResolvedValue(finding);
-    mocks.regenerateSection.mockResolvedValue({ ok: false, error: 'session_invalid' });
-
-    const { rewriteFromFindingAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
-    const result = await rewriteFromFindingAction(5, 10);
-
-    expect(mocks.setFindingStatus).not.toHaveBeenCalled();
-    expect(result).toEqual({ ok: false, error: 'session_invalid' });
   });
 });

@@ -9,6 +9,8 @@ import {
   updateSessionPlan,
   updateSessionState,
   updateSessionActiveCritics,
+  acceptRevisions,
+  discardRevisions,
 } from '../../../../server/sessions/repo';
 import { briefSchema } from '../../../../server/sessions/brief';
 import { planSchema } from '../../../../server/sessions/plan';
@@ -17,10 +19,7 @@ import { startRunner, resolveUserInput, cancelPendingInput } from '../../../../s
 import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
 import { runReview } from '../../../../server/pipeline/run-review';
 import { runFactCheck } from '../../../../server/pipeline/run-fact-check';
-import {
-  setFindingStatus,
-  getFindingForUser,
-} from '../../../../server/sessions/critique-repo';
+import { applyRevisions } from '../../../../server/pipeline/apply-revisions';
 import {
   setClaimStatus,
   getClaimWithLatestVerdict,
@@ -193,54 +192,44 @@ export async function startReviewAction(
   return result;
 }
 
-export async function dismissFindingAction(
+export async function applyRevisionsAction(
   sessionId: number,
-  findingId: number,
-): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
-  const user = await requireUser();
-  const row = await setFindingStatus(user.id, findingId, 'dismissed');
-  if (!row) return { ok: false, error: 'not_found' };
-  revalidatePath('/sessions/' + sessionId);
-  return { ok: true };
-}
-
-export async function applyFindingAction(
-  sessionId: number,
-  findingId: number,
-): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
-  const user = await requireUser();
-  // TODO: optionally route through regenerateSection for surgical edit
-  const row = await setFindingStatus(user.id, findingId, 'applied');
-  if (!row) return { ok: false, error: 'not_found' };
-  revalidatePath('/sessions/' + sessionId);
-  return { ok: true };
-}
-
-export async function rewriteFromFindingAction(
-  sessionId: number,
-  findingId: number,
+  findingIds: number[],
 ): Promise<
-  | { ok: true; contentMd: string }
-  | { ok: false; error: 'not_found' | 'session_invalid' | 'section_not_found' }
+  | { ok: true; appliedFindingIds: number[]; revisedDraftMd: string }
+  | { ok: false; error: 'session_invalid' | 'no_draft' | 'no_findings' | 'pending_exists' | 'validation' }
 > {
   const user = await requireUser();
-  const finding = await getFindingForUser(user.id, findingId);
-  if (!finding) return { ok: false, error: 'not_found' };
+  const parsed = z.array(z.number().int().positive()).safeParse(findingIds);
+  if (!parsed.success) return { ok: false, error: 'validation' };
 
-  const instruction =
-    '[critic ' + finding.criticId + '] ' + finding.problem + ' — ' + finding.suggestedChange;
-  const result = await regenerateSection({
+  const result = await applyRevisions({
     sessionId,
     userId: user.id,
-    sectionId: (finding.span as { sectionId: string }).sectionId,
-    instruction,
+    findingIds: parsed.data,
   });
-
-  if (result.ok) {
-    await setFindingStatus(user.id, findingId, 'rewritten');
-    revalidatePath('/sessions/' + sessionId);
-  }
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
   return result;
+}
+
+export async function acceptRevisionsAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await acceptRevisions(user.id, sessionId);
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
+}
+
+export async function discardRevisionsAction(
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; error: 'not_found' }> {
+  const user = await requireUser();
+  const row = await discardRevisions(user.id, sessionId);
+  if (!row) return { ok: false, error: 'not_found' };
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true };
 }
 
 export async function savePlanEditsAction(
@@ -321,21 +310,7 @@ export async function setActiveCriticsAction(
 ): Promise<{ ok: true } | { ok: false; error: 'validation' | 'not_found' }> {
   const user = await requireUser();
 
-  // Pre-process: fill empty custom critic ids before schema validation
-  const now = Date.now();
-  let preprocessed = payload;
-  if (payload && typeof payload === 'object' && Array.isArray((payload as { custom?: unknown }).custom)) {
-    const p = payload as { enabledIds?: unknown; custom: Array<Record<string, unknown>> };
-    preprocessed = {
-      ...p,
-      custom: p.custom.map((c, i) => ({
-        ...c,
-        id: c.id === '' ? 'custom_' + now + '_' + i : c.id,
-      })),
-    };
-  }
-
-  const parsed = activeCriticsSchema.safeParse(preprocessed);
+  const parsed = activeCriticsSchema.safeParse(payload);
   if (!parsed.success) return { ok: false, error: 'validation' };
 
   const row = await updateSessionActiveCritics(user.id, sessionId, parsed.data);

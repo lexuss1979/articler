@@ -4,21 +4,22 @@ import {
   BUILTIN_DEFAULTS,
   activeCriticsSchema,
   criticDefSchema,
-  findingSchema,
   findingSpanSchema,
-  findingsResponseSchema,
   parseActiveCritics,
+  reviewFindingSchema,
+  reviewResponseSchema,
   severitySchema,
 } from '@/server/sessions/critics';
 
 describe('severitySchema', () => {
   it('accepts valid values', () => {
-    expect(severitySchema.parse('info')).toBe('info');
+    expect(severitySchema.parse('critical')).toBe('critical');
+    expect(severitySchema.parse('medium')).toBe('medium');
     expect(severitySchema.parse('minor')).toBe('minor');
-    expect(severitySchema.parse('major')).toBe('major');
   });
   it('rejects invalid value', () => {
     expect(() => severitySchema.parse('fatal')).toThrow();
+    expect(() => severitySchema.parse('info')).toThrow();
   });
 });
 
@@ -30,45 +31,37 @@ describe('findingSpanSchema', () => {
   it('rejects empty sectionId', () => {
     expect(() => findingSpanSchema.parse({ sectionId: '', charStart: 0, charEnd: 10 })).toThrow();
   });
-  it('allows charEnd < charStart (no schema constraint)', () => {
-    expect(() => findingSpanSchema.parse({ sectionId: 'x', charStart: 10, charEnd: 5 })).not.toThrow();
-  });
 });
 
-describe('findingSchema', () => {
+describe('reviewFindingSchema', () => {
   const valid = {
-    criticId: 'editorial',
-    severity: 'minor' as const,
-    span: { sectionId: 'body', charStart: 10, charEnd: 40 },
+    severity: 'medium' as const,
     problem: 'Unsupported claim.',
     suggestedChange: 'Add citation.',
-    rationale: 'No source provided.',
+    span: { sectionId: 'body', charStart: 10, charEnd: 40 },
   };
   it('accepts a valid finding', () => {
-    expect(findingSchema.parse(valid)).toMatchObject(valid);
+    expect(reviewFindingSchema.parse(valid)).toMatchObject(valid);
+  });
+  it('accepts a finding without span', () => {
+    const noSpan = { severity: 'minor' as const, problem: 'p', suggestedChange: 'c' };
+    expect(reviewFindingSchema.parse(noSpan)).toMatchObject(noSpan);
   });
   it('rejects empty problem', () => {
-    expect(() => findingSchema.parse({ ...valid, problem: '' })).toThrow();
+    expect(() => reviewFindingSchema.parse({ ...valid, problem: '' })).toThrow();
   });
   it('rejects invalid severity', () => {
-    expect(() => findingSchema.parse({ ...valid, severity: 'fatal' })).toThrow();
+    expect(() => reviewFindingSchema.parse({ ...valid, severity: 'fatal' })).toThrow();
   });
 });
 
-describe('findingsResponseSchema', () => {
+describe('reviewResponseSchema', () => {
   it('accepts empty findings array', () => {
-    expect(findingsResponseSchema.parse({ findings: [] })).toEqual({ findings: [] });
+    expect(reviewResponseSchema.parse({ findings: [] })).toEqual({ findings: [] });
   });
-  it('rejects more than 20 findings', () => {
-    const finding = {
-      criticId: 'editorial',
-      severity: 'info',
-      span: { sectionId: 's', charStart: 0, charEnd: 1 },
-      problem: 'p',
-      suggestedChange: 'c',
-      rationale: 'r',
-    };
-    expect(() => findingsResponseSchema.parse({ findings: Array(21).fill(finding) })).toThrow();
+  it('rejects more than 60 findings', () => {
+    const finding = { severity: 'minor', problem: 'p', suggestedChange: 'c' };
+    expect(() => reviewResponseSchema.parse({ findings: Array(61).fill(finding) })).toThrow();
   });
 });
 
@@ -108,11 +101,6 @@ describe('BUILTIN_CRITICS', () => {
   it('all built-ins have defaultEnabled true', () => {
     for (const critic of BUILTIN_CRITICS) {
       expect(critic.defaultEnabled).toBe(true);
-    }
-  });
-  it('all built-in system prompts end with JSON instruction', () => {
-    for (const critic of BUILTIN_CRITICS) {
-      expect(critic.systemPrompt).toContain('{ findings: [...] }');
     }
   });
 });

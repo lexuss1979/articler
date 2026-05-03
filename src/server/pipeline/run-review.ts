@@ -3,13 +3,12 @@ import { getSession } from '../sessions/repo';
 import { getProfile } from '../profiles/repo';
 import { planSchema } from '../sessions/plan';
 import { listSectionDrafts } from '../sessions/section-drafts-repo';
-import { BUILTIN_CRITICS, parseActiveCritics } from '../sessions/critics';
+import { parseActiveCritics } from '../sessions/critics';
 import { createCritiqueRound, insertFinding } from '../sessions/critique-repo';
 import { spanHash } from '../sessions/claims';
-import { runCritic } from './stages/run-critic';
+import { runReview as runReviewStage } from './stages/run-review';
 
-export const GENERIC_CRITIC_SYSTEM_PROMPT = `You are a thoughtful article critic. Read the sections below and identify issues that could be improved.
-Respond ONLY with valid JSON of shape { findings: [...] }, no prose, no fences.`;
+const OVERALL_SECTION_ID = 'overall';
 
 export async function runReview({
   sessionId,
@@ -35,16 +34,6 @@ export async function runReview({
 
   const activeCritics = parseActiveCritics(session.activeCritics);
 
-  const critics = [
-    ...BUILTIN_CRITICS.filter((c) => activeCritics.enabledIds.includes(c.id)),
-    ...activeCritics.custom.map((c) => ({
-      id: c.id,
-      label: c.label,
-      systemPrompt: GENERIC_CRITIC_SYSTEM_PROMPT + '\n' + c.promptFragment,
-      defaultEnabled: true as const,
-    })),
-  ];
-
   const round = await createCritiqueRound(userId, sessionId, 'critique', spanHash(session.draftMd));
   if (!round) return { ok: false, error: 'session_invalid' };
 
@@ -58,20 +47,25 @@ export async function runReview({
     llm: {} as never,
   };
 
-  const results = await Promise.all(
-    critics.map((critic) =>
-      runCritic.run({ critic, plan, profile, sectionDrafts }, ctx),
-    ),
+  const { findings } = await runReviewStage.run(
+    { enabledCriticIds: activeCritics.enabledIds, plan, profile, sectionDrafts },
+    ctx,
   );
 
   let findingCount = 0;
-  for (const { findings } of results) {
-    for (const finding of findings) {
-      const row = await insertFinding(userId, round.id, finding);
-      if (row) {
-        findingCount++;
-        await emitEvent(sessionId, 'artifact_updated', { kind: 'finding', finding: row });
-      }
+  for (const f of findings) {
+    const span = f.span ?? { sectionId: OVERALL_SECTION_ID, charStart: 0, charEnd: 0 };
+    const row = await insertFinding(userId, round.id, {
+      criticId: 'review',
+      severity: f.severity,
+      span,
+      problem: f.problem,
+      suggestedChange: f.suggestedChange,
+      rationale: '',
+    });
+    if (row) {
+      findingCount++;
+      await emitEvent(sessionId, 'artifact_updated', { kind: 'finding', finding: row });
     }
   }
 

@@ -30,7 +30,7 @@ the harness knows which Zod schema to validate the snapshot against.
 | `webSearch` | `fixtures/web_search/habr-longread-1.json` |
 | `summarizeSource` | `fixtures/summarize_source/habr-longread-1.json` |
 | `draftSection` | `fixtures/draft_section/habr-longread-1.json` |
-| `runCritic` | `fixtures/run_critic/habr-longread-1.json` |
+| `runReview` | `fixtures/run_review/habr-longread-1.json` |
 | `extractClaims` | `fixtures/extract_claims/habr-longread-1.json` |
 | `verifyClaim` | `fixtures/verify_claim/habr-longread-1.json` |
 | `adjudicateClaim` | `fixtures/adjudicate_claim/habr-longread-1.json` |
@@ -41,7 +41,7 @@ and a prompt-caching topic so the inputs chain naturally across stages.
 ## Running fixture smoke-tests
 
 The fixture inputs and snapshots are exercised by the unit tests in
-`tests/unit/pipeline/{clarify-brief,propose-angles,build-plan,plan-search-hypotheses,formulate-queries,web-search,summarize-source,draft-section,run-critic,extract-claims,verify-claim,adjudicate-claim}.test.ts`.
+`tests/unit/pipeline/{clarify-brief,propose-angles,build-plan,plan-search-hypotheses,formulate-queries,web-search,summarize-source,draft-section,run-review-stage,extract-claims,verify-claim,adjudicate-claim}.test.ts`.
 Each test loads its fixture, stubs `routeJsonChat` to return `expected.snapshot`,
 and asserts the stage returns the snapshot unchanged — proving the snapshot is
 schema-valid and the stage passes it through correctly.

@@ -97,10 +97,17 @@ export async function getFindingForUser(userId: number, findingId: number) {
   return row ?? null;
 }
 
+export type FindingStatus =
+  | 'open'
+  | 'pending_apply'
+  | 'applied'
+  | 'dismissed'
+  | 'rewritten';
+
 export async function setFindingStatus(
   userId: number,
   findingId: number,
-  status: 'open' | 'dismissed' | 'applied' | 'rewritten',
+  status: FindingStatus,
 ) {
   const [row] = await db
     .update(critiqueFindings)
@@ -110,4 +117,23 @@ export async function setFindingStatus(
     )
     .returning();
   return row ?? null;
+}
+
+export async function bulkSetFindingStatus(
+  userId: number,
+  findingIds: number[],
+  status: FindingStatus,
+) {
+  if (findingIds.length === 0) return [];
+  const rows = await db
+    .update(critiqueFindings)
+    .set({ status })
+    .where(
+      and(
+        inArray(critiqueFindings.id, findingIds),
+        inArray(critiqueFindings.roundId, ownedRoundIds(userId)),
+      ),
+    )
+    .returning();
+  return rows;
 }

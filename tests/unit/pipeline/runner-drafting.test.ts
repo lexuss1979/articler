@@ -45,6 +45,7 @@ vi.mock('../../../src/server/sessions/sources-repo', () => ({
 
 vi.mock('../../../src/server/sessions/section-drafts-repo', () => ({
   upsertSectionDraft: mocks.upsertSectionDraftFn,
+  listSectionDrafts: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../../../src/server/pipeline/stages/draft-section', () => ({

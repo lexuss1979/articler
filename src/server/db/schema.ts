@@ -47,6 +47,8 @@ export const sessions = pgTable('sessions', {
   brief: jsonb('brief'),
   plan: jsonb('plan'),
   draftMd: text('draft_md'),
+  revisedDraftMd: text('revised_draft_md'),
+  revisionStatus: text('revision_status'),
   activeCritics: jsonb('active_critics'),
   decoration: jsonb('decoration'),
   images: jsonb('images'),

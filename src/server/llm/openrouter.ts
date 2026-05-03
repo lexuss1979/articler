@@ -61,10 +61,22 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     parsed !== null &&
     typeof parsed === 'object' &&
     'choices' in parsed &&
-    Array.isArray((parsed as { choices: unknown }).choices) &&
-    (parsed as { choices: unknown[] }).choices.length === 0
+    Array.isArray((parsed as { choices: unknown }).choices)
   ) {
-    throw new OpenRouterError(0, `Empty choices array: ${responseBody.slice(0, 500)}`);
+    const choices = (parsed as { choices: unknown[] }).choices;
+    if (choices.length === 0) {
+      throw new OpenRouterError(200, `Empty choices array: ${responseBody.slice(0, 500)}`);
+    }
+    const first = choices[0] as { message?: { content?: unknown } } | undefined;
+    if (first && 'message' in first) {
+      const content = first.message?.content;
+      if (content == null || (typeof content === 'string' && content.trim() === '')) {
+        throw new OpenRouterError(
+          200,
+          `Empty/null message content: ${responseBody.slice(0, 500)}`,
+        );
+      }
+    }
   }
   return parsed as T;
 }

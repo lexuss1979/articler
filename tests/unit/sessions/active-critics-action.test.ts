@@ -31,9 +31,9 @@ vi.mock('../../../src/server/sessions/sources-repo', () => ({
 vi.mock('../../../src/server/pipeline/regenerate-section', () => ({
   regenerateSection: vi.fn(),
 }));
-vi.mock('../../../src/server/sessions/critique-repo', () => ({
-  setFindingStatus: vi.fn(),
-  getFindingForUser: vi.fn(),
+vi.mock('../../../src/server/sessions/critique-repo', () => ({}));
+vi.mock('../../../src/server/pipeline/apply-revisions', () => ({
+  applyRevisions: vi.fn(),
 }));
 vi.mock('../../../src/server/sessions/claims-repo', () => ({
   setClaimStatus: vi.fn(),
@@ -80,24 +80,19 @@ describe('setActiveCriticsAction', () => {
     expect(mocks.updateSessionActiveCritics).not.toHaveBeenCalled();
   });
 
-  it('replaces empty custom critic id with generated id before persistence', async () => {
+  it('rejects custom critics without an explicit id (no longer auto-generated)', async () => {
     mocks.requireUser.mockResolvedValue({ id: 1 });
-    mocks.updateSessionActiveCritics.mockResolvedValue({ id: 5 });
 
     const { setActiveCriticsAction } = await import(
       '../../../src/app/(app)/sessions/[id]/actions'
     );
-    await setActiveCriticsAction(5, {
+    const result = await setActiveCriticsAction(5, {
       enabledIds: [],
       custom: [{ id: '', label: 'My critic', promptFragment: 'Check for tone.' }],
     });
 
-    expect(mocks.updateSessionActiveCritics).toHaveBeenCalledTimes(1);
-    const callArgs = mocks.updateSessionActiveCritics.mock.calls[0] as [
-      number, number, { custom: Array<{ id: string }> },
-    ];
-    const customId = callArgs[2].custom[0].id;
-    expect(customId).toMatch(/^custom_\d+_0$/);
+    expect(result).toEqual({ ok: false, error: 'validation' });
+    expect(mocks.updateSessionActiveCritics).not.toHaveBeenCalled();
   });
 
   it('returns not_found when updateSessionActiveCritics returns null', async () => {

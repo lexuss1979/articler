@@ -1,11 +1,6 @@
 {
   "input": {
-    "critic": {
-      "id": "editorial",
-      "label": "Editorial",
-      "defaultEnabled": true,
-      "systemPrompt": "You are a senior editor. Identify factual errors, logical gaps, unsupported claims, and structural inconsistencies.\nRespond ONLY with valid JSON of shape { findings: [...] }"
-    },
+    "enabledCriticIds": ["editorial", "style", "structure"],
     "plan": {
       "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
       "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
@@ -60,16 +55,26 @@
     ]
   },
   "expected": {
-    "schemaRef": "runCritic.outputSchema",
+    "schemaRef": "runReview.outputSchema",
     "snapshot": {
       "findings": [
         {
-          "criticId": "editorial",
+          "severity": "medium",
+          "problem": "The cost figure '$0.003 per 1K tokens' is presented without a citation, weakening the editorial credibility.",
+          "suggestedChange": "Add an inline link or footnote pointing to Anthropic's pricing page so the reader can verify the number.",
+          "span": { "sectionId": "intro", "charStart": 220, "charEnd": 260 }
+        },
+        {
           "severity": "minor",
-          "span": { "sectionId": "intro", "charStart": 0, "charEnd": 50 },
-          "problem": "The cost figure '$0.003 per 1K tokens' is presented without a citation.",
-          "suggestedChange": "Add a footnote or inline link to the Anthropic pricing page to substantiate the exact figure.",
-          "rationale": "Readers may question the specific number; a source anchors the claim."
+          "problem": "Phrase 'changes this calculus' is mild jargon that may not land for the stated engineering audience.",
+          "suggestedChange": "Replace with a concrete framing such as 'cuts the per-call cost by an order of magnitude'.",
+          "span": { "sectionId": "intro", "charStart": 380, "charEnd": 410 }
+        },
+        {
+          "severity": "medium",
+          "problem": "The mechanics section ends abruptly without telling the reader how to verify cache hit-rate in production.",
+          "suggestedChange": "Add a closing paragraph showing how to read `cache_read_input_tokens` from the API response and what a healthy hit rate looks like.",
+          "span": { "sectionId": "mechanics", "charStart": 500, "charEnd": 540 }
         }
       ]
     }

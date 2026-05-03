@@ -91,6 +91,9 @@ export default async function SessionPage({
               initialFactCheckRounds={reviewData.factCheckRounds}
               initialClaims={reviewData.claimsWithVerdicts}
               activeCriticIds={reviewData.activeCriticIds}
+              draftMd={session.draftMd ?? ''}
+              revisedDraftMd={session.revisedDraftMd}
+              revisionStatus={session.revisionStatus}
             />
           ) : (
             <p className="text-sm text-gray-500">State: {session.state}</p>

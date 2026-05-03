@@ -1,16 +1,19 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSessionEvents } from './use-session-events';
 import { finishReviewAction } from './actions';
 import { CritiqueTab } from './critique-tab';
 import { FactCheckTab } from './factcheck-tab';
+import { RevisionReview } from './revision-review';
 import type { CritiqueRoundWithFindings } from './critique-tab';
 import type { ClaimWithVerdict } from './factcheck-tab';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { critiqueRounds, critiqueFindings } from '../../../../server/db/schema';
 
 type FactCheckRoundRow = InferSelectModel<typeof critiqueRounds>;
+type FindingRow = InferSelectModel<typeof critiqueFindings>;
 
 export function ReviewPane({
   sessionId,
@@ -18,13 +21,20 @@ export function ReviewPane({
   initialFactCheckRounds,
   initialClaims,
   activeCriticIds,
+  draftMd,
+  revisedDraftMd,
+  revisionStatus,
 }: {
   sessionId: number;
   initialCritiqueRounds: CritiqueRoundWithFindings[];
   initialFactCheckRounds: FactCheckRoundRow[];
   initialClaims: ClaimWithVerdict[];
   activeCriticIds: string[];
+  draftMd: string;
+  revisedDraftMd: string | null;
+  revisionStatus: string | null;
 }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'critique' | 'factcheck'>('critique');
   const [critiqueRounds, setCritiqueRounds] = useState(initialCritiqueRounds);
   const [factCheckRounds, setFactCheckRounds] = useState(initialFactCheckRounds);
@@ -32,11 +42,31 @@ export function ReviewPane({
   const [activeTasks, setActiveTasks] = useState<Set<string>>(new Set());
   const [finishing, setFinishing] = useState(false);
 
+  // Resync local state when server-side data refreshes (e.g. after revision
+  // actions). Without this, `pending_apply` finding statuses stay stale and the
+  // RevisionReview's "applied comments" column is empty.
+  const [trackedInitialRounds, setTrackedInitialRounds] = useState(initialCritiqueRounds);
+  if (trackedInitialRounds !== initialCritiqueRounds) {
+    setTrackedInitialRounds(initialCritiqueRounds);
+    setCritiqueRounds(initialCritiqueRounds);
+  }
+  const [trackedInitialFactCheck, setTrackedInitialFactCheck] = useState(initialFactCheckRounds);
+  if (trackedInitialFactCheck !== initialFactCheckRounds) {
+    setTrackedInitialFactCheck(initialFactCheckRounds);
+    setFactCheckRounds(initialFactCheckRounds);
+  }
+  const [trackedInitialClaims, setTrackedInitialClaims] = useState(initialClaims);
+  if (trackedInitialClaims !== initialClaims) {
+    setTrackedInitialClaims(initialClaims);
+    setClaimsWithVerdicts(initialClaims);
+  }
+
   const events = useSessionEvents(sessionId);
   const processedCount = useRef(0);
 
   useEffect(() => {
     const newEvents = events.slice(processedCount.current);
+    let shouldRefresh = false;
     for (const e of newEvents) {
       if (e.kind === 'task_started') {
         const payload = e.payload as { stage?: string };
@@ -53,18 +83,33 @@ export function ReviewPane({
       } else if (e.kind === 'artifact_updated') {
         const payload = e.payload as {
           kind: string;
-          finding?: InferSelectModel<typeof critiqueFindings>;
+          finding?: FindingRow;
           roundId?: number;
           claimId?: number;
           verdict?: string;
         };
         if (payload.kind === 'finding' && payload.finding) {
           const f = payload.finding;
-          setCritiqueRounds((prev) =>
-            prev.map((r) =>
-              r.id === f.roundId ? { ...r, findings: [...r.findings, f] } : r,
-            ),
-          );
+          setCritiqueRounds((prev) => {
+            const round = prev.find((r) => r.id === f.roundId);
+            if (round) {
+              if (round.findings.some((existing) => existing.id === f.id)) return prev;
+              return prev.map((r) =>
+                r.id === f.roundId ? { ...r, findings: [...r.findings, f] } : r,
+              );
+            }
+            return [
+              ...prev,
+              {
+                id: f.roundId,
+                sessionId,
+                kind: 'critique',
+                draftHash: '',
+                createdAt: new Date(),
+                findings: [f],
+              } as CritiqueRoundWithFindings,
+            ];
+          });
         } else if (payload.kind === 'critique_round' && payload.roundId !== undefined) {
           setCritiqueRounds((prev) => {
             const exists = prev.some((r) => r.id === payload.roundId);
@@ -81,22 +126,24 @@ export function ReviewPane({
               } as CritiqueRoundWithFindings,
             ];
           });
+        } else if (payload.kind === 'revision_pending') {
+          shouldRefresh = true;
         } else if (payload.kind === 'claim_verdict' && payload.claimId !== undefined) {
           setClaimsWithVerdicts((prev) =>
-            prev.map((row) =>
-              row.claim.id === payload.claimId
-                ? {
-                    ...row,
-                    verdict: {
-                      id: -1,
-                      claimId: payload.claimId!,
-                      verdict: payload.verdict ?? '',
-                      justification: '',
-                      createdAt: new Date(),
-                    },
-                  }
-                : row,
-            ),
+            prev.map((row) => {
+              if (row.claim.id !== payload.claimId) return row;
+              if (row.verdict?.verdict === payload.verdict) return row;
+              return {
+                ...row,
+                verdict: {
+                  id: -1,
+                  claimId: payload.claimId!,
+                  verdict: payload.verdict ?? '',
+                  justification: '',
+                  createdAt: new Date(),
+                },
+              };
+            }),
           );
         } else if (payload.kind === 'factcheck_round' && payload.roundId !== undefined) {
           setFactCheckRounds((prev) => {
@@ -117,14 +164,38 @@ export function ReviewPane({
       }
     }
     processedCount.current = events.length;
-  }, [events, sessionId]);
+    if (shouldRefresh) router.refresh();
+  }, [events, sessionId, router]);
 
   const hasAnyRound = critiqueRounds.length > 0 || factCheckRounds.length > 0;
+  const hasPendingRevision = revisionStatus === 'pending';
+
+  const pendingFindings = useMemo(() => {
+    if (!hasPendingRevision) return [] as FindingRow[];
+    const all: FindingRow[] = [];
+    for (const r of critiqueRounds) {
+      for (const f of r.findings) {
+        if (f.status === 'pending_apply') all.push(f);
+      }
+    }
+    return all;
+  }, [critiqueRounds, hasPendingRevision]);
 
   async function handleFinish() {
     setFinishing(true);
     const result = await finishReviewAction(sessionId);
     if (!result.ok) setFinishing(false);
+  }
+
+  if (hasPendingRevision && revisedDraftMd) {
+    return (
+      <RevisionReview
+        sessionId={sessionId}
+        originalMd={draftMd}
+        revisedMd={revisedDraftMd}
+        appliedFindings={pendingFindings}
+      />
+    );
   }
 
   return (
@@ -150,6 +221,7 @@ export function ReviewPane({
             sessionId={sessionId}
             rounds={critiqueRounds}
             activeCriticIds={activeCriticIds}
+            hasPendingRevision={hasPendingRevision}
           />
         ) : (
           <FactCheckTab
@@ -163,7 +235,7 @@ export function ReviewPane({
       <div className="shrink-0 flex flex-col gap-1 pt-2 border-t">
         <button
           onClick={() => void handleFinish()}
-          disabled={!hasAnyRound || finishing}
+          disabled={!hasAnyRound || finishing || hasPendingRevision}
           className="w-full bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 disabled:opacity-40"
         >
           {finishing ? 'Finishing…' : 'Finish review'}
