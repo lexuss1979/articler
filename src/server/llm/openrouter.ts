@@ -1,3 +1,5 @@
+import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
+
 export class OpenRouterError extends Error {
   constructor(
     public readonly status: number,
@@ -6,6 +8,11 @@ export class OpenRouterError extends Error {
     super(`OpenRouter error ${status}`);
     this.name = 'OpenRouterError';
   }
+}
+
+function getDispatcher(): Dispatcher | undefined {
+  const proxy = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+  return proxy ? new ProxyAgent(proxy) : undefined;
 }
 
 export interface ChatMessage {
@@ -31,14 +38,15 @@ function apiKey(): string {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`https://openrouter.ai${path}`, {
+  const res = await undiciFetch(`https://openrouter.ai${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey()}`,
     },
     body: JSON.stringify(body),
-  });
+    dispatcher: getDispatcher(),
+  } as Parameters<typeof undiciFetch>[1]);
   const responseBody = await res.text().catch(() => '');
   if (!res.ok) {
     throw new OpenRouterError(res.status, responseBody);

@@ -167,6 +167,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        console.error('[research] failed:', err);
         await ctx.emit('agent_message', { text: `Research failed: ${msg}`, error: true });
         return;
       }
