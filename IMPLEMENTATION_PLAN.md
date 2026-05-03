@@ -3754,7 +3754,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           asserts state advances to `'export'`.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-13: `<IllustrationPane />` + `<ImageSlotCard />` +
+- [x] T-10-13: `<IllustrationPane />` + `<ImageSlotCard />` +
       `<ImagePromptEditor />`
       Goal: Workbench pane for the `'illustration'` state with one
       card per slot, mode toggle, prompt editor (generate path),
