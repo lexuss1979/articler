@@ -3482,7 +3482,7 @@ is deferred). This keeps the runner contract identical to Epic 9.
           prompt (substring match on `slot.brief`).
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-10-6: `prerender_images` stage
+- [x] T-10-6: `prerender_images` stage
       Goal: Image-class stage that fans out 3 parallel `routeImage`
       calls for one prompt and persists the bytes via the storage
       utility.
