@@ -4618,7 +4618,7 @@ the cap by a meaningful margin.
           persist.
         - `pnpm lint && pnpm typecheck && pnpm test` pass.
 
-- [ ] T-13-4: `BudgetExceededError` + `assertBudget` pre-call guard
+- [x] T-13-4: `BudgetExceededError` + `assertBudget` pre-call guard
       Goal: New typed error class
       `BudgetExceededError extends Error` with fields
       `{scope: 'user' | 'session', spent: number, cap: number}`.
