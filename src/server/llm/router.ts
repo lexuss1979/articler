@@ -1,5 +1,7 @@
 import { openrouterChat, openrouterImage, OpenRouterError, type ChatMessage, type ChatResponse } from './openrouter';
 import { modelsFor, type ModelClass } from './models';
+import { getLLMContext } from './context';
+import { wrapWithLogging } from '../logging/wrap';
 
 export interface RouterResult {
   modelUsed: string;
@@ -56,7 +58,24 @@ async function withFallback<T>(
   throw new Error(`No models available for class "${cls}"`);
 }
 
-export async function routeChat(args: {
+async function maybeWrap<T extends RouterResult>(
+  request: unknown,
+  innerCall: () => Promise<T>,
+): Promise<T> {
+  const ctx = getLLMContext();
+  if (!ctx) return innerCall();
+  return wrapWithLogging({
+    stage: ctx.stage,
+    task: ctx.task,
+    userId: ctx.userId,
+    sessionId: ctx.sessionId,
+    baseDir: ctx.baseDir,
+    request,
+    call: innerCall,
+  });
+}
+
+export function routeChat(args: {
   messages: ChatMessage[];
   class?: 'smart' | 'fast';
   [key: string]: unknown;
@@ -66,65 +85,68 @@ export async function routeChat(args: {
   const extra = Object.fromEntries(
     Object.entries(args).filter(([k]) => k !== 'class' && k !== 'messages'),
   );
-  const start = Date.now();
 
-  const { modelUsed, ...response } = await withFallback(cls, (model) =>
-    openrouterChat({ model, messages, ...extra }),
-  );
-
-  return {
-    content: response.choices[0].message.content,
-    modelUsed,
-    modelClass: cls,
-    promptTokens: response.usage.prompt_tokens,
-    completionTokens: response.usage.completion_tokens,
-    latencyMs: Date.now() - start,
-    ...extractUsageDetails(response.usage),
-  };
+  return maybeWrap<ChatRouterResult>(args, async () => {
+    const start = Date.now();
+    const { modelUsed, ...response } = await withFallback(cls, (model) =>
+      openrouterChat({ model, messages, ...extra }),
+    );
+    return {
+      content: response.choices[0].message.content,
+      modelUsed,
+      modelClass: cls,
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      latencyMs: Date.now() - start,
+      ...extractUsageDetails(response.usage),
+    };
+  });
 }
 
-export async function routeSearch(args: {
+export function routeSearch(args: {
   messages: ChatMessage[];
   [key: string]: unknown;
 }): Promise<ChatRouterResult> {
   const cls: ModelClass = 'search';
   const { messages, ...rest } = args;
-  const start = Date.now();
 
-  const { modelUsed, ...response } = await withFallback(cls, (model) =>
-    openrouterChat({ model, messages, ...rest }),
-  );
-
-  return {
-    content: response.choices[0].message.content,
-    modelUsed,
-    modelClass: cls,
-    promptTokens: response.usage.prompt_tokens,
-    completionTokens: response.usage.completion_tokens,
-    latencyMs: Date.now() - start,
-    ...extractUsageDetails(response.usage),
-  };
+  return maybeWrap<ChatRouterResult>(args, async () => {
+    const start = Date.now();
+    const { modelUsed, ...response } = await withFallback(cls, (model) =>
+      openrouterChat({ model, messages, ...rest }),
+    );
+    return {
+      content: response.choices[0].message.content,
+      modelUsed,
+      modelClass: cls,
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      latencyMs: Date.now() - start,
+      ...extractUsageDetails(response.usage),
+    };
+  });
 }
 
-export async function routeImage(args: {
+export function routeImage(args: {
   prompt: string;
   [key: string]: unknown;
 }): Promise<ImageRouterResult> {
   const cls: ModelClass = 'image';
   const { prompt, ...rest } = args;
-  const start = Date.now();
 
-  const { modelUsed, ...response } = await withFallback(cls, (model) =>
-    openrouterImage({ model, prompt, ...rest }),
-  );
-
-  return {
-    data: response.data,
-    modelUsed,
-    modelClass: cls,
-    promptTokens: response.usage?.prompt_tokens ?? 0,
-    completionTokens: response.usage?.completion_tokens ?? 0,
-    latencyMs: Date.now() - start,
-    ...extractUsageDetails(response.usage),
-  };
+  return maybeWrap<ImageRouterResult>(args, async () => {
+    const start = Date.now();
+    const { modelUsed, ...response } = await withFallback(cls, (model) =>
+      openrouterImage({ model, prompt, ...rest }),
+    );
+    return {
+      data: response.data,
+      modelUsed,
+      modelClass: cls,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - start,
+      ...extractUsageDetails(response.usage),
+    };
+  });
 }

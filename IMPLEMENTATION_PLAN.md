@@ -4925,7 +4925,7 @@ context; per-call granular task names.
           ctx, restores the outer on return.
         - Unit test: ctx survives an `await` boundary inside `fn`.
 
-- [ ] T-19-2: Wrap router functions when LLM context is set
+- [x] T-19-2: Wrap router functions when LLM context is set
       Goal: `routeChat`, `routeSearch`, `routeImage` consult
       `getLLMContext()`. When present, the underlying openrouter
       call is wrapped via `wrapWithLogging({stage, task, userId,
