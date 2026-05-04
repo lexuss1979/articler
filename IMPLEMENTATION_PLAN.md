@@ -5133,7 +5133,7 @@ inline article preview in Recent.
 
 ### Tasks
 
-- [ ] T-21-1: Top navigation bar in app layout
+- [x] T-21-1: Top navigation bar in app layout
       Goal: Move LogoutButton from dashboard into the layout's
       header. Add nav links to Dashboard, Profiles, Sessions,
       Budget. Layout becomes `header (logo + nav + email +
