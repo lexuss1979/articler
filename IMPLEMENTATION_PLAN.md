@@ -4907,7 +4907,7 @@ context; per-call granular task names.
 
 ### Tasks
 
-- [ ] T-19-1: Add `src/server/llm/context.ts` with AsyncLocalStorage
+- [x] T-19-1: Add `src/server/llm/context.ts` with AsyncLocalStorage
       Goal: Exports `runWithLLMContext<T>(ctx: LLMContext, fn: () =>
       Promise<T>): Promise<T>` and `getLLMContext(): LLMContext |
       undefined`. `LLMContext = {userId?: number, sessionId?: number,
