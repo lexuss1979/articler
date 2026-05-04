@@ -4665,7 +4665,7 @@ the cap by a meaningful margin.
         - Unit test: when the guard resolves, behavior is unchanged
           (existing tests pass without modification).
 
-- [ ] T-13-6: Remaining-budget API + session header surface
+- [x] T-13-6: Remaining-budget API + session header surface
       Goal: New `GET /api/sessions/:id/budget` returns
       `{sessionSpent, sessionCap, userSpent, userCap}`. Session header
       component (`src/app/(app)/sessions/[id]/session-header.tsx` or
