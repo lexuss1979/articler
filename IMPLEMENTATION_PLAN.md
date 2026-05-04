@@ -5089,3 +5089,102 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
           from the planning case in `runner.ts`.
 
 ---
+
+## Epic 21 — Dashboard with navigation, sessions, images, budget, profiles
+
+**Status: planned**
+**Goal:** Replace the current placeholder `/dashboard` (just shows
+"Signed in as <email>") with a useful landing page that surfaces
+the user's in-progress sessions, recent finished articles, recent
+generated images, current spend / caps, and platform profiles —
+plus a top navigation bar in the app layout so users can move
+between dashboard / profiles / sessions / budget without typing
+URLs.
+
+**Layout:**
+
+```
++-----------------------------------------------------------+
+| articler  Dashboard · Profiles · Sessions · Budget   email|
++-----------------------------------------------------------+
+| Welcome back.                       [+ New session]       |
+|                                                           |
+| ┌─ Continue working ────────────────────────────────────┐ |
+| │ active sessions, ordered by updated_at, top 5         │ |
+| │ View all sessions →                                   │ |
+| └───────────────────────────────────────────────────────┘ |
+|                                                           |
+| ┌─ Recent images ───────────────────────────────────────┐ |
+| │ [thumb] [thumb] [thumb] [thumb] [thumb] [thumb]       │ |
+| │ View illustrations →                                  │ |
+| └───────────────────────────────────────────────────────┘ |
+|                                                           |
+| ┌─ Spend ────────┐ ┌─ Profiles ─────┐ ┌─ Recent ────────┐|
+| │ lifetime / cap │ │ list, edit     │ │ done sessions   │|
+| │ session avg    │ │ + New profile  │ │ open / export   │|
+| │ Edit caps →    │ │                │ │                 │|
+| └────────────────┘ └────────────────┘ └─────────────────┘|
++-----------------------------------------------------------+
+```
+
+**Out of scope:** spend timeseries / charts; search/filter on
+sessions; mobile-specific layout (works at desktop widths only);
+inline article preview in Recent.
+
+### Tasks
+
+- [ ] T-21-1: Top navigation bar in app layout
+      Goal: Move LogoutButton from dashboard into the layout's
+      header. Add nav links to Dashboard, Profiles, Sessions,
+      Budget. Layout becomes `header (logo + nav + email +
+      logout) | main`. The dashboard no longer needs to render
+      its own logout button.
+      Touches: `src/app/(app)/layout.tsx`,
+      `src/app/(app)/dashboard/page.tsx` (drop logout block).
+      Acceptance:
+        - `pnpm build` passes; nav links render on every (app)
+          page; clicking each navigates to the right route.
+        - `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
+
+- [ ] T-21-2: Dashboard data helper
+      Goal: One server function `loadDashboardData(userId)` in
+      `src/server/dashboard/data.ts` that returns
+      `{active, done, profiles, images, spend, settings}` in
+      parallel. `active` = sessions with state ∉ {'briefing',
+      'done'}, ordered by updated_at desc, top 5. `done` = top 3
+      done sessions. `profiles` = listProfiles. `images` = scan
+      sessions (any state) for slot.chosenCandidateId,
+      flatten to {sessionId, slotId, localPath, model,
+      createdAt}, sort desc by candidate createdAt, top 8.
+      `spend` = {lifetime: getUserCost}. `settings` =
+      getUserSettings.
+      Touches: `src/server/dashboard/data.ts` (new),
+      `tests/unit/dashboard/data.test.ts` (new).
+      Acceptance:
+        - Unit test (mocked db): function returns the expected
+          shape; image extraction correctly skips slots without
+          chosenCandidateId; ordering is by candidate createdAt
+          desc.
+        - Per-user isolation: function only reads rows for the
+          passed userId.
+
+- [ ] T-21-3: Dashboard page rendering
+      Goal: New dashboard page consumes `loadDashboardData` and
+      renders the five-card grid + hero CTA. Each card has its
+      own component file under `src/app/(app)/dashboard/`. Uses
+      `/api/images/<localPath>` for thumbnails. Empty states
+      ("no active sessions yet — start one") for each card when
+      data is empty.
+      Touches: `src/app/(app)/dashboard/page.tsx` (rewrite),
+      `src/app/(app)/dashboard/continue-card.tsx` (new),
+      `src/app/(app)/dashboard/images-card.tsx` (new),
+      `src/app/(app)/dashboard/spend-card.tsx` (new),
+      `src/app/(app)/dashboard/profiles-card.tsx` (new),
+      `src/app/(app)/dashboard/recent-card.tsx` (new).
+      Acceptance:
+        - `pnpm build` succeeds; visit /dashboard in dev
+          container, all cards render with real data.
+        - Empty state shown when a section has no rows.
+        - `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
+
+---
