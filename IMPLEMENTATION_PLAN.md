@@ -5146,7 +5146,7 @@ inline article preview in Recent.
           page; clicking each navigates to the right route.
         - `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
 
-- [ ] T-21-2: Dashboard data helper
+- [x] T-21-2: Dashboard data helper
       Goal: One server function `loadDashboardData(userId)` in
       `src/server/dashboard/data.ts` that returns
       `{active, done, profiles, images, spend, settings}` in
