@@ -205,6 +205,8 @@ export const runs = pgTable('runs', {
   modelName: text('model_name').notNull(),
   promptTokens: integer('prompt_tokens').notNull(),
   completionTokens: integer('completion_tokens').notNull(),
+  cachedTokens: integer('cached_tokens'),
+  reasoningTokens: integer('reasoning_tokens'),
   costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull(),
   latencyMs: integer('latency_ms').notNull(),
   ts: timestamp('ts').defaultNow().notNull(),

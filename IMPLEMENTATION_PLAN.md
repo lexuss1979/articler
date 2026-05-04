@@ -4842,7 +4842,7 @@ shape, not at this default.
           (no fallback to local table) — locks in the "Decision
           needed" default above.
 
-- [ ] T-18-4: Persist cached + reasoning token counts on the run record
+- [x] T-18-4: Persist cached + reasoning token counts on the run record
       Goal: Add nullable `cached_tokens` and `reasoning_tokens` integer
       columns to `runs`. `wrapWithLogging` writes them when present
       on `result`. JSONL line gets the same fields under

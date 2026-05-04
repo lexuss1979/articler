@@ -86,6 +86,14 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
       model: result.modelUsed,
       prompt_tokens: result.promptTokens,
       completion_tokens: result.completionTokens,
+      prompt_tokens_details:
+        result.cachedTokens != null || result.cacheWriteTokens != null
+          ? { cached_tokens: result.cachedTokens, cache_write_tokens: result.cacheWriteTokens }
+          : undefined,
+      completion_tokens_details:
+        result.reasoningTokens != null
+          ? { reasoning_tokens: result.reasoningTokens }
+          : undefined,
       cost_usd: costUsd,
       latency_ms: result.latencyMs,
       request,
@@ -105,6 +113,8 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
       modelName: result.modelUsed,
       promptTokens: result.promptTokens,
       completionTokens: result.completionTokens,
+      cachedTokens: result.cachedTokens ?? null,
+      reasoningTokens: result.reasoningTokens ?? null,
       costUsd: String(costUsd),
       latencyMs: result.latencyMs,
       ts,

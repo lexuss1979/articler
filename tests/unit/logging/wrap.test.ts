@@ -102,6 +102,44 @@ describe('wrapWithLogging', () => {
     expect(result.content).toBe('hello');
   });
 
+  it('persists cachedTokens and reasoningTokens onto the runs row when present', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { db } = await import('../../../src/server/db/client');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'detail-tokens',
+      call: async () => ({ ...FAKE_RESULT, cachedTokens: 1500, reasoningTokens: 200 }),
+      request: {},
+    });
+
+    const valuesSpy = (db.insert as ReturnType<typeof vi.fn>).mock.results[0].value.values;
+    const [row] = (valuesSpy as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(row.cachedTokens).toBe(1500);
+    expect(row.reasoningTokens).toBe(200);
+  });
+
+  it('writes nulls for the detail token columns when fields are absent on the result', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { db } = await import('../../../src/server/db/client');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'no-detail',
+      call: async () => FAKE_RESULT,
+      request: {},
+    });
+
+    const valuesSpy = (db.insert as ReturnType<typeof vi.fn>).mock.results[0].value.values;
+    const [row] = (valuesSpy as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(row.cachedTokens).toBeNull();
+    expect(row.reasoningTokens).toBeNull();
+  });
+
   it('writes an error JSONL line and rethrows on failure without inserting a runs row', async () => {
     const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
     const { appendRunLog } = await import('../../../src/server/logging/jsonl');
