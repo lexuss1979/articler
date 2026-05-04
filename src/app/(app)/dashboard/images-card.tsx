@@ -26,7 +26,7 @@ export function ImagesCard({ images }: { images: DashboardImage[] }) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`/api/images/${img.localPath}`}
+                src={img.localPath}
                 alt=""
                 className="w-full h-full object-cover"
                 loading="lazy"
