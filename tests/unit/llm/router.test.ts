@@ -70,6 +70,47 @@ describe('routeChat', () => {
   });
 });
 
+describe('routeChat — usage detail surfacing', () => {
+  it('surfaces cost, cachedTokens, cacheWriteTokens, reasoningTokens from openrouter usage', async () => {
+    const { openrouterChat } = await import('../../../src/server/llm/openrouter');
+    const { routeChat } = await import('../../../src/server/llm/router');
+
+    vi.mocked(openrouterChat).mockResolvedValue({
+      ...makeChatResponse(MODEL_ROUTING.smart.primary),
+      usage: {
+        prompt_tokens: 1834,
+        completion_tokens: 612,
+        cost: 0.0231,
+        prompt_tokens_details: { cached_tokens: 1500, cache_write_tokens: 300 },
+        completion_tokens_details: { reasoning_tokens: 200 },
+      },
+    });
+
+    const result = await routeChat({ messages: [] });
+
+    expect(result.cost).toBe(0.0231);
+    expect(result.cachedTokens).toBe(1500);
+    expect(result.cacheWriteTokens).toBe(300);
+    expect(result.reasoningTokens).toBe(200);
+    expect(result.promptTokens).toBe(1834);
+    expect(result.completionTokens).toBe(612);
+  });
+
+  it('leaves usage detail fields undefined when openrouter does not return them', async () => {
+    const { openrouterChat } = await import('../../../src/server/llm/openrouter');
+    const { routeChat } = await import('../../../src/server/llm/router');
+
+    vi.mocked(openrouterChat).mockResolvedValue(makeChatResponse(MODEL_ROUTING.smart.primary));
+
+    const result = await routeChat({ messages: [] });
+
+    expect(result.cost).toBeUndefined();
+    expect(result.cachedTokens).toBeUndefined();
+    expect(result.cacheWriteTokens).toBeUndefined();
+    expect(result.reasoningTokens).toBeUndefined();
+  });
+});
+
 describe('routeSearch', () => {
   it('uses search class and returns content', async () => {
     const { openrouterChat } = await import('../../../src/server/llm/openrouter');

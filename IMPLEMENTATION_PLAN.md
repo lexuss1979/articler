@@ -4807,7 +4807,7 @@ shape, not at this default.
           `prompt_tokens_details.cached_tokens` survive the round-trip
           through the existing parser.
 
-- [ ] T-18-2: Plumb cost + detail fields through the router result
+- [x] T-18-2: Plumb cost + detail fields through the router result
       Goal: Add `cost?: number`, `cachedTokens?: number`,
       `cacheWriteTokens?: number`, `reasoningTokens?: number` to
       `RouterResult` in `router.ts`. Populate them in `routeChat`,

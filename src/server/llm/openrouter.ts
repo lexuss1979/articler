@@ -40,6 +40,7 @@ export interface ChatResponse {
 
 export interface ImageResponse {
   data: Array<{ url?: string; b64_json?: string }>;
+  usage?: ChatResponse['usage'];
 }
 
 function apiKey(): string {
@@ -107,6 +108,7 @@ interface ChatImagesResponse {
       images?: Array<{ image_url?: { url?: string } }>;
     };
   }>;
+  usage?: ChatResponse['usage'];
 }
 
 export async function openrouterImage(args: {
@@ -163,5 +165,5 @@ export async function openrouterImage(args: {
     return { url };
   });
 
-  return { data };
+  return { data, usage: parsed.usage };
 }

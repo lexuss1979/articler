@@ -1,4 +1,4 @@
-import { openrouterChat, openrouterImage, OpenRouterError, type ChatMessage } from './openrouter';
+import { openrouterChat, openrouterImage, OpenRouterError, type ChatMessage, type ChatResponse } from './openrouter';
 import { modelsFor, type ModelClass } from './models';
 
 export interface RouterResult {
@@ -7,6 +7,20 @@ export interface RouterResult {
   promptTokens: number;
   completionTokens: number;
   latencyMs: number;
+  cost?: number;
+  cachedTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+
+function extractUsageDetails(usage: ChatResponse['usage'] | undefined) {
+  if (!usage) return {};
+  return {
+    cost: usage.cost,
+    cachedTokens: usage.prompt_tokens_details?.cached_tokens,
+    cacheWriteTokens: usage.prompt_tokens_details?.cache_write_tokens,
+    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+  };
 }
 
 export interface ChatRouterResult extends RouterResult {
@@ -65,6 +79,7 @@ export async function routeChat(args: {
     promptTokens: response.usage.prompt_tokens,
     completionTokens: response.usage.completion_tokens,
     latencyMs: Date.now() - start,
+    ...extractUsageDetails(response.usage),
   };
 }
 
@@ -87,6 +102,7 @@ export async function routeSearch(args: {
     promptTokens: response.usage.prompt_tokens,
     completionTokens: response.usage.completion_tokens,
     latencyMs: Date.now() - start,
+    ...extractUsageDetails(response.usage),
   };
 }
 
@@ -106,8 +122,9 @@ export async function routeImage(args: {
     data: response.data,
     modelUsed,
     modelClass: cls,
-    promptTokens: 0,
-    completionTokens: 0,
+    promptTokens: response.usage?.prompt_tokens ?? 0,
+    completionTokens: response.usage?.completion_tokens ?? 0,
     latencyMs: Date.now() - start,
+    ...extractUsageDetails(response.usage),
   };
 }
