@@ -24,7 +24,18 @@ export interface ChatResponse {
   id: string;
   model: string;
   choices: Array<{ message: { role: string; content: string }; finish_reason: string }>;
-  usage: { prompt_tokens: number; completion_tokens: number };
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    cost?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
 }
 
 export interface ImageResponse {

@@ -4791,7 +4791,7 @@ shape, not at this default.
 
 ### Tasks
 
-- [ ] T-18-1: Surface cost + new usage detail fields from openrouter.ts
+- [x] T-18-1: Surface cost + new usage detail fields from openrouter.ts
       Goal: Extend the `ChatResponse` interface in `openrouter.ts` to
       include `cost: number`, `prompt_tokens_details?: {cached_tokens?:
       number, cache_write_tokens?: number}`, and

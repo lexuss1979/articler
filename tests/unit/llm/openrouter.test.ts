@@ -71,6 +71,30 @@ describe('openrouterChat', () => {
       openrouterChat({ model: 'anthropic/claude-opus-4.7', messages: [] }),
     ).rejects.toThrow('OPENROUTER_API_KEY is not set');
   });
+
+  it('surfaces cost and usage detail fields when present in the response', async () => {
+    process.env.OPENROUTER_API_KEY = 'test-key';
+    mockFetch(200, {
+      ...FAKE_CHAT_RESPONSE,
+      usage: {
+        prompt_tokens: 1834,
+        completion_tokens: 612,
+        cost: 0.0231,
+        prompt_tokens_details: { cached_tokens: 1500, cache_write_tokens: 300 },
+        completion_tokens_details: { reasoning_tokens: 200 },
+      },
+    });
+
+    const result = await openrouterChat({
+      model: 'anthropic/claude-opus-4.7',
+      messages: [],
+    });
+
+    expect(result.usage.cost).toBe(0.0231);
+    expect(result.usage.prompt_tokens_details?.cached_tokens).toBe(1500);
+    expect(result.usage.prompt_tokens_details?.cache_write_tokens).toBe(300);
+    expect(result.usage.completion_tokens_details?.reasoning_tokens).toBe(200);
+  });
 });
 
 describe('openrouterImage', () => {
