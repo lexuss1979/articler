@@ -6,6 +6,7 @@ import { listSectionDrafts } from '../sessions/section-drafts-repo';
 import { spanHash } from '../sessions/claims';
 import { appendDecorationRound } from '../sessions/decoration-repo';
 import { proposeDecoration } from './stages/propose-decoration';
+import { withStageCtx } from './with-stage-ctx';
 
 export async function runDecoration({
   sessionId,
@@ -40,7 +41,9 @@ export async function runDecoration({
     llm: {} as never,
   };
 
-  const result = await proposeDecoration.run({ profile, plan, sectionDrafts }, ctx);
+  const result = await withStageCtx(proposeDecoration, sessionId, userId, () =>
+    proposeDecoration.run({ profile, plan, sectionDrafts }, ctx),
+  );
 
   const round = await appendDecorationRound(userId, sessionId, {
     draftHash,

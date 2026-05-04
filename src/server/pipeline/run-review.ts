@@ -7,6 +7,7 @@ import { parseActiveCritics } from '../sessions/critics';
 import { createCritiqueRound, insertFinding } from '../sessions/critique-repo';
 import { spanHash } from '../sessions/claims';
 import { runReview as runReviewStage } from './stages/run-review';
+import { withStageCtx } from './with-stage-ctx';
 
 const OVERALL_SECTION_ID = 'overall';
 
@@ -47,9 +48,11 @@ export async function runReview({
     llm: {} as never,
   };
 
-  const { findings } = await runReviewStage.run(
-    { enabledCriticIds: activeCritics.enabledIds, plan, profile, sectionDrafts },
-    ctx,
+  const { findings } = await withStageCtx(runReviewStage, sessionId, userId, () =>
+    runReviewStage.run(
+      { enabledCriticIds: activeCritics.enabledIds, plan, profile, sectionDrafts },
+      ctx,
+    ),
   );
 
   let findingCount = 0;

@@ -5018,7 +5018,7 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
           () => getLLMContext())` returns ctx with stage='s',
           task='s', userId=2, sessionId=1.
 
-- [ ] T-20-2: Wrap stage calls in run-review, run-fact-check,
+- [x] T-20-2: Wrap stage calls in run-review, run-fact-check,
       run-decoration, run-illustration
       Goal: Each orchestrator file already has access to `userId`
       and `sessionId` (they're passed in or fetched via getSession).

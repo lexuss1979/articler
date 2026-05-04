@@ -15,6 +15,7 @@ import { spanHash } from '../sessions/claims';
 import { extractClaims } from './stages/extract-claims';
 import { verifyClaim } from './stages/verify-claim';
 import { adjudicateClaim } from './stages/adjudicate-claim';
+import { withStageCtx } from './with-stage-ctx';
 
 export async function runFactCheck({
   sessionId,
@@ -60,7 +61,9 @@ export async function runFactCheck({
     llm: {} as never,
   };
 
-  const { claims } = await extractClaims.run({ plan, sectionDrafts }, ctx);
+  const { claims } = await withStageCtx(extractClaims, sessionId, userId, () =>
+    extractClaims.run({ plan, sectionDrafts }, ctx),
+  );
 
   let claimCount = 0;
   let verdictCount = 0;
@@ -88,8 +91,12 @@ export async function runFactCheck({
 
     if (claim.checkWorthiness === 'low') continue;
 
-    const { evidence } = await verifyClaim.run({ claim, acceptedSources }, ctx);
-    const adjudication = await adjudicateClaim.run({ claim, evidence }, ctx);
+    const { evidence } = await withStageCtx(verifyClaim, sessionId, userId, () =>
+      verifyClaim.run({ claim, acceptedSources }, ctx),
+    );
+    const adjudication = await withStageCtx(adjudicateClaim, sessionId, userId, () =>
+      adjudicateClaim.run({ claim, evidence }, ctx),
+    );
 
     const verdictRow = await insertClaimVerdict(userId, claimRow.id, {
       verdict: adjudication.verdict,

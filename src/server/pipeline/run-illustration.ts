@@ -6,6 +6,7 @@ import { listSectionDrafts } from '../sessions/section-drafts-repo';
 import { setImageSlots } from '../sessions/images-repo';
 import type { ImageSlot } from '../sessions/images';
 import { proposeImageSlots } from './stages/propose-image-slots';
+import { withStageCtx } from './with-stage-ctx';
 
 export async function runIllustration({
   sessionId,
@@ -39,7 +40,9 @@ export async function runIllustration({
     llm: {} as never,
   };
 
-  const result = await proposeImageSlots.run({ profile, plan, sectionDrafts }, ctx);
+  const result = await withStageCtx(proposeImageSlots, sessionId, userId, () =>
+    proposeImageSlots.run({ profile, plan, sectionDrafts }, ctx),
+  );
 
   const now = Date.now();
   const slots: ImageSlot[] = [
