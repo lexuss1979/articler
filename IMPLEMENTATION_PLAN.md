@@ -4863,3 +4863,114 @@ shape, not at this default.
           values stay null and no insert error fires.
 
 ---
+
+## Epic 19 — Wire wrapWithLogging into stage LLM calls (AsyncLocalStorage)
+
+**Status: planned**
+**Goal:** Make every LLM call from any stage automatically flow through
+`wrapWithLogging`, so the `runs` table actually fills, JSONL gets
+written, `assertBudget` (Epic 13) actually fires, and `cost_updated`
+events (just-fixed) actually fire — without rewriting 17 stages and
+without forcing every future stage to remember a convention.
+
+**The bug being fixed:** `wrapWithLogging` is unit- and integration-
+tested in isolation, and the integration tests pass. But in production,
+**no stage ever calls it**. 17 of 18 stages import `routeChat` /
+`routeSearch` / `routeImage` (or `routeJsonChat` which calls them)
+directly from `src/server/llm/router.ts` and `src/server/llm/structured.ts`,
+both of which bypass `wrapWithLogging`. Net effect: zero rows ever land
+in `runs`, so Epic 13's enforcement and Epic 18's cost-of-truth are
+both currently dead code in production. (Only `prerender-images.ts` uses
+`ctx.llm.routeImage`, but `runner.ts` builds `ctx.llm` as a pass-through
+to the bare router, also without wrap.)
+
+**Design — AsyncLocalStorage:** A new module
+`src/server/llm/context.ts` exposes `runWithLLMContext(ctx, fn)` and
+`getLLMContext()`. Router functions consult `getLLMContext()` and, if
+set, wrap their underlying openrouter call through `wrapWithLogging`
+using the context's `userId`, `sessionId`, `stage`, `task`. If no
+context is set (tests, scripts, eval harness), behavior is unchanged
+— the call goes straight to openrouter. `runner.ts` sets the context
+once around each stage invocation. Stage code does not change.
+
+**Decision needed:** Granularity of `task` per LLM call. Default
+chosen: `task = <stage.name>` shared across every call inside that
+stage's `run()`. Rationale: simplest correct implementation;
+`structured.ts` retries naturally land as separate `runs` rows under
+the same logical task, which is fine for cost analytics. A future
+task can introduce per-call task names if needed (e.g., `draft-section`
+firing one LLM call per section).
+
+**Out of scope:** removing `ctx.llm.*` from `StageCtx`
+(low-risk later cleanup); migrating eval harness to set its own
+context; per-call granular task names.
+
+### Tasks
+
+- [ ] T-19-1: Add `src/server/llm/context.ts` with AsyncLocalStorage
+      Goal: Exports `runWithLLMContext<T>(ctx: LLMContext, fn: () =>
+      Promise<T>): Promise<T>` and `getLLMContext(): LLMContext |
+      undefined`. `LLMContext = {userId?: number, sessionId?: number,
+      stage: string, task: string, baseDir?: string}`. Built on
+      `node:async_hooks` AsyncLocalStorage. No router/wrap consumer
+      yet — pure utility.
+      Touches: `src/server/llm/context.ts` (new),
+      `tests/unit/llm/context.test.ts` (new).
+      Acceptance:
+        - Unit test: `getLLMContext()` returns `undefined` outside
+          `runWithLLMContext`.
+        - Unit test: inside `runWithLLMContext({...}, async () =>
+          getLLMContext())` the inner call returns the same object.
+        - Unit test: nested `runWithLLMContext` propagates the inner
+          ctx, restores the outer on return.
+        - Unit test: ctx survives an `await` boundary inside `fn`.
+
+- [ ] T-19-2: Wrap router functions when LLM context is set
+      Goal: `routeChat`, `routeSearch`, `routeImage` consult
+      `getLLMContext()`. When present, the underlying openrouter
+      call is wrapped via `wrapWithLogging({stage, task, userId,
+      sessionId, baseDir, call: () => <existing inner call>,
+      request: <args>})`. When absent, behavior is unchanged.
+      Touches: `src/server/llm/router.ts`,
+      `tests/unit/llm/router.test.ts` (extend).
+      Acceptance:
+        - Existing router tests keep passing (all run without ctx).
+        - Unit test: `routeChat` invoked inside a
+          `runWithLLMContext({userId: 7, sessionId: 42, stage: 's',
+          task: 't'})` block triggers `wrapWithLogging` once with
+          the matching args. Verified by mocking `wrapWithLogging`.
+        - Unit test: same call outside any context invokes openrouter
+          directly without going through `wrapWithLogging`.
+
+- [ ] T-19-3: Set LLM context in runner.ts around each stage call
+      Goal: For each `await <stage>.run(input, ctx)` site in
+      `runner.ts`, wrap with `runWithLLMContext({userId, sessionId,
+      stage: <stageName>, task: <stageName>}, () =>
+      <stage>.run(...))`. Use the stage's `name` field as both
+      `stage` and `task` (per the Decision above).
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner.test.ts` (extend).
+      Acceptance:
+        - Existing runner tests keep passing.
+        - Unit test: a fake `clarifyBrief.run` mock is invoked with
+          a `runWithLLMContext` wrapper such that `getLLMContext()`
+          inside it returns `{userId, sessionId, stage:
+          'clarify_brief', task: 'clarify_brief'}`. Verified by
+          spying on a getLLMContext snapshot.
+
+- [ ] T-19-4: End-to-end test — one stage call writes one runs row
+      Goal: Real DB + real router (openrouter mocked at the HTTP
+      boundary) + real wrapWithLogging via AsyncLocalStorage.
+      Run a minimal stage (`clarifyBrief.run`) inside
+      `runWithLLMContext({userId, sessionId, stage: 'clarify_brief',
+      task: 'clarify_brief'})`. Assert one row landed in `runs` with
+      the expected `userId`, `sessionId`, `stage`, `model_class`.
+      This is the test that would have caught the original bug.
+      Touches: `tests/integration/pipeline/stage-logging.test.ts`
+      (new).
+      Acceptance:
+        - Test passes against the compose DB.
+        - Test fails (proves coverage) if `runWithLLMContext` is
+          temporarily commented out in runner.ts.
+
+---
