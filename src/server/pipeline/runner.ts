@@ -2,6 +2,8 @@ import { z, type ZodSchema } from 'zod';
 import { emitEvent } from '../events/bus';
 import { appendRunLog } from '../logging/jsonl';
 import { routeChat, routeSearch, routeImage } from '../llm/router';
+import { runWithLLMContext } from '../llm/context';
+import type { Stage } from './stage';
 import { getProfile } from '../profiles/repo';
 import { briefSchema } from '../sessions/brief';
 import { planSchema } from '../sessions/plan';
@@ -31,6 +33,18 @@ declare global {
 }
 const pendingInputs = (global.__pendingInputs ??= new Map<number, Pending>());
 const activeRunners = (global.__activeRunners ??= new Set<number>());
+
+function withStageCtx<T>(
+  stage: Pick<Stage<unknown, unknown>, 'name'>,
+  sessionId: number,
+  userId: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return runWithLLMContext(
+    { userId, sessionId, stage: stage.name, task: stage.name },
+    fn,
+  );
+}
 
 function makeCtx(sessionId: number, state: string) {
   return {
@@ -101,7 +115,9 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       }
 
       // Step 1: clarify brief
-      const { questions } = await clarifyBrief.run({ brief, profile }, ctx);
+      const { questions } = await withStageCtx(clarifyBrief, sessionId, userId, () =>
+        clarifyBrief.run({ brief, profile }, ctx),
+      );
 
       let clarifications: Array<{ question: string; answer: string }> = [];
       if (questions.length > 0) {
@@ -114,7 +130,9 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       }
 
       // Step 2: propose angles
-      const { angles } = await proposeAngles.run({ brief, profile, clarifications }, ctx);
+      const { angles } = await withStageCtx(proposeAngles, sessionId, userId, () =>
+        proposeAngles.run({ brief, profile, clarifications }, ctx),
+      );
       await ctx.emit('artifact_updated', { kind: 'angles', angles });
 
       const { index } = await ctx.userInput(
@@ -124,7 +142,9 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       const chosenAngle = angles[index]!;
 
       // Step 3: build plan
-      const plan = await buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx);
+      const plan = await withStageCtx(buildPlan, sessionId, userId, () =>
+        buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx),
+      );
       await updateSessionPlan(userId, sessionId, plan);
       await ctx.emit('artifact_updated', { kind: 'plan', plan });
 
@@ -151,19 +171,27 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       }
 
       try {
-        const { hypotheses } = await planSearchHypotheses.run({ plan, profile }, ctx);
+        const { hypotheses } = await withStageCtx(planSearchHypotheses, sessionId, userId, () =>
+          planSearchHypotheses.run({ plan, profile }, ctx),
+        );
         await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
 
         await Promise.all(
           hypotheses.map(async (hypothesis) => {
-            const { queries } = await formulateQueries.run({ hypothesis }, ctx);
+            const { queries } = await withStageCtx(formulateQueries, sessionId, userId, () =>
+              formulateQueries.run({ hypothesis }, ctx),
+            );
             for (const query of queries) {
-              const { hits } = await webSearch.run({ sessionId, userId, hypothesis, query }, ctx);
+              const { hits } = await withStageCtx(webSearch, sessionId, userId, () =>
+                webSearch.run({ sessionId, userId, hypothesis, query }, ctx),
+              );
               for (const hit of hits) {
                 try {
-                  const { summary, relevanceScore } = await summarizeSource.run(
-                    { hypothesis, query, hit },
-                    ctx,
+                  const { summary, relevanceScore } = await withStageCtx(
+                    summarizeSource,
+                    sessionId,
+                    userId,
+                    () => summarizeSource.run({ hypothesis, query, hit }, ctx),
                   );
                   const status =
                     relevanceScore >= 70 ? 'accepted' : relevanceScore < 40 ? 'rejected' : 'proposed';
@@ -245,21 +273,23 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
         const sectionSources = acceptedSources.filter((s) => s.sectionId === section.id);
         const prevSections = [...drafted];
 
-        const { contentMd } = await draftSection.run(
-          {
-            profile,
-            plan,
-            section,
-            acceptedSources: sectionSources.map((s) => ({
-              url: s.url,
-              title: s.title,
-              summary: s.summary,
-              rawExcerpt: s.rawExcerpt,
-            })),
-            prevSections,
-            rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
-          },
-          ctx,
+        const { contentMd } = await withStageCtx(draftSection, sessionId, userId, () =>
+          draftSection.run(
+            {
+              profile,
+              plan,
+              section,
+              acceptedSources: sectionSources.map((s) => ({
+                url: s.url,
+                title: s.title,
+                summary: s.summary,
+                rawExcerpt: s.rawExcerpt,
+              })),
+              prevSections,
+              rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
+            },
+            ctx,
+          ),
         );
 
         await upsertSectionDraft(userId, sessionId, section.id, contentMd);

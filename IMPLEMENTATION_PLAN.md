@@ -4942,7 +4942,7 @@ context; per-call granular task names.
         - Unit test: same call outside any context invokes openrouter
           directly without going through `wrapWithLogging`.
 
-- [ ] T-19-3: Set LLM context in runner.ts around each stage call
+- [x] T-19-3: Set LLM context in runner.ts around each stage call
       Goal: For each `await <stage>.run(input, ctx)` site in
       `runner.ts`, wrap with `runWithLLMContext({userId, sessionId,
       stage: <stageName>, task: <stageName>}, () =>
