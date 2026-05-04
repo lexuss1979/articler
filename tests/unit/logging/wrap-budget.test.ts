@@ -150,6 +150,8 @@ describe('wrapWithLogging — budget enforcement', () => {
     expect(result.runId).toBe(99);
     expect(call).toHaveBeenCalledOnce();
     expect(mocks.insert).toHaveBeenCalledOnce();
-    expect(mocks.emitEvent).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).toHaveBeenCalledOnce();
+    const [, kind] = mocks.emitEvent.mock.calls[0] as [number, string, unknown];
+    expect(kind).toBe('cost_updated');
   });
 });

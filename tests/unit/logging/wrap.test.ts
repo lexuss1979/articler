@@ -121,6 +121,43 @@ describe('wrapWithLogging', () => {
     expect(row.reasoningTokens).toBe(200);
   });
 
+  it('emits cost_updated on the bus after a successful run when sessionId is set', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { emitEvent } = await import('../../../src/server/events/bus');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'emits',
+      sessionId: 42,
+      call: async () => ({ ...FAKE_RESULT, cost: 0.0231 }),
+      request: {},
+    });
+
+    expect(emitEvent).toHaveBeenCalledOnce();
+    const [sid, kind, payload] = (emitEvent as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      number,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(sid).toBe(42);
+    expect(kind).toBe('cost_updated');
+    expect(payload.delta).toBe(0.0231);
+  });
+
+  it('does not emit cost_updated when sessionId is missing', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { emitEvent } = await import('../../../src/server/events/bus');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'no-sid',
+      call: async () => FAKE_RESULT,
+      request: {},
+    });
+
+    expect(emitEvent).not.toHaveBeenCalled();
+  });
+
   it('writes nulls for the detail token columns when fields are absent on the result', async () => {
     const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
     const { db } = await import('../../../src/server/db/client');

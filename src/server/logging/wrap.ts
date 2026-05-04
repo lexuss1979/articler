@@ -122,5 +122,9 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
     })
     .returning({ id: runs.id });
 
+  if (sessionId != null) {
+    await emitEvent(sessionId, 'cost_updated', { delta: costUsd }).catch(() => undefined);
+  }
+
   return { ...result, runId: row.id };
 }
