@@ -5191,7 +5191,8 @@ inline article preview in Recent.
 
 ## Epic 22 — First public deployment + CI/CD + closed registration
 
-**Status: planned**
+**Status: done** (deploy infra in repo; first push-to-master will trigger
+the actual production rollout once VPS bootstrap + GitHub secrets are set)
 **Goal:** Get articler running on a public URL (operator's VPS)
 for invited testers without exposing the operator's OpenRouter
 spend to anyone who can hit /register. Concretely: close
@@ -5223,7 +5224,7 @@ db backup automation; observability stack (Sentry/etc).
 
 ### Tasks
 
-- [ ] T-22-1: Close registration behind ALLOW_REGISTRATION env flag
+- [x] T-22-1: Close registration behind ALLOW_REGISTRATION env flag
       Goal: New env var `ALLOW_REGISTRATION` (default `false` in
       production, `true` in dev). When false, the `/register` page
       redirects to `/login` and the `registerAction` server action
@@ -5243,7 +5244,7 @@ db backup automation; observability stack (Sentry/etc).
           dev) the action behaves as today.
         - `pnpm lint && pnpm typecheck && pnpm test` pass.
 
-- [ ] T-22-2: CLI seed script to create users
+- [x] T-22-2: CLI seed script to create users
       Goal: `pnpm tsx scripts/create-user.ts <email> [--password=X]`
       hashes the password with the existing argon2id helper and
       inserts a `users` row. If `--password` is omitted, generates
@@ -5263,7 +5264,7 @@ db backup automation; observability stack (Sentry/etc).
         - `psql ... -c "SELECT email FROM users"` shows both seeded
           users locally.
 
-- [ ] T-22-3: GitHub Actions CI workflow
+- [x] T-22-3: GitHub Actions CI workflow
       Goal: `.github/workflows/ci.yml` runs on push and pull_request
       to any branch: checkout, install pnpm, run `pnpm install
       --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm
@@ -5275,7 +5276,7 @@ db backup automation; observability stack (Sentry/etc).
         - Push triggers a green run on a fresh branch.
         - PR shows the check status.
 
-- [ ] T-22-4: Production env template + health check endpoint
+- [x] T-22-4: Production env template + health check endpoint
       Goal: `.env.production.example` lists every var the prod
       build expects (DATABASE_URL, AUTH_SECRET, AUTH_URL,
       OPENROUTER_API_KEY, ALLOW_REGISTRATION=false, optional stock
@@ -5290,7 +5291,7 @@ db backup automation; observability stack (Sentry/etc).
         - `curl localhost:18080/api/health` returns 200 + JSON.
         - `pnpm build` still succeeds.
 
-- [ ] T-22-5: VPS compose config + GHCR build/push + SSH deploy
+- [x] T-22-5: VPS compose config + GHCR build/push + SSH deploy
       Goal: Three pieces, one task because they're tightly coupled:
 
       (a) `docker-compose.prod.yml` at repo root for the VPS:

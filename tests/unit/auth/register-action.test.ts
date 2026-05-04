@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/server/auth/password', () => ({
   hashPassword: vi.fn().mockResolvedValue('$argon2id$hashed'),
@@ -27,9 +27,17 @@ function makeForm(fields: Record<string, string>): FormData {
 }
 
 describe('registerUser', () => {
+  const originalAllow = process.env.ALLOW_REGISTRATION;
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockInsert.mockResolvedValue(undefined);
+    process.env.ALLOW_REGISTRATION = 'true';
+  });
+
+  afterEach(() => {
+    if (originalAllow === undefined) delete process.env.ALLOW_REGISTRATION;
+    else process.env.ALLOW_REGISTRATION = originalAllow;
   });
 
   it('inserts user and redirects on success', async () => {
@@ -62,5 +70,18 @@ describe('registerUser', () => {
   it('returns validation error for short password', async () => {
     const result = await registerUser(null, makeForm({ email: 'user@example.com', password: 'short' }));
     expect(result).toEqual({ ok: false, error: 'validation' });
+  });
+
+  it('returns registration_closed when ALLOW_REGISTRATION=false', async () => {
+    process.env.ALLOW_REGISTRATION = 'false';
+
+    const result = await registerUser(
+      null,
+      makeForm({ email: 'user@example.com', password: 'password123' }),
+    );
+
+    expect(result).toEqual({ ok: false, error: 'registration_closed' });
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(redirect).not.toHaveBeenCalled();
   });
 });
