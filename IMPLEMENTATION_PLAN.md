@@ -4599,7 +4599,7 @@ the cap by a meaningful margin.
           and explicit nulls (clearing).
         - `pnpm test` passes.
 
-- [ ] T-13-3: Budget settings API + page
+- [x] T-13-3: Budget settings API + page
       Goal: `GET /api/settings/budget` returns the current user's caps.
       `PUT /api/settings/budget` accepts `{monthlyCapUsd, sessionCapUsd}`
       (each `number | null`), validates with Zod, calls
