@@ -4567,7 +4567,7 @@ the cap by a meaningful margin.
 
 ### Tasks
 
-- [ ] T-13-1: Add `user_settings` table with budget caps
+- [x] T-13-1: Add `user_settings` table with budget caps
       Goal: New table `user_settings` with one row per user storing
       `monthly_cap_usd` (nullable numeric) and `session_cap_usd`
       (nullable numeric). Nullable = "no cap". Drizzle migration

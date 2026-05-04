@@ -18,6 +18,15 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const userSettings = pgTable('user_settings', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  monthlyCapUsd: numeric('monthly_cap_usd', { precision: 12, scale: 6 }),
+  sessionCapUsd: numeric('session_cap_usd', { precision: 12, scale: 6 }),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const profiles = pgTable('profiles', {
   id: serial('id').primaryKey(),
   userId: integer('user_id')
