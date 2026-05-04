@@ -4822,7 +4822,7 @@ shape, not at this default.
           === 100`.
         - Existing router tests keep passing.
 
-- [ ] T-18-3: Use OpenRouter cost in wrapWithLogging with local fallback
+- [x] T-18-3: Use OpenRouter cost in wrapWithLogging with local fallback
       Goal: In `wrapWithLogging`, replace the unconditional
       `costFor(...)` call with `result.cost ?? costFor(...)`. The
       JSONL line and the inserted `runs` row both use the same value.

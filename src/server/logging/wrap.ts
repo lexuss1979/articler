@@ -70,9 +70,10 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
   }
 
   const costUsd =
-    result.modelClass === 'image'
+    result.cost ??
+    (result.modelClass === 'image'
       ? (IMAGE_PRICES[result.modelUsed]?.perImage ?? 0)
-      : costFor(result.modelUsed, result.promptTokens, result.completionTokens);
+      : costFor(result.modelUsed, result.promptTokens, result.completionTokens));
 
   const { path: payloadPath } = await appendRunLog(
     {
