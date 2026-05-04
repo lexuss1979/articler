@@ -5,6 +5,7 @@ import {
   bulkSetFindingStatus,
 } from '../sessions/critique-repo';
 import { applyRevisions as applyRevisionsStage } from './stages/apply-revisions';
+import { withStageCtx } from './with-stage-ctx';
 
 export async function applyRevisions({
   sessionId,
@@ -51,9 +52,8 @@ export async function applyRevisions({
     };
   });
 
-  const { revisedDraftMd } = await applyRevisionsStage.run(
-    { draftMd: session.draftMd, findings: stageInput },
-    ctx,
+  const { revisedDraftMd } = await withStageCtx(applyRevisionsStage, sessionId, userId, () =>
+    applyRevisionsStage.run({ draftMd: session.draftMd!, findings: stageInput }, ctx),
   );
 
   await updateSessionRevision(userId, sessionId, {

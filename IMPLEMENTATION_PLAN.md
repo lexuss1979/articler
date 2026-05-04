@@ -5034,7 +5034,7 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
         - Manual grep: no remaining `stage.run(` in those files
           outside a `withStageCtx` call.
 
-- [ ] T-20-3: Wrap stage calls in apply-revisions, regenerate-section
+- [x] T-20-3: Wrap stage calls in apply-revisions, regenerate-section
       Goal: Same treatment for the two single-stage orchestrators.
       `apply-revisions.ts` calls `applyRevisionsStage.run`;
       `regenerate-section.ts` calls `draftSection.run`.
