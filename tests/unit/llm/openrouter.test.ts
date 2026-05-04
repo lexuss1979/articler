@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { fetch as undiciFetch } from 'undici';
 import { openrouterChat, openrouterImage, OpenRouterError } from '../../../src/server/llm/openrouter';
+
+vi.mock('undici', () => ({
+  fetch: vi.fn(),
+  ProxyAgent: vi.fn(),
+}));
+
+const mockedFetch = vi.mocked(undiciFetch);
 
 const FAKE_CHAT_RESPONSE = {
   id: 'chat-1',
@@ -9,19 +17,16 @@ const FAKE_CHAT_RESPONSE = {
 };
 
 function mockFetch(status: number, body: unknown) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: status >= 200 && status < 300,
-      status,
-      json: () => Promise.resolve(body),
-      text: () => Promise.resolve(JSON.stringify(body)),
-    }),
-  );
+  mockedFetch.mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  } as unknown as Awaited<ReturnType<typeof undiciFetch>>);
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  mockedFetch.mockReset();
   delete process.env.OPENROUTER_API_KEY;
 });
 
@@ -32,7 +37,7 @@ describe('openrouterChat', () => {
 
     await openrouterChat({ model: 'anthropic/claude-opus-4.7', messages: [] });
 
-    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, init] = mockedFetch.mock.calls[0] as [string, RequestInit];
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer test-key');
   });
 
@@ -69,14 +74,23 @@ describe('openrouterChat', () => {
 });
 
 describe('openrouterImage', () => {
-  it('posts to image generations endpoint and returns data array', async () => {
+  it('posts to chat completions and extracts images from the response', async () => {
     process.env.OPENROUTER_API_KEY = 'test-key';
-    mockFetch(200, { data: [{ url: 'https://example.com/img.png' }] });
+    mockFetch(200, {
+      choices: [
+        {
+          message: {
+            content: null,
+            images: [{ image_url: { url: 'https://example.com/img.png' } }],
+          },
+        },
+      ],
+    });
 
     const result = await openrouterImage({ model: 'google/nano-banana', prompt: 'a cat' });
 
-    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/api/v1/images/generations');
+    const [url] = mockedFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/api/v1/chat/completions');
     expect(result.data[0].url).toBe('https://example.com/img.png');
   });
 });

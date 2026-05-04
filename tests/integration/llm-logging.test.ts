@@ -25,10 +25,13 @@ vi.mock('../../src/server/llm/openrouter', async (importOriginal) => {
   };
 });
 
+const runIntegration = !!process.env.DATABASE_URL;
+
 let tmpDir: string;
 let testUserId: number;
 
 beforeAll(async () => {
+  if (!runIntegration) return;
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'llm-integ-'));
   const [user] = await db
     .insert(users)
@@ -38,12 +41,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (!runIntegration) return;
   await db.delete(runs).where(eq(runs.userId, testUserId));
   await db.delete(users).where(eq(users.id, testUserId));
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-describe('wrapWithLogging integration', () => {
+describe.skipIf(!runIntegration)('wrapWithLogging integration', () => {
   it('records JSONL line, runs row, and cost aggregation consistently', async () => {
     const { routeChat } = await import('../../src/server/llm/router');
     const { wrapWithLogging } = await import('../../src/server/logging/wrap');
