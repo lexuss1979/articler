@@ -5044,7 +5044,7 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
         - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
         - No `stage.run(` outside `withStageCtx` in those files.
 
-- [ ] T-20-4: Wrap the three direct stage calls in actions.ts
+- [x] T-20-4: Wrap the three direct stage calls in actions.ts
       Goal: `composeImagePrompt.run` (line 473),
       `prerenderImages.run` (line 534), `stockKeywords.run`
       (line 570) all run inside server actions with `requireUser()`

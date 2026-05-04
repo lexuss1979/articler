@@ -27,6 +27,7 @@ import { applyImageSelection } from '../../../../server/pipeline/apply-image';
 import { composeImagePrompt } from '../../../../server/pipeline/stages/compose-image-prompt';
 import { prerenderImages } from '../../../../server/pipeline/stages/prerender-images';
 import { stockKeywords } from '../../../../server/pipeline/stages/stock-keywords';
+import { withStageCtx } from '../../../../server/pipeline/with-stage-ctx';
 import {
   searchUnsplash,
   StockUnconfiguredError,
@@ -470,19 +471,21 @@ export async function composePromptAction(
   if (!slot) return { ok: false, error: 'not_found' };
 
   const ctx = makeIllustrationCtx(sessionId);
-  const prompt = await composeImagePrompt.run(
-    {
-      profile,
-      plan: planParsed.data,
-      slot: {
-        id: slot.id,
-        kind: slot.kind,
-        sectionId: slot.sectionId,
-        paragraphIndex: slot.paragraphIndex,
-        brief: slot.brief,
+  const prompt = await withStageCtx(composeImagePrompt, sessionId, user.id, () =>
+    composeImagePrompt.run(
+      {
+        profile,
+        plan: planParsed.data,
+        slot: {
+          id: slot.id,
+          kind: slot.kind,
+          sectionId: slot.sectionId,
+          paragraphIndex: slot.paragraphIndex,
+          brief: slot.brief,
+        },
       },
-    },
-    ctx,
+      ctx,
+    ),
   );
   const persisted = await setSlotPrompt(user.id, sessionId, slotIdParsed.data, prompt);
   if (!persisted) return { ok: false, error: 'not_found' };
@@ -531,9 +534,11 @@ export async function prerenderSlotAction(
   if (!slot.prompt) return { ok: false, error: 'no_prompt' };
 
   const ctx = makeIllustrationCtx(sessionId);
-  const result = await prerenderImages.run(
-    { sessionId, slotId: slotIdParsed.data, prompt: slot.prompt },
-    ctx,
+  const result = await withStageCtx(prerenderImages, sessionId, user.id, () =>
+    prerenderImages.run(
+      { sessionId, slotId: slotIdParsed.data, prompt: slot.prompt! },
+      ctx,
+    ),
   );
   const persisted = await appendSlotCandidates(
     user.id,
@@ -567,9 +572,8 @@ export async function stockSearchAction(
   if (!slot) return { ok: false, error: 'not_found' };
 
   const ctx = makeIllustrationCtx(sessionId);
-  const kw = await stockKeywords.run(
-    { profile, slot: { brief: slot.brief, kind: slot.kind } },
-    ctx,
+  const kw = await withStageCtx(stockKeywords, sessionId, user.id, () =>
+    stockKeywords.run({ profile, slot: { brief: slot.brief, kind: slot.kind } }, ctx),
   );
 
   let unsplash: Awaited<ReturnType<typeof searchUnsplash>>;
