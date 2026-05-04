@@ -4958,7 +4958,7 @@ context; per-call granular task names.
           'clarify_brief', task: 'clarify_brief'}`. Verified by
           spying on a getLLMContext snapshot.
 
-- [ ] T-19-4: End-to-end test — one stage call writes one runs row
+- [x] T-19-4: End-to-end test — one stage call writes one runs row
       Goal: Real DB + real router (openrouter mocked at the HTTP
       boundary) + real wrapWithLogging via AsyncLocalStorage.
       Run a minimal stage (`clarifyBrief.run`) inside
