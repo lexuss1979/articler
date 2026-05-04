@@ -5073,7 +5073,7 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
           null/-1, and an error JSONL line was appended.
         - Existing tests still pass.
 
-- [ ] T-20-6: Strengthen e2e test — go through startRunner
+- [x] T-20-6: Strengthen e2e test — go through startRunner
       Goal: Add a second test (or rewrite T-19-4) that calls
       `startRunner(sessionId, userId)` directly with mocked
       `openrouterChat` and a fixture session in `planning` state.

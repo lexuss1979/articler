@@ -69,8 +69,13 @@ afterAll(async () => {
   await db.delete(users).where(eq(users.id, userId));
 });
 
+async function clearRuns() {
+  await db.delete(runs).where(eq(runs.userId, userId));
+}
+
 describe.skipIf(!runIntegration)('stage call → runs row (LLMContext + maybeWrap + wrapWithLogging)', () => {
   it('lands one runs row with userId, stage name, and model_class when clarifyBrief runs inside a context', async () => {
+    await clearRuns();
     openrouterMock.chat.mockReset();
     openrouterMock.chat.mockResolvedValue({
       id: 'chat-fake',
@@ -140,6 +145,42 @@ describe.skipIf(!runIntegration)('stage call → runs row (LLMContext + maybeWra
     expect(row.task).toBe('clarify_brief');
     expect(row.modelClass).toBe('smart');
     expect(parseFloat(row.costUsd)).toBeCloseTo(0.0042, 6);
+  });
+
+  it('startRunner sets withStageCtx around clarifyBrief — at least one clarify_brief row lands', async () => {
+    await clearRuns();
+    openrouterMock.chat.mockReset();
+    openrouterMock.chat.mockResolvedValue({
+      id: 'chat-fake',
+      model: 'anthropic/claude-opus-4.7',
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({ questions: [] }),
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 50, completion_tokens: 20, cost: 0.001 },
+    });
+
+    await db
+      .update(sessions)
+      .set({
+        state: 'planning',
+        brief: { topic: 'x', goal: 'y', notes: '', sourceArticles: [] },
+      })
+      .where(eq(sessions.id, sessionId));
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await expect(startRunner(sessionId, userId)).rejects.toBeDefined();
+
+    const allRows = await db.select().from(runs).where(eq(runs.userId, userId));
+    const clarifyRows = allRows.filter((r) => r.stage === 'clarify_brief');
+    expect(clarifyRows.length).toBeGreaterThanOrEqual(1);
+    expect(clarifyRows[0]!.sessionId).toBe(sessionId);
+    expect(clarifyRows[0]!.task).toBe('clarify_brief');
   });
 });
 
