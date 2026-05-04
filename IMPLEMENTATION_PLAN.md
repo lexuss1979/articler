@@ -4529,7 +4529,7 @@ Decisions taken (defaults — change before implementation if needed):
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
+<!-- PLANING_CHECKPOINT_SKIPPED Epic 12 — replan before tackling -->
 
 ## Epic 12 — Eval harness
 
@@ -4540,10 +4540,174 @@ gated behind an explicit env flag.
 
 ## Epic 13 — Budget enforcement (v2)
 
-**Status: TBD**
-Intent: per-user and per-session caps in user settings; router
-short-circuits with a typed error when a call would exceed the cap; UI
-surfaces the remaining budget.
+**Status: planned**
+**Goal:** Move from passive cost tracking to active enforcement. Each
+user has configurable spending caps (lifetime total + per-session). The
+LLM router consults a pre-call guard against current cumulative spend;
+if a cap is already reached, the call short-circuits with a typed
+`BudgetExceededError`, the block is logged like a real run for
+auditability, and a `budget_blocked` event reaches the UI. The session
+header surfaces remaining budget against both caps in real time.
+
+**Decision needed:** What window does the "user cap" cover — lifetime,
+calendar-month rolling, or 30-day rolling? Default chosen: **lifetime
+total** (cumulative over all `runs.cost_usd` for the user). Rationale:
+simplest correct implementation; rolling-window can be added later as a
+separate column without breaking the enforcement contract. The user
+should confirm or override before T-13-1 is committed.
+
+**Decision needed:** Pre-call check basis — actual cumulative spend
+only, or cumulative + predicted-cost-of-this-call? Default chosen:
+**cumulative-only**. Rationale: predicting per-call cost requires a
+tokenizer + a `max_tokens` assumption per stage; the cumulative-only
+check is mechanically simple, never under-estimates more than one call,
+and matches the "running cost" model already in place. Document as a
+known-imprecise behavior; revisit if any single call risks blowing past
+the cap by a meaningful margin.
+
+### Tasks
+
+- [ ] T-13-1: Add `user_settings` table with budget caps
+      Goal: New table `user_settings` with one row per user storing
+      `monthly_cap_usd` (nullable numeric) and `session_cap_usd`
+      (nullable numeric). Nullable = "no cap". Drizzle migration
+      generated and applies cleanly.
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/00XX_<name>.sql` (new), `drizzle/meta/_journal.json`.
+      Acceptance:
+        - `pnpm db:generate` produces a new migration referencing
+          `user_settings`.
+        - `pnpm db:migrate` against the compose DB creates the table;
+          re-run is a no-op.
+        - `pnpm typecheck` passes with the new schema export.
+      Notes: column name `monthly_cap_usd` is kept even though the
+      default semantic is lifetime — see "Decision needed" above.
+      Renaming later is a one-line schema change.
+
+- [ ] T-13-2: Server accessors for user settings
+      Goal: `getUserSettings(userId)` returns the row (or default
+      `{monthlyCapUsd: null, sessionCapUsd: null}` if absent).
+      `upsertUserSettings(userId, patch)` inserts or updates; null
+      values clear the cap. Both functions exported from
+      `src/server/settings/budget.ts`.
+      Touches: `src/server/settings/budget.ts` (new),
+      `tests/unit/server/settings/budget.test.ts` (new).
+      Acceptance:
+        - Unit test: get on a user with no row returns the empty
+          defaults.
+        - Unit test: upsert then get round-trips both numeric values
+          and explicit nulls (clearing).
+        - `pnpm test` passes.
+
+- [ ] T-13-3: Budget settings API + page
+      Goal: `GET /api/settings/budget` returns the current user's caps.
+      `PUT /api/settings/budget` accepts `{monthlyCapUsd, sessionCapUsd}`
+      (each `number | null`), validates with Zod, calls
+      `upsertUserSettings`. New page at
+      `src/app/(app)/settings/budget/page.tsx` with a form (two inputs,
+      "save" button, "remove cap" toggle per field). Both endpoints go
+      through the existing `requireUser` guard.
+      Touches: `src/app/api/settings/budget/route.ts` (new),
+      `src/app/(app)/settings/budget/page.tsx` (new),
+      `src/app/(app)/settings/budget/budget-form.tsx` (new client comp),
+      `tests/integration/settings/budget.test.ts` (new).
+      Acceptance:
+        - Integration test: PUT then GET returns the saved values
+          for the same authenticated user; another user gets defaults.
+        - Manual: visit `/settings/budget`, set values, reload, values
+          persist.
+        - `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+- [ ] T-13-4: `BudgetExceededError` + `assertBudget` pre-call guard
+      Goal: New typed error class
+      `BudgetExceededError extends Error` with fields
+      `{scope: 'user' | 'session', spent: number, cap: number}`.
+      New helper `assertBudget({userId, sessionId})` in
+      `src/server/llm/budget-guard.ts` that:
+        1. loads user settings,
+        2. if `monthlyCapUsd != null`, calls `getUserCost(userId)` and
+           throws `BudgetExceededError({scope:'user', ...})` if
+           `spent >= cap`,
+        3. if `sessionId != null && sessionCapUsd != null`, same check
+           with `getSessionCost(sessionId)` and `scope:'session'`.
+      No-op when both caps are null or when user has no settings row.
+      Touches: `src/server/llm/budget-guard.ts` (new),
+      `src/server/llm/errors.ts` (new or extend existing),
+      `tests/unit/server/llm/budget-guard.test.ts` (new).
+      Acceptance:
+        - Unit test: with no cap set, `assertBudget` resolves.
+        - Unit test: with `sessionCapUsd = 0.5` and mocked
+          `getSessionCost` returning `0.6`, throws
+          `BudgetExceededError` with `scope:'session'`.
+        - Unit test: user cap takes precedence when both are exceeded
+          (deterministic order — user checked first).
+
+- [ ] T-13-5: Wire `assertBudget` into `wrapWithLogging`
+      Goal: At the top of `wrapWithLogging`, before `await call()`,
+      invoke `assertBudget({userId, sessionId})`. If it throws
+      `BudgetExceededError`:
+        - append a JSONL line with `error: true`,
+          `error_kind: 'budget_blocked'`, `scope`, `spent`, `cap`,
+          and the `request` (no `response`),
+        - emit a `budget_blocked` event onto the session bus
+          (extend `src/server/events/bus.ts` event union),
+        - re-throw so callers can react.
+      All existing tests for `wrapWithLogging` keep passing.
+      Touches: `src/server/logging/wrap.ts`,
+      `src/server/events/bus.ts`,
+      `tests/unit/server/logging/wrap.test.ts` (extend),
+      `tests/unit/server/logging/wrap-budget.test.ts` (new).
+      Acceptance:
+        - Unit test: wrap a fake call with a mocked guard that throws;
+          the JSONL writer is invoked once with `error_kind:
+          'budget_blocked'`, the bus emit is called once with
+          `budget_blocked`, and `db.insert(runs)` is NOT called.
+        - Unit test: when the guard resolves, behavior is unchanged
+          (existing tests pass without modification).
+
+- [ ] T-13-6: Remaining-budget API + session header surface
+      Goal: New `GET /api/sessions/:id/budget` returns
+      `{sessionSpent, sessionCap, userSpent, userCap}`. Session header
+      component (`src/app/(app)/sessions/[id]/session-header.tsx` or
+      equivalent — locate via `grep -rn "running cost\|stage:" src/app`)
+      consumes this on mount and refreshes whenever a `cost_updated`
+      or `budget_blocked` event arrives via the existing
+      `use-session-events` SSE hook. Display format: `$0.42 / $1.00
+      (session) · $12.30 / $50.00 (user)`; hide either segment when
+      its cap is null.
+      Touches: `src/app/api/sessions/[id]/budget/route.ts` (new),
+      `src/app/(app)/sessions/[id]/session-header.tsx` (extend or
+      create), `src/app/(app)/sessions/[id]/use-session-events.ts`,
+      `tests/integration/sessions/budget-endpoint.test.ts` (new).
+      Acceptance:
+        - Integration test: endpoint returns correct numbers after
+          inserting fixture `runs` rows and `user_settings` for that
+          user.
+        - Cross-user access returns 403/404 (consistent with other
+          session endpoints).
+        - Manual: open a session, header shows the budget line and
+          updates after a stage produces a new run.
+
+- [ ] T-13-7: End-to-end enforcement integration test
+      Goal: One integration test exercises the full block path.
+      Setup: create a user, set `sessionCapUsd: 0.001`, create a
+      session, insert a `runs` row at cost `0.002` (mimicking prior
+      spend in this session). Then call a thin wrapper that invokes
+      `routeChat` through `wrapWithLogging` with a mocked OpenRouter.
+      Expect: the call rejects with `BudgetExceededError`, OpenRouter
+      mock is NOT invoked, JSONL contains a `budget_blocked` line,
+      and the event bus saw `budget_blocked`.
+      Touches: `tests/integration/llm/budget-enforcement.test.ts` (new),
+      possibly small test helpers under `tests/integration/_setup/`.
+      Acceptance:
+        - Test passes against a real test Postgres (same harness used
+          by other integration tests).
+        - Test fails (proves coverage) if `assertBudget` is
+          temporarily commented out of `wrapWithLogging`.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 14 — Ralph loop integration
 
