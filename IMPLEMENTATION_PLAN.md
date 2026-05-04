@@ -4974,3 +4974,118 @@ context; per-call granular task names.
           temporarily commented out in runner.ts.
 
 ---
+
+## Epic 20 — Wire wrapWithLogging into non-runner orchestrators
+
+**Status: planned**
+**Goal:** Close the remaining holes Epic 19 left open. `runner.ts`
+sets LLM context for the planning→drafting flow, but six other
+server-side orchestrator files (`run-review`, `run-fact-check`,
+`run-illustration`, `run-decoration`, `apply-revisions`,
+`regenerate-section`) and three direct stage calls in `actions.ts`
+(image flow) still invoke `stage.run()` without setting context. Net
+effect: review, fact-check, decoration, illustration, revision-apply,
+and section-regenerate flows all bypass `wrapWithLogging` →
+`assertBudget` (Epic 13) doesn't fire there, no `runs` rows land,
+no `cost_updated` events. Same dead-code pattern Epic 19 set out to
+fix, just in non-runner orchestrators.
+
+Also fold in two reviewer-flagged hardening fixes:
+- The `db.insert(runs)` in `wrap.ts` runs AFTER the LLM call
+  succeeds; if the insert throws (transient DB), the user sees an
+  error even though the model already executed and was billed.
+- The Epic 19 e2e test calls `runWithLLMContext` directly, not
+  through `startRunner`, so a regression that drops `withStageCtx`
+  from `runner.ts` would slip through.
+
+**Out of scope:** ESLint rule preventing direct `routeChat` imports
+from stages (proposed in Epic 19 plan, not done — defer to a future
+hygiene pass); per-call task granularity (still coarse via stage.name).
+
+### Tasks
+
+- [ ] T-20-1: Extract `withStageCtx` to a shared module
+      Goal: Move the `withStageCtx` helper from `runner.ts` into
+      `src/server/pipeline/with-stage-ctx.ts` and re-import from
+      `runner.ts`. No behavior change. Makes the helper reusable
+      from non-runner orchestrators and from `actions.ts`.
+      Touches: `src/server/pipeline/with-stage-ctx.ts` (new),
+      `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/with-stage-ctx.test.ts` (new).
+      Acceptance:
+        - `pnpm test` and existing runner tests pass unchanged.
+        - One unit test asserts `withStageCtx({name: 's'}, 1, 2,
+          () => getLLMContext())` returns ctx with stage='s',
+          task='s', userId=2, sessionId=1.
+
+- [ ] T-20-2: Wrap stage calls in run-review, run-fact-check,
+      run-decoration, run-illustration
+      Goal: Each orchestrator file already has access to `userId`
+      and `sessionId` (they're passed in or fetched via getSession).
+      For every `stage.run()` site: wrap with `withStageCtx(stage,
+      sessionId, userId, () => stage.run(...))`. Affected sites:
+      `run-review.ts:50` (runReviewStage), `run-fact-check.ts:63,91,92`
+      (extractClaims, verifyClaim, adjudicateClaim),
+      `run-decoration.ts:43` (proposeDecoration),
+      `run-illustration.ts:42` (proposeImageSlots).
+      Touches: those four files only.
+      Acceptance:
+        - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+        - Manual grep: no remaining `stage.run(` in those files
+          outside a `withStageCtx` call.
+
+- [ ] T-20-3: Wrap stage calls in apply-revisions, regenerate-section
+      Goal: Same treatment for the two single-stage orchestrators.
+      `apply-revisions.ts` calls `applyRevisionsStage.run`;
+      `regenerate-section.ts` calls `draftSection.run`.
+      Touches: `src/server/pipeline/apply-revisions.ts`,
+      `src/server/pipeline/regenerate-section.ts`.
+      Acceptance:
+        - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+        - No `stage.run(` outside `withStageCtx` in those files.
+
+- [ ] T-20-4: Wrap the three direct stage calls in actions.ts
+      Goal: `composeImagePrompt.run` (line 473),
+      `prerenderImages.run` (line 534), `stockKeywords.run`
+      (line 570) all run inside server actions with `requireUser()`
+      already in scope. Wrap each with `withStageCtx(<stage>,
+      sessionId, user.id, () => <stage>.run(...))`.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`.
+      Acceptance:
+        - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+        - No `stage.run(` outside `withStageCtx` in this file.
+
+- [ ] T-20-5: Harden wrap.ts — DB insert failure must not mask
+      successful LLM call
+      Goal: Wrap the `db.insert(runs)` block in `wrap.ts` in a
+      try/catch. On insert failure: log the error to the JSONL
+      file (best-effort) and emit a `cost_updated` event with a
+      sentinel `runId: null`, then return the success result so the
+      caller still sees the LLM output. The user already paid for
+      the call — losing the run record is bad but losing the
+      response is worse.
+      Touches: `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts` (extend) or
+      `tests/unit/logging/wrap-robustness.test.ts` (new).
+      Acceptance:
+        - Unit test: when `db.insert` throws, wrapWithLogging
+          resolves with the LLM result (not rejects), runId is
+          null/-1, and an error JSONL line was appended.
+        - Existing tests still pass.
+
+- [ ] T-20-6: Strengthen e2e test — go through startRunner
+      Goal: Add a second test (or rewrite T-19-4) that calls
+      `startRunner(sessionId, userId)` directly with mocked
+      `openrouterChat` and a fixture session in `planning` state.
+      Asserts that one runs row lands per stage actually invoked
+      by the runner (clarifyBrief at minimum). This catches a
+      regression where `withStageCtx` is removed from `runner.ts`
+      itself.
+      Touches: `tests/integration/pipeline/stage-logging.test.ts`
+      (extend), possibly small fixture helpers.
+      Acceptance:
+        - Test passes.
+        - Test fails (proves coverage) if `withStageCtx` is removed
+          from the planning case in `runner.ts`.
+
+---
