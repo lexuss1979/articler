@@ -5168,7 +5168,7 @@ inline article preview in Recent.
         - Per-user isolation: function only reads rows for the
           passed userId.
 
-- [ ] T-21-3: Dashboard page rendering
+- [x] T-21-3: Dashboard page rendering
       Goal: New dashboard page consumes `loadDashboardData` and
       renders the five-card grid + hero CTA. Each card has its
       own component file under `src/app/(app)/dashboard/`. Uses
