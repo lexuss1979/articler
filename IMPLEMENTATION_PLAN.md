@@ -4584,7 +4584,7 @@ the cap by a meaningful margin.
       default semantic is lifetime — see "Decision needed" above.
       Renaming later is a one-line schema change.
 
-- [ ] T-13-2: Server accessors for user settings
+- [x] T-13-2: Server accessors for user settings
       Goal: `getUserSettings(userId)` returns the row (or default
       `{monthlyCapUsd: null, sessionCapUsd: null}` if absent).
       `upsertUserSettings(userId, patch)` inserts or updates; null
