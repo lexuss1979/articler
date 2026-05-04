@@ -4688,7 +4688,7 @@ the cap by a meaningful margin.
         - Manual: open a session, header shows the budget line and
           updates after a stage produces a new run.
 
-- [ ] T-13-7: End-to-end enforcement integration test
+- [x] T-13-7: End-to-end enforcement integration test
       Goal: One integration test exercises the full block path.
       Setup: create a user, set `sessionCapUsd: 0.001`, create a
       session, insert a `runs` row at cost `0.002` (mimicking prior
