@@ -2,8 +2,7 @@ import { z, type ZodSchema } from 'zod';
 import { emitEvent } from '../events/bus';
 import { appendRunLog } from '../logging/jsonl';
 import { routeChat, routeSearch, routeImage } from '../llm/router';
-import { runWithLLMContext } from '../llm/context';
-import type { Stage } from './stage';
+import { withStageCtx } from './with-stage-ctx';
 import { getProfile } from '../profiles/repo';
 import { briefSchema } from '../sessions/brief';
 import { planSchema } from '../sessions/plan';
@@ -33,18 +32,6 @@ declare global {
 }
 const pendingInputs = (global.__pendingInputs ??= new Map<number, Pending>());
 const activeRunners = (global.__activeRunners ??= new Set<number>());
-
-function withStageCtx<T>(
-  stage: Pick<Stage<unknown, unknown>, 'name'>,
-  sessionId: number,
-  userId: number,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return runWithLLMContext(
-    { userId, sessionId, stage: stage.name, task: stage.name },
-    fn,
-  );
-}
 
 function makeCtx(sessionId: number, state: string) {
   return {

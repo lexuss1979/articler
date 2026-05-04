@@ -5004,7 +5004,7 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
 
 ### Tasks
 
-- [ ] T-20-1: Extract `withStageCtx` to a shared module
+- [x] T-20-1: Extract `withStageCtx` to a shared module
       Goal: Move the `withStageCtx` helper from `runner.ts` into
       `src/server/pipeline/with-stage-ctx.ts` and re-import from
       `runner.ts`. No behavior change. Makes the helper reusable
