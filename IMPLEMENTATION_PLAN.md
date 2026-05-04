@@ -4755,3 +4755,111 @@ syntactic smoothing) → editable text in the same form field. Used by
 the brief, the voice-priming step (Epic 16), custom critic / polish
 prompt fragments, free-form revision instructions. Cross-cutting;
 worth landing as a reusable widget once and wiring into existing forms.
+
+## Epic 18 — Adopt OpenRouter usage.cost as source of truth
+
+**Status: planned**
+**Goal:** Stop computing LLM cost from a hand-maintained price table
+(`src/server/llm/pricing.ts`) and start trusting the authoritative
+`usage.cost` that OpenRouter now always returns on every chat / search
+/ image response. Capture the new usage detail fields (`cached_tokens`,
+`cache_write_tokens`, `reasoning_tokens`) on the run record so cache
+hit-rate and thinking-token spend become observable. Keep the local
+pricing table as a defensive fallback so an unexpected null `cost` from
+OpenRouter never silently zeroes out a run.
+
+**Why now:** Epic 13 just shipped budget enforcement that compares
+cumulative spend against user-set caps. The "spend" number is currently
+our own estimate, which (a) drifts whenever OpenRouter changes prices,
+(b) defaults to $0 for any model name not in our table — silently
+under-counting, and (c) ignores prompt-cache discounts entirely, so
+cache-heavy stages overstate cost. Adopting `usage.cost` makes the
+enforcement honest and the budget header in the UI factual.
+
+**Out of scope:** removing `pricing.ts` (kept as fallback);
+backfilling historical `runs` rows (cost figures pre-Epic 18 stay as
+they were); BYOK / `upstream_inference_cost` plumbing.
+
+**Decision needed:** What to do when OpenRouter returns `cost: 0` —
+a real free model vs. a parsing miss? Default chosen: **trust the 0**
+(treat as authoritative). Rationale: misclassifying a $0 free model
+as an "unknown" and falling back to the local table would charge for
+free traffic; the inverse failure mode (a parser miss erroneously
+returning 0) is unlikely now that OpenRouter promises the field on
+every response. Document so future debugging looks at the response
+shape, not at this default.
+
+### Tasks
+
+- [ ] T-18-1: Surface cost + new usage detail fields from openrouter.ts
+      Goal: Extend the `ChatResponse` interface in `openrouter.ts` to
+      include `cost: number`, `prompt_tokens_details?: {cached_tokens?:
+      number, cache_write_tokens?: number}`, and
+      `completion_tokens_details?: {reasoning_tokens?: number}`. The
+      runtime parser already returns the full JSON, so this is purely
+      a type widening — no parsing code changes.
+      Touches: `src/server/llm/openrouter.ts`,
+      `tests/unit/llm/openrouter.test.ts` (extend a fixture).
+      Acceptance:
+        - `pnpm typecheck` passes with the new fields accessed in
+          downstream code.
+        - One openrouter unit test asserts that `cost` and
+          `prompt_tokens_details.cached_tokens` survive the round-trip
+          through the existing parser.
+
+- [ ] T-18-2: Plumb cost + detail fields through the router result
+      Goal: Add `cost?: number`, `cachedTokens?: number`,
+      `cacheWriteTokens?: number`, `reasoningTokens?: number` to
+      `RouterResult` in `router.ts`. Populate them in `routeChat`,
+      `routeSearch`, and `routeImage` from the openrouter response.
+      Fields are optional so callers that don't care are unaffected.
+      Touches: `src/server/llm/router.ts`,
+      `tests/unit/llm/router.test.ts` (extend).
+      Acceptance:
+        - Unit test: a mocked openrouter response with `cost: 0.42`
+          and `prompt_tokens_details.cached_tokens: 100` produces a
+          `ChatRouterResult` with `cost === 0.42` and `cachedTokens
+          === 100`.
+        - Existing router tests keep passing.
+
+- [ ] T-18-3: Use OpenRouter cost in wrapWithLogging with local fallback
+      Goal: In `wrapWithLogging`, replace the unconditional
+      `costFor(...)` call with `result.cost ?? costFor(...)`. The
+      JSONL line and the inserted `runs` row both use the same value.
+      Image path uses the same precedence (image responses now also
+      come with `usage.cost` per OpenRouter docs); the
+      `IMAGE_PRICES.perImage` entry only fires if `cost` is missing.
+      Touches: `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts` (extend),
+      `tests/unit/logging/wrap-cost.test.ts` (new).
+      Acceptance:
+        - Unit test: when the call returns `result.cost = 0.0231`,
+          the JSONL entry's `cost_usd` and the `runs` row's `costUsd`
+          both equal 0.0231 and `costFor` is NOT called.
+        - Unit test: when `result.cost` is undefined, `costFor` is
+          called and its return value is used (existing behavior).
+        - Unit test: `result.cost = 0` is treated as authoritative
+          (no fallback to local table) — locks in the "Decision
+          needed" default above.
+
+- [ ] T-18-4: Persist cached + reasoning token counts on the run record
+      Goal: Add nullable `cached_tokens` and `reasoning_tokens` integer
+      columns to `runs`. `wrapWithLogging` writes them when present
+      on `result`. JSONL line gets the same fields under
+      `prompt_tokens_details` / `completion_tokens_details` to mirror
+      the OpenRouter shape.
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/00XX_<name>.sql` (new),
+      `drizzle/meta/_journal.json`,
+      `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts` (extend).
+      Acceptance:
+        - `pnpm db:generate` produces a migration adding both columns
+          as nullable integers; `pnpm db:migrate` applies cleanly and
+          re-runs are no-ops.
+        - Unit test: when `result.cachedTokens = 1500`, the inserted
+          `runs` row carries `cachedTokens: 1500`.
+        - When the fields are absent on the result, the row's
+          values stay null and no insert error fires.
+
+---
