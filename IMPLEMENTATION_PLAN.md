@@ -5188,3 +5188,165 @@ inline article preview in Recent.
         - `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
 
 ---
+
+## Epic 22 — First public deployment + CI/CD + closed registration
+
+**Status: planned**
+**Goal:** Get articler running on a public URL (operator's VPS)
+for invited testers without exposing the operator's OpenRouter
+spend to anyone who can hit /register. Concretely: close
+registration behind an env flag, ship a small CLI to seed test
+users, wire a GitHub Actions CI pipeline (lint/typecheck/test on
+every push), and wire a deploy workflow that builds the image,
+pushes to GHCR, and SSH-deploys onto the VPS.
+
+**Deployment target:** operator's VPS. Build artifact lives in
+GitHub Container Registry (`ghcr.io/<owner>/articler`); the VPS
+runs `docker compose` against a `docker-compose.prod.yml` that
+references the published image rather than building locally.
+Caddy in front for TLS via Let's Encrypt, Postgres in a sibling
+container with a named volume, app + caddy + db networked via
+compose. Deploy step from GHA is SSH → `docker compose pull web
+&& docker compose up -d web && pnpm db:migrate` (one-shot via
+`docker compose run --rm web pnpm db:migrate`).
+
+**Decision needed:** Default budget caps for newly registered users
+(once we're ready to re-open registration). For this epic, with
+registration closed, this isn't blocking — flagged here so it
+isn't forgotten when registration eventually reopens. Suggested:
+`monthlyCapUsd = 5, sessionCapUsd = 0.5` set in the user-settings
+row at registration time.
+
+**Out of scope:** OAuth (Google/GitHub) provider; multi-tenant
+OpenRouter keys (each user brings their own); blue/green deploys;
+db backup automation; observability stack (Sentry/etc).
+
+### Tasks
+
+- [ ] T-22-1: Close registration behind ALLOW_REGISTRATION env flag
+      Goal: New env var `ALLOW_REGISTRATION` (default `false` in
+      production, `true` in dev). When false, the `/register` page
+      redirects to `/login` and the `registerAction` server action
+      returns `{ok: false, error: 'registration_closed'}`. Login
+      page shows a small "registration is invite-only" hint when
+      flag is off.
+      Touches: `src/app/(auth)/register/page.tsx`,
+      `src/app/(auth)/register/actions.ts` (or wherever the
+      register action lives — find with grep),
+      `src/app/(auth)/login/page.tsx` (hint),
+      `.env.example` (document the flag),
+      `tests/unit/auth/register-action.test.ts` (extend or new).
+      Acceptance:
+        - Unit test: with `ALLOW_REGISTRATION=false` the action
+          returns the expected error, no row inserted.
+        - Unit test: with `ALLOW_REGISTRATION=true` (or unset in
+          dev) the action behaves as today.
+        - `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+- [ ] T-22-2: CLI seed script to create users
+      Goal: `pnpm tsx scripts/create-user.ts <email> [--password=X]`
+      hashes the password with the existing argon2id helper and
+      inserts a `users` row. If `--password` is omitted, generates
+      a random 16-char password and prints it to stdout. Idempotent
+      on email (skips and prints "already exists" if the email is
+      taken). Reads DATABASE_URL from env.
+      Run the script once locally to seed `user1@mail.com` and
+      `user2@mail.com` against the compose DB; print the generated
+      passwords for the operator to capture.
+      Touches: `scripts/create-user.ts` (new),
+      `package.json` (script entry: `"create-user":
+      "tsx scripts/create-user.ts"`).
+      Acceptance:
+        - `pnpm create-user user1@mail.com` creates the row and
+          prints the password; second run prints "already exists"
+          and exits 0.
+        - `psql ... -c "SELECT email FROM users"` shows both seeded
+          users locally.
+
+- [ ] T-22-3: GitHub Actions CI workflow
+      Goal: `.github/workflows/ci.yml` runs on push and pull_request
+      to any branch: checkout, install pnpm, run `pnpm install
+      --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm
+      test`. Uses Node 22 and pnpm v9+ (matches local). Caches
+      pnpm store between runs. No DB required for unit tests;
+      integration tests skip without DATABASE_URL (already wired).
+      Touches: `.github/workflows/ci.yml` (new).
+      Acceptance:
+        - Push triggers a green run on a fresh branch.
+        - PR shows the check status.
+
+- [ ] T-22-4: Production env template + health check endpoint
+      Goal: `.env.production.example` lists every var the prod
+      build expects (DATABASE_URL, AUTH_SECRET, AUTH_URL,
+      OPENROUTER_API_KEY, ALLOW_REGISTRATION=false, optional stock
+      keys). New `GET /api/health` returns 200 with `{ok: true,
+      now: <iso>}` for the Fly.io healthcheck and human pings —
+      no DB query (so a DB outage doesn't fail the check). Add a
+      brief "Deploying" section to README documenting required
+      secrets.
+      Touches: `.env.production.example` (new),
+      `src/app/api/health/route.ts` (new), `README.md` (extend).
+      Acceptance:
+        - `curl localhost:18080/api/health` returns 200 + JSON.
+        - `pnpm build` still succeeds.
+
+- [ ] T-22-5: VPS compose config + GHCR build/push + SSH deploy
+      Goal: Three pieces, one task because they're tightly coupled:
+
+      (a) `docker-compose.prod.yml` at repo root for the VPS:
+        - `web` service uses `image: ghcr.io/<owner>/articler:latest`
+          (no build), restart unless-stopped, env_file `.env.prod`
+          on the VPS, depends_on db (healthy).
+        - `db` Postgres 16 with named volume `db_data`, restart
+          policy, healthcheck.
+        - `caddy` in front, exposes 80/443, reverse-proxies to
+          `web:3000`, mounts `Caddyfile` and a `caddy_data` named
+          volume for the certificate cache. `Caddyfile` (also new)
+          has one site block per registered domain → `web:3000`
+          with automatic Let's Encrypt.
+        - Bind-mount the host `./logs` into `web` (same parity as
+          dev) so JSONL survives container churn. Use a named
+          volume for `./data` on prod (image storage doesn't need
+          host-side editing).
+
+      (b) `.github/workflows/deploy.yml` triggers on push to
+      `master` after CI is green:
+        1. checkout, set up Buildx + QEMU.
+        2. login to GHCR with `GITHUB_TOKEN`.
+        3. build + push image tagged `:latest` and `:<sha>` from
+           the existing Dockerfile.
+        4. SSH to the VPS using `appleboy/ssh-action` and a deploy
+           key stored as `DEPLOY_SSH_KEY` repo secret. Run on the
+           server: `cd /srv/articler && docker compose pull web &&
+           docker compose run --rm web pnpm db:migrate &&
+           docker compose up -d web caddy`.
+
+      (c) README "Deploying" section documenting the one-time VPS
+      bootstrap: install docker engine + compose plugin, create
+      `/srv/articler` with the prod compose file + Caddyfile +
+      `.env.prod`, register the deploy SSH key, configure DNS
+      A-record to the VPS, run the workflow.
+
+      Touches: `docker-compose.prod.yml` (new), `Caddyfile` (new),
+      `.github/workflows/deploy.yml` (new), `README.md` (extend).
+
+      Acceptance:
+        - Push to master after green CI completes the workflow
+          (build → push → ssh → up).
+        - Public domain serves `/login` over HTTPS with a valid
+          Let's Encrypt cert.
+        - `docker compose ps` on the VPS shows web, db, caddy all
+          healthy.
+        - `pnpm db:migrate` ran cleanly during deploy (visible in
+          the `db_data` volume's `__drizzle_migrations` table).
+
+      Notes: switching to Fly.io / Railway later is a swap of this
+      one task only — app code is unchanged.
+      Decision needed before implementing:
+        - VPS host + ssh creds (separate `deploy` user without
+          root sudo recommended).
+        - Domain + DNS A-record control.
+        - Whether Postgres lives in the same compose stack (default
+          chosen here, simplest) or as managed/external.
+
+---
