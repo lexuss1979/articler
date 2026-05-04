@@ -11,6 +11,18 @@ vi.mock('../../../src/server/db/client', () => {
   return { db: { insert } };
 });
 
+vi.mock('../../../src/server/llm/budget-guard', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/server/llm/budget-guard')>();
+  return {
+    ...actual,
+    assertBudget: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock('../../../src/server/events/bus', () => ({
+  emitEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 afterEach(() => {
   vi.clearAllMocks();
 });

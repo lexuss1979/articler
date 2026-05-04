@@ -10,7 +10,8 @@ export type EventKind =
   | 'artifact_updated'
   | 'cost_updated'
   | 'agent_message'
-  | 'awaiting_user';
+  | 'awaiting_user'
+  | 'budget_blocked';
 
 export type PersistedEvent = typeof events.$inferSelect;
 

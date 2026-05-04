@@ -4642,7 +4642,7 @@ the cap by a meaningful margin.
         - Unit test: user cap takes precedence when both are exceeded
           (deterministic order — user checked first).
 
-- [ ] T-13-5: Wire `assertBudget` into `wrapWithLogging`
+- [x] T-13-5: Wire `assertBudget` into `wrapWithLogging`
       Goal: At the top of `wrapWithLogging`, before `await call()`,
       invoke `assertBudget({userId, sessionId})`. If it throws
       `BudgetExceededError`:
