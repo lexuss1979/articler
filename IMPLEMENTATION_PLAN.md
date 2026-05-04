@@ -5055,7 +5055,7 @@ hygiene pass); per-call task granularity (still coarse via stage.name).
         - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
         - No `stage.run(` outside `withStageCtx` in this file.
 
-- [ ] T-20-5: Harden wrap.ts — DB insert failure must not mask
+- [x] T-20-5: Harden wrap.ts — DB insert failure must not mask
       successful LLM call
       Goal: Wrap the `db.insert(runs)` block in `wrap.ts` in a
       try/catch. On insert failure: log the error to the JSONL

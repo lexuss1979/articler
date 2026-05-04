@@ -102,29 +102,48 @@ export async function wrapWithLogging<T extends RouterResult>(args: {
     { baseDir },
   );
 
-  const [row] = await db
-    .insert(runs)
-    .values({
-      sessionId: sessionId ?? null,
-      userId: userId ?? null,
-      stage,
-      task,
-      modelClass: result.modelClass,
-      modelName: result.modelUsed,
-      promptTokens: result.promptTokens,
-      completionTokens: result.completionTokens,
-      cachedTokens: result.cachedTokens ?? null,
-      reasoningTokens: result.reasoningTokens ?? null,
-      costUsd: String(costUsd),
-      latencyMs: result.latencyMs,
-      ts,
-      payloadPath,
-    })
-    .returning({ id: runs.id });
+  let runId = -1;
+  try {
+    const [row] = await db
+      .insert(runs)
+      .values({
+        sessionId: sessionId ?? null,
+        userId: userId ?? null,
+        stage,
+        task,
+        modelClass: result.modelClass,
+        modelName: result.modelUsed,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        cachedTokens: result.cachedTokens ?? null,
+        reasoningTokens: result.reasoningTokens ?? null,
+        costUsd: String(costUsd),
+        latencyMs: result.latencyMs,
+        ts,
+        payloadPath,
+      })
+      .returning({ id: runs.id });
+    runId = row.id;
+  } catch (err) {
+    await appendRunLog(
+      {
+        ts: ts.toISOString(),
+        user_id: userId,
+        session_id: sessionId,
+        stage,
+        task,
+        error: true,
+        error_kind: 'runs_insert_failed',
+        error_message: err instanceof Error ? err.message : String(err),
+        cost_usd: costUsd,
+      },
+      { baseDir },
+    ).catch(() => undefined);
+  }
 
   if (sessionId != null) {
     await emitEvent(sessionId, 'cost_updated', { delta: costUsd }).catch(() => undefined);
   }
 
-  return { ...result, runId: row.id };
+  return { ...result, runId };
 }
