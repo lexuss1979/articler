@@ -83,8 +83,12 @@ export const verifyClaim: Stage<
     }
 
     const { result } = await routeJsonChat({
-      system: `You are a fact-checking research assistant. For the given claim, find up to 5 short snippets from web sources that bear on whether the claim is true or false. For each snippet, set supports:true if it supports the claim, supports:false if it contradicts it.
-Return ONLY valid JSON of shape { evidence: [...] }, no prose, no fences.`,
+      system: `You are a fact-checking research assistant. For the given claim, find up to 5 short snippets from web sources that bear on whether the claim is true or false.
+Each evidence item MUST have these exact fields:
+- "url": the full https:// URL of the source page. NEVER a citation reference like "[1]" or "[2]" — always the actual URL string.
+- "snippet": the supporting text from that page (short, under 600 chars).
+- "supports": true if the snippet supports the claim, false if it contradicts.
+Return ONLY valid JSON of shape { "evidence": [...] }, no prose, no fences.`,
       user: `Claim: "${claim.span.text}"\nClaim type: ${claim.claimType}`,
       schema: evidenceResponseSchema,
       class: 'search',
