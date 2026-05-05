@@ -41,6 +41,7 @@ export function ReviewPane({
   const [claimsWithVerdicts, setClaimsWithVerdicts] = useState(initialClaims);
   const [activeTasks, setActiveTasks] = useState<Set<string>>(new Set());
   const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
 
   // Resync local state when server-side data refreshes (e.g. after revision
   // actions). Without this, `pending_apply` finding statuses stay stale and the
@@ -183,8 +184,13 @@ export function ReviewPane({
 
   async function handleFinish() {
     setFinishing(true);
+    setFinishError(null);
     const result = await finishReviewAction(sessionId);
-    if (!result.ok) setFinishing(false);
+    if (!result.ok) {
+      setFinishing(false);
+      setFinishError(result.error);
+      console.error('[finishReview] failed:', result.error);
+    }
   }
 
   if (hasPendingRevision && revisedDraftMd) {
@@ -243,6 +249,11 @@ export function ReviewPane({
         {!hasAnyRound && (
           <p className="text-xs text-gray-400 text-center">
             Run at least one review or fact-check before finishing
+          </p>
+        )}
+        {finishError && (
+          <p className="text-xs text-red-600 text-center">
+            Finish review failed: {finishError}
           </p>
         )}
       </div>
