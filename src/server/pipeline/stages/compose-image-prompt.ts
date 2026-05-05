@@ -51,7 +51,9 @@ Required output shape:
 - "negative": optional comma-separated list of things to avoid.
 - "aspect": one of "16:9", "4:3", "1:1", "3:4". Default to "16:9" for hero slots and "4:3" for inline slots.
 
-Banned content: brand logos, text overlays, watermarks, recognizable real people unless the brief explicitly names them. Stay clear of any content that would be unsafe for the platform's audience.
+Banned content: brand logos, watermarks, recognizable real people unless the brief explicitly names them. Stay clear of any content that would be unsafe for the platform's audience.
+
+Image text language: prefer scenes without legible writing. If the image must include any visible text (signage, screen content, UI elements, labels, captions, headlines), it MUST be written in the SAME language as the "Article thesis" given below — detect the language from the thesis. Do NOT default to English when the thesis is in another language.
 
 Respond ONLY with valid JSON matching the schema. No prose, no fences.`;
 

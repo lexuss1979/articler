@@ -33,6 +33,13 @@ function makeCandidateId(index: number): string {
   return 'c_' + Date.now() + '_' + randomBytes(3).toString('hex') + '_' + index;
 }
 
+const VARIATION_HINTS = [
+  'tight close-up framing, asymmetric composition, dramatic side lighting',
+  'wide establishing shot, balanced symmetry, soft diffused light',
+  'medium shot from a low angle, dynamic perspective, warm golden-hour light',
+  'over-the-shoulder framing, leading lines, cool ambient light',
+];
+
 export const prerenderImages: Stage<
   {
     sessionId: number;
@@ -53,7 +60,10 @@ export const prerenderImages: Stage<
     await ctx.emit('task_started', { stage: 'prerender_images', slotId });
 
     const text = buildTextPrompt(prompt);
-    const calls = Array.from({ length: count }, () => ctx.llm.routeImage({ prompt: text }));
+    const calls = Array.from({ length: count }, (_, i) => {
+      const hint = VARIATION_HINTS[i % VARIATION_HINTS.length];
+      return ctx.llm.routeImage({ prompt: `${text} | variation: ${hint}` });
+    });
     const settled = await Promise.allSettled(calls);
 
     const candidates: ImageCandidate[] = [];

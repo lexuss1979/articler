@@ -22,9 +22,9 @@ export function ImagePromptEditor({
   const [text, setText] = useState(
     initialPrompt ? JSON.stringify(initialPrompt, null, 2) : '',
   );
-  const [trackedInitial, setTrackedInitial] = useState(initialPrompt);
-  if (trackedInitial !== initialPrompt) {
-    setTrackedInitial(initialPrompt);
+  const [trackedSlotId, setTrackedSlotId] = useState(slotId);
+  if (trackedSlotId !== slotId) {
+    setTrackedSlotId(slotId);
     setText(initialPrompt ? JSON.stringify(initialPrompt, null, 2) : '');
   }
   const [parseError, setParseError] = useState<string | null>(null);
