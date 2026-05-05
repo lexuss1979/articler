@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
+import '../proxy';
 
 export const IMAGES_ROOT = path.resolve(process.cwd(), 'data', 'images');
 

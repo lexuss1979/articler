@@ -5,6 +5,7 @@ import { openrouterChat, openrouterImage, OpenRouterError } from '../../../src/s
 vi.mock('undici', () => ({
   fetch: vi.fn(),
   ProxyAgent: vi.fn(),
+  setGlobalDispatcher: vi.fn(),
 }));
 
 const mockedFetch = vi.mocked(undiciFetch);

@@ -1,4 +1,5 @@
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
+import '../proxy';
 
 export class OpenRouterError extends Error {
   constructor(
