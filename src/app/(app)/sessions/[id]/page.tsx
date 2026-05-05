@@ -12,6 +12,7 @@ import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claim
 import { getProfile } from '../../../../server/profiles/repo';
 import { parseMarkupRules } from '../../../../server/profiles/markup';
 import { renderHtmlArticle } from '../../../../server/export/html';
+import { startRunner } from '../../../../server/pipeline/runner';
 import { BriefForm } from './brief-form';
 import { ChatPane } from './chat-pane';
 import { PlanningPane } from './planning-pane';
@@ -35,6 +36,10 @@ export default async function SessionPage({
 
   const session = await getSession(user.id, id);
   if (!session) notFound();
+
+  // Recover sessions whose in-memory pending userInput was wiped by a server
+  // restart. No-op when a runner is already active or a pending input exists.
+  void startRunner(id, user.id);
 
   let researchSources = null;
   let researchPlan = null;
