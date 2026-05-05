@@ -50,7 +50,30 @@ function apiKey(): string {
   return key;
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+// Network-level errors worth retrying — usually transient residential-proxy
+// hiccups (bad exit, tunnel reset, CONNECT 502). API-level errors from
+// OpenRouter (any 4xx/5xx response body) are NOT retried.
+const RETRYABLE_NETWORK_CODES = new Set([
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_ABORTED',
+  'UND_ERR_SOCKET',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+]);
+
+function isRetryableNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name !== 'TypeError' || err.message !== 'fetch failed') return false;
+  const cause = (err as { cause?: { code?: string; cause?: { code?: string } } }).cause;
+  if (cause?.code && RETRYABLE_NETWORK_CODES.has(cause.code)) return true;
+  // Inner cause (e.g. TypeError → AbortError → underlying)
+  if (cause?.cause?.code && RETRYABLE_NETWORK_CODES.has(cause.cause.code)) return true;
+  return false;
+}
+
+async function postOnce<T>(path: string, body: unknown): Promise<T> {
   const res = await undiciFetch(`https://openrouter.ai${path}`, {
     method: 'POST',
     headers: {
@@ -94,6 +117,22 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return parsed as T;
 }
 
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const maxAttempts = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await postOnce<T>(path, body);
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableNetworkError(err) || attempt === maxAttempts) throw err;
+      const delayMs = 200 * 2 ** (attempt - 1); // 200, 400ms
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 export function openrouterChat(args: {
   model: string;
   messages: ChatMessage[];
@@ -112,6 +151,18 @@ interface ChatImagesResponse {
   usage?: ChatResponse['usage'];
 }
 
+async function imageFetchOnce(body: unknown): Promise<Response> {
+  return undiciFetch(`https://openrouter.ai/api/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey()}`,
+    },
+    body: JSON.stringify(body),
+    dispatcher: getDispatcher(),
+  } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+}
+
 export async function openrouterImage(args: {
   model: string;
   prompt: string;
@@ -126,15 +177,20 @@ export async function openrouterImage(args: {
     ...rest,
   };
 
-  const res = await undiciFetch(`https://openrouter.ai/api/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey()}`,
-    },
-    body: JSON.stringify(body),
-    dispatcher: getDispatcher(),
-  } as Parameters<typeof undiciFetch>[1]);
+  const maxAttempts = 3;
+  let res: Response | undefined;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      res = await imageFetchOnce(body);
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableNetworkError(err) || attempt === maxAttempts) throw err;
+      await new Promise((r) => setTimeout(r, 200 * 2 ** (attempt - 1)));
+    }
+  }
+  if (!res) throw lastErr;
 
   const responseBody = await res.text().catch(() => '');
   if (!res.ok) {
