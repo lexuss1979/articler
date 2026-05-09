@@ -256,11 +256,9 @@ proceed with whichever inputs succeeded as long as ≥ 3 examples remain.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic L-1 — Profile assertions: DB foundation + repo + settings UI
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** Add the `profile_assertions` table, a typed repo module
 implementing the confidence policy, and a read/delete view inside the
@@ -285,7 +283,215 @@ The repo module `profile-assertions-repo.ts` exposes:
 The settings panel lists assertions grouped by `category`, shows
 confidence as a small bar, and offers a delete button per row.
 
+### Tasks
+
+- [x] T-L1-1: `profile_assertions` schema + Drizzle migration
+      Goal: New `profile_assertions` table per the data model in the
+      "Assertion data model" section. All columns NOT NULL with the
+      stated defaults; `UNIQUE (profile_id, key)`; FK
+      `profile_id → profiles.id ON DELETE CASCADE`. `category` is a
+      free-text column (validated at the repo / zod layer, not via SQL
+      enum, to allow `'custom'` and future categories without
+      migration).
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/0013_<generated>.sql` (new),
+      `drizzle/meta/_journal.json`, `drizzle/meta/0013_snapshot.json`.
+      Acceptance:
+        - `pnpm db:generate` produces a migration whose `CREATE TABLE`
+          contains all eight columns with the stated types
+          (`numeric(4,3)` for `confidence`, `integer` for
+          `evidence_count`, `text` for `category`/`key`/`assertion`/
+          `source`, `timestamp` for `created_at`/`updated_at`),
+          the unique index on `(profile_id, key)`, and the FK with
+          `ON DELETE CASCADE`.
+        - `pnpm db:migrate` against the compose DB creates the table;
+          re-run is a no-op.
+        - Deleting a profile cascades — verified with a unit/integration
+          test: insert a profile + an assertion, delete the profile,
+          assert the assertion row is gone.
+        - `pnpm typecheck` passes with the new schema export.
+
+- [ ] T-L1-2: Confidence policy as a pure module
+      Goal: A standalone module with no DB dependency that encodes the
+      thresholds and deltas from "Assertion confidence policy". Exports
+      named constants and four pure functions:
+        - `SKIP_CONFIDENCE = 0.85`, `SKIP_EVIDENCE = 3`,
+          `AUTO_DELETE_BELOW = 0.20`, `AGREEMENT_DELTA = 0.10`,
+          `CONTRADICTION_DELTA = 0.25`, `DECAY_PER_30D = 0.02`,
+          `INITIAL_CONFIDENCE = 0.5`.
+        - `applyAgreement(c: number): number` — `min(1.0, c + 0.10)`.
+        - `applyContradiction(c: number): number` — `max(0.0, c − 0.25)`.
+        - `applyDecay(c: number, updatedAt: Date, now: Date): number` —
+          `max(0, c − 0.02 × floor(daysElapsed / 30))`.
+        - `shouldSkipQuestion({ confidence, evidenceCount }): boolean` —
+          `confidence ≥ SKIP_CONFIDENCE && evidenceCount ≥ SKIP_EVIDENCE`.
+      Touches: `src/server/profiles/assertion-policy.ts` (new),
+      `tests/unit/server/profiles/assertion-policy.test.ts` (new).
+      Acceptance:
+        - Unit tests cover boundary conditions: agreement clamps at 1.0,
+          contradiction clamps at 0.0, decay returns input unchanged
+          when `now − updatedAt < 30d`, decay subtracts 0.04 at exactly
+          61 days, decay clamps at 0 for very old rows.
+        - `shouldSkipQuestion` test: 0.85/3 → true, 0.85/2 → false,
+          0.84/3 → false, 1.0/10 → true.
+        - `pnpm test` passes.
+
+- [ ] T-L1-3: Repo: `upsertAssertion` + `listAssertions` with decay & auto-delete
+      Goal: New repo module `profile-assertions-repo.ts` with two
+      methods:
+        - `upsertAssertion({ profileId, key, category, assertion, source }):
+           Promise<Assertion>`. Inserts on conflict (per
+          `UNIQUE (profile_id, key)`) updates `assertion`, `category`,
+          `source`, `updated_at = now()` but **does not** change
+          `confidence` or `evidence_count` — those move only via
+          `recordAgreement` / `recordContradiction`. New rows: insert
+          with `confidence = INITIAL_CONFIDENCE`, `evidence_count = 1`,
+          `source` from input (default `'session'`).
+        - `listAssertions(profileId): Promise<Assertion[]>`. Reads all
+          rows for the profile; for each row applies `applyDecay`. If
+          decayed `confidence < AUTO_DELETE_BELOW`, the row is deleted
+          (single bulk `DELETE` after the read, by id list) and omitted
+          from the returned array. The returned rows reflect the
+          decayed confidence (write-back to DB is best-effort: persist
+          decayed value alongside the delete pass so future reads are
+          O(1) — single `UPDATE ... SET confidence = CASE id ...`).
+      Type: `Assertion = { id, profileId, category, key, assertion,
+       confidence, evidenceCount, source, createdAt, updatedAt }`.
+      Touches: `src/server/profiles/profile-assertions-repo.ts` (new),
+      `tests/integration/profiles/assertions-repo.test.ts` (new).
+      Acceptance:
+        - Integration test (gated on `DATABASE_URL` like other repo
+          tests): inserting via `upsertAssertion` then re-calling with
+          the same `(profileId, key)` and a different `assertion` text
+          updates the text but leaves `confidence` and `evidence_count`
+          untouched.
+        - Integration test: insert a row with `confidence = 0.5` and
+          backdate `updated_at` to 90 days ago via raw SQL; calling
+          `listAssertions` returns it with `confidence ≈ 0.44` (0.5 −
+          3×0.02) and persists the decayed value.
+        - Integration test: insert a row with `confidence = 0.21` and
+          backdate `updated_at` 60 days; `listAssertions` returns
+          0 rows for that profile *and* the row is removed from the
+          DB.
+        - `pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L1-4: Repo: `recordAgreement` and `recordContradiction`
+      Goal: Add two methods to `profile-assertions-repo.ts` that look
+      up the row by `(profileId, key)`, apply `applyAgreement` /
+      `applyContradiction` from T-L1-2, increment `evidence_count`, set
+      `updated_at = now()`. If the key is missing, both are no-ops
+      returning `null`. After a `recordContradiction` brings
+      `confidence < AUTO_DELETE_BELOW`, the row is deleted in the same
+      call (one transaction).
+      Touches: `src/server/profiles/profile-assertions-repo.ts`
+      (extend), `tests/integration/profiles/assertions-repo.test.ts`
+      (extend).
+      Acceptance:
+        - Integration test: upsert with confidence 0.5, evidence 1;
+          three `recordAgreement` calls leave it at confidence 0.8,
+          evidence 4.
+        - Integration test: upsert at the default 0.5/1; one
+          `recordContradiction` leaves it at 0.25/2 (still present);
+          a second drops it to 0.0 → row is deleted.
+        - Integration test: `recordAgreement(profileId, 'unknown_key')`
+          returns `null` and inserts nothing.
+        - `pnpm test` passes.
+
+- [ ] T-L1-5: Repo: `deleteAssertion` and `replaceAssertions`
+      Goal: Add two methods to `profile-assertions-repo.ts`:
+        - `deleteAssertion(profileId, assertionId): Promise<boolean>` —
+          deletes the row only if it belongs to `profileId` (returns
+          `true` on hit, `false` on miss). The `profileId` parameter is
+          required so callers can authorize through the parent profile;
+          callers must already have verified profile ownership.
+        - `replaceAssertions(profileId, items: Array<{ key, category,
+           assertion, source }>): Promise<void>` — runs in a single
+          transaction: deletes all existing rows for the profile, then
+          inserts each item with `confidence = INITIAL_CONFIDENCE`,
+          `evidence_count = 1`. Used by L-2's "analyze examples" reset.
+      Touches: `src/server/profiles/profile-assertions-repo.ts`
+      (extend), `tests/integration/profiles/assertions-repo.test.ts`
+      (extend).
+      Acceptance:
+        - Integration test: `deleteAssertion(p1, id)` returns `true`
+          and removes the row; `deleteAssertion(p2, id)` (wrong
+          profile) returns `false` and leaves the row in place.
+        - Integration test: seed three assertions on a profile, call
+          `replaceAssertions` with two new items, then `listAssertions`
+          returns exactly the two new rows at the default 0.5/1.
+        - Integration test: `replaceAssertions` of an empty array
+          clears the profile.
+
+- [ ] T-L1-6: Repo: `mergeDuplicateKey`
+      Goal: Add `mergeDuplicateKey(profileId, fromKey, toKey):
+       Promise<Assertion | null>` to `profile-assertions-repo.ts`.
+      Semantics: in one transaction, look up rows for `fromKey` and
+      `toKey` (scoped to `profileId`). If `fromKey` is missing →
+      no-op, return current `toKey` row (or `null` if both missing).
+      If `toKey` is missing → rename `fromKey` row to `toKey`. If
+      both present → set `toKey.confidence = max(from.confidence,
+       to.confidence)`, `toKey.evidence_count = from.evidence_count +
+       to.evidence_count`, `toKey.updated_at = now()`, then delete the
+      `fromKey` row. Returns the resulting `toKey` row (or `null`).
+      Touches: `src/server/profiles/profile-assertions-repo.ts`
+      (extend), `tests/integration/profiles/assertions-repo.test.ts`
+      (extend).
+      Acceptance:
+        - Integration test: both keys present (from: 0.6/2, to: 0.7/4);
+          after `mergeDuplicateKey`, `to` row is 0.7/6, `from` row is
+          gone.
+        - Integration test: only `from` present; after merge, only
+          `to` exists with the renamed assertion + same stats.
+        - Integration test: only `to` present; merge is a no-op and
+          returns the existing `to` row unchanged.
+        - Integration test: neither present; returns `null`.
+      Notes: this helper is consumed by L-3's classifier dedup pass;
+      the embedding similarity check itself is *not* part of this
+      task.
+
+- [ ] T-L1-7: Assertions panel on profile edit page (server action + UI)
+      Goal: Render an "Assertions" section on
+      `/profiles/[id]/edit` listing the profile's assertions grouped
+      by `category`, each row showing `assertion`, a horizontal
+      confidence bar (width = `confidence × 100%`), `evidenceCount`
+      badge, and a delete button. Initially empty profiles show a
+      muted "No assertions yet — they're learned from your sessions
+      and examples." placeholder. Add a server action
+      `deleteAssertionAction({ profileId, assertionId })` in the
+      existing `src/app/(app)/profiles/actions.ts` that loads the
+      profile via `getProfile(user.id, profileId)` (returns 404 if
+      not owned), calls `deleteAssertion(profileId, assertionId)`,
+      and `revalidatePath('/profiles/[id]/edit', 'page')`.
+      Touches: `src/app/(app)/profiles/actions.ts` (extend),
+      `src/app/(app)/profiles/[id]/edit/page.tsx` (load assertions,
+      render panel), `src/app/(app)/profiles/[id]/edit/assertions-panel.tsx`
+      (new, client component for delete buttons),
+      `tests/unit/server/profiles/delete-assertion-action.test.ts`
+      (new).
+      Acceptance:
+        - Unit test: action denies a delete when the profile is not
+          owned by the current user (mocked `requireUser` + mocked
+          `getProfile` returning `null`); `deleteAssertion` is not
+          called.
+        - Unit test: action calls `deleteAssertion(profileId,
+           assertionId)` exactly once when ownership passes.
+        - Manual: visit `/profiles/<id>/edit` with `pnpm dev` and
+          confirm the empty-state placeholder renders. After running
+          a SQL `INSERT` that adds two assertions in different
+          categories, reload — both appear under their category
+          headers with a confidence bar and a delete button. Clicking
+          delete removes the row and the page revalidates.
+        - `pnpm lint && pnpm typecheck && pnpm test` pass.
+      Notes: no new public API endpoint — the delete uses a server
+      action invoked from the client component via the standard
+      `useActionState` pattern already used by `EditForm`. The
+      assertions list itself is rendered by the server component on
+      page load; the client component only owns the per-row delete
+      button + optimistic update.
+
 ---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic L-2 — "Add examples" style analyzer
 

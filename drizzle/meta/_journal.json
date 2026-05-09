@@ -92,6 +92,13 @@
       "when": 1777910736110,
       "tag": "0012_ancient_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778329583508,
+      "tag": "0013_hard_sersi",
+      "breakpoints": true
     }
   ]
 }

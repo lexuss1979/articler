@@ -195,6 +195,25 @@ export const claimEvidence = pgTable('claim_evidence', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const profileAssertions = pgTable(
+  'profile_assertions',
+  {
+    id: serial('id').primaryKey(),
+    profileId: integer('profile_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    category: text('category').notNull(),
+    key: text('key').notNull(),
+    assertion: text('assertion').notNull(),
+    confidence: numeric('confidence', { precision: 4, scale: 3 }).notNull().default('0.5'),
+    evidenceCount: integer('evidence_count').notNull().default(1),
+    source: text('source').notNull().default('session'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('profile_assertions_profile_id_key_idx').on(t.profileId, t.key)],
+);
+
 export const runs = pgTable('runs', {
   id: serial('id').primaryKey(),
   sessionId: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
