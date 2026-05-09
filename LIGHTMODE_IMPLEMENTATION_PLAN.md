@@ -667,7 +667,7 @@ Assertions panel. Session-level example upload is deferred.
       and parallelism adds no meaningful win against the 10-s
       per-fetch timeout.
 
-- [ ] T-L2-5: "Add examples" form on profile edit page
+- [x] T-L2-5: "Add examples" form on profile edit page
       Goal: Add a new client component
       `src/app/(app)/profiles/[id]/edit/examples-form.tsx` rendering
       under the Assertions panel on `/profiles/[id]/edit`. The form

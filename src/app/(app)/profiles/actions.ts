@@ -119,7 +119,7 @@ export async function deleteAssertionAction(
 }
 
 export type AnalyzeExamplesActionState =
-  | { ok: true; summary: string; urlErrors: Array<{ index: number; error: string }> }
+  | { ok: true; summary: string; savedCount: number; urlErrors: Array<{ index: number; error: string }> }
   | { ok: false; error: string }
   | null;
 
@@ -151,5 +151,5 @@ export async function analyzeExamplesAction(
 
   revalidatePath(`/profiles/${profileId}/edit`, 'page');
 
-  return { ok: true, summary: result.summary, urlErrors: result.urlErrors };
+  return { ok: true, summary: result.summary, savedCount: result.count, urlErrors: result.urlErrors };
 }

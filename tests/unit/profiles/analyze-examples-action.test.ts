@@ -89,7 +89,7 @@ describe('analyzeExamplesAction', () => {
       makeForm({ profileId: '10', inputs: JSON.stringify(validInputs) }),
     );
 
-    expect(result).toEqual({ ok: true, summary: 'Style summary.', urlErrors: [] });
+    expect(result).toEqual({ ok: true, summary: 'Style summary.', savedCount: 3, urlErrors: [] });
     expect(revalidatePath).toHaveBeenCalledWith('/profiles/10/edit', 'page');
   });
 

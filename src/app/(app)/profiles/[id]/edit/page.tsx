@@ -4,6 +4,7 @@ import { listAssertions } from '../../../../../server/profiles/profile-assertion
 import { getProfile } from '../../../../../server/profiles/repo';
 import { AssertionsPanel } from './assertions-panel';
 import { EditForm } from './edit-form';
+import { ExamplesForm } from './examples-form';
 
 export default async function EditProfilePage({
   params,
@@ -24,6 +25,7 @@ export default async function EditProfilePage({
       <h1 className="text-2xl font-semibold">Edit profile</h1>
       <EditForm profile={profile} />
       <AssertionsPanel profileId={profileId} assertions={assertions} />
+      <ExamplesForm profileId={profileId} />
     </div>
   );
 }
