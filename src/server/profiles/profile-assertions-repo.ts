@@ -182,6 +182,32 @@ export async function replaceAssertions(
   });
 }
 
+export async function replaceAssertionsBySource(
+  profileId: number,
+  source: string,
+  items: Array<{ key: string; category: string; assertion: string }>,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(profileAssertions)
+      .where(
+        and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.source, source)),
+      );
+    if (items.length === 0) return;
+    await tx.insert(profileAssertions).values(
+      items.map((item) => ({
+        profileId,
+        key: item.key,
+        category: item.category,
+        assertion: item.assertion,
+        source,
+        confidence: String(INITIAL_CONFIDENCE),
+        evidenceCount: 1,
+      })),
+    );
+  });
+}
+
 export async function mergeDuplicateKey(
   profileId: number,
   fromKey: string,

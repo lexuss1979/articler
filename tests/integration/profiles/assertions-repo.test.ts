@@ -13,6 +13,7 @@ import {
   recordAgreement,
   recordContradiction,
   replaceAssertions,
+  replaceAssertionsBySource,
   upsertAssertion,
 } from '../../../src/server/profiles/profile-assertions-repo';
 
@@ -307,6 +308,72 @@ describe.skipIf(!runIntegration)('profile-assertions-repo', () => {
   it('mergeDuplicateKey: neither present → returns null', async () => {
     const result = await mergeDuplicateKey(profileId, 'ghost_from', 'ghost_to');
     expect(result).toBeNull();
+  });
+
+  it('replaceAssertionsBySource replaces only the given source rows and leaves other sources untouched', async () => {
+    // Clear the profile first so we start clean
+    await db.delete(profileAssertions).where(eq(profileAssertions.profileId, profileId));
+
+    // Seed two 'session' rows and one 'examples' row
+    await upsertAssertion({ profileId, key: 'rbs_session_1', category: 'tone', assertion: 'session row 1', source: 'session' });
+    await upsertAssertion({ profileId, key: 'rbs_session_2', category: 'tone', assertion: 'session row 2', source: 'session' });
+    await upsertAssertion({ profileId, key: 'rbs_examples_old', category: 'format', assertion: 'old examples row', source: 'examples' });
+
+    await replaceAssertionsBySource(profileId, 'examples', [
+      { key: 'rbs_examples_new_1', category: 'format', assertion: 'new examples row 1' },
+      { key: 'rbs_examples_new_2', category: 'format', assertion: 'new examples row 2' },
+    ]);
+
+    const allRows = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.profileId, profileId));
+
+    // Session rows must be untouched
+    const sessionRows = allRows.filter((r) => r.source === 'session');
+    expect(sessionRows).toHaveLength(2);
+    const sessionKeys = sessionRows.map((r) => r.key);
+    expect(sessionKeys).toContain('rbs_session_1');
+    expect(sessionKeys).toContain('rbs_session_2');
+
+    // Examples source: old row gone, two new rows present
+    const examplesRows = allRows.filter((r) => r.source === 'examples');
+    expect(examplesRows).toHaveLength(2);
+    const examplesKeys = examplesRows.map((r) => r.key);
+    expect(examplesKeys).toContain('rbs_examples_new_1');
+    expect(examplesKeys).toContain('rbs_examples_new_2');
+    expect(examplesKeys).not.toContain('rbs_examples_old');
+
+    // New rows have default confidence and evidenceCount
+    examplesRows.forEach((r) => {
+      expect(Number(r.confidence)).toBeCloseTo(0.5);
+      expect(r.evidenceCount).toBe(1);
+    });
+  });
+
+  it('replaceAssertionsBySource with empty array deletes all rows for that source and leaves others intact', async () => {
+    // Clear the profile first so we start clean
+    await db.delete(profileAssertions).where(eq(profileAssertions.profileId, profileId));
+
+    // Seed one 'session' row and one 'examples' row
+    await upsertAssertion({ profileId, key: 'rbs_empty_session', category: 'tone', assertion: 'session stays', source: 'session' });
+    await upsertAssertion({ profileId, key: 'rbs_empty_examples', category: 'format', assertion: 'examples deleted', source: 'examples' });
+
+    await replaceAssertionsBySource(profileId, 'examples', []);
+
+    const allRows = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.profileId, profileId));
+
+    // Session row is intact
+    const sessionRows = allRows.filter((r) => r.source === 'session');
+    expect(sessionRows).toHaveLength(1);
+    expect(sessionRows[0]!.key).toBe('rbs_empty_session');
+
+    // Examples rows are all gone
+    const examplesRows = allRows.filter((r) => r.source === 'examples');
+    expect(examplesRows).toHaveLength(0);
   });
 
   it('listAssertions deletes rows that decay below AUTO_DELETE_BELOW', async () => {

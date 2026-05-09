@@ -586,7 +586,7 @@ Assertions panel. Session-level example upload is deferred.
       failure.
       Decision needed: timeout duration. Default: 10 s.
 
-- [ ] T-L2-3: Repo: `replaceAssertionsBySource`
+- [x] T-L2-3: Repo: `replaceAssertionsBySource`
       Goal: Add `replaceAssertionsBySource(profileId: number, source:
        string, items: Array<{ key: string; category: string;
        assertion: string }>): Promise<void>` to
