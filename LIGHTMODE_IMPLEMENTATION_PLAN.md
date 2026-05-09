@@ -1179,7 +1179,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       task — auto-selection lives in T-L4-6. Only the stage and its
       schema move here.
 
-- [ ] T-L4-4: Extend session `mode` value space to include `'light'`
+- [x] T-L4-4: Extend session `mode` value space to include `'light'`
       Goal: Update `createSession` in
       `src/server/sessions/repo.ts` so its input parameter type is
       `{ profileId: number; mode: 'new' | 'rewrite' | 'light' }`.

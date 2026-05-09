@@ -1,9 +1,12 @@
 import { and, eq, inArray } from 'drizzle-orm';
+import { z } from 'zod';
 import { db } from '../db/client';
 import { critiqueFindings, critiqueRounds, profiles, sessions } from '../db/schema';
 import type { BriefInput } from './brief';
 import type { Plan } from './plan';
 import type { ActiveCritics } from './critics';
+
+export const sessionModeSchema = z.union([z.literal('new'), z.literal('rewrite'), z.literal('light')]);
 
 export class ProfileNotOwnedError extends Error {
   constructor() {
@@ -26,7 +29,7 @@ export async function getSession(userId: number, id: number) {
 
 export async function createSession(
   userId: number,
-  input: { profileId: number; mode: 'new' | 'rewrite' },
+  input: { profileId: number; mode: 'new' | 'rewrite' | 'light' },
 ) {
   const [owned] = await db
     .select({ id: profiles.id })

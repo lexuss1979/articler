@@ -131,6 +131,16 @@ describe('createSession', () => {
     const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
     expect(calls.some(([col, val]) => col === profiles.userId && val === 3)).toBe(true);
   });
+
+  it('inserts session with mode=light without runtime error', async () => {
+    const { createSession } = await import('../../../src/server/sessions/repo');
+    dbMocks.selectWhere.mockResolvedValueOnce([{ id: 5 }]);
+    dbMocks.insertReturning.mockResolvedValue([{ id: 11, userId: 1, profileId: 5, mode: 'light' }]);
+    const result = await createSession(1, { profileId: 5, mode: 'light' });
+    expect(result.mode).toBe('light');
+    const insertArg = (dbMocks.insertValues.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(insertArg.mode).toBe('light');
+  });
 });
 
 describe('updateSessionBrief', () => {
