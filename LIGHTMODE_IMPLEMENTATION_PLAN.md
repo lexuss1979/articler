@@ -311,7 +311,7 @@ confidence as a small bar, and offers a delete button per row.
           assert the assertion row is gone.
         - `pnpm typecheck` passes with the new schema export.
 
-- [ ] T-L1-2: Confidence policy as a pure module
+- [x] T-L1-2: Confidence policy as a pure module
       Goal: A standalone module with no DB dependency that encodes the
       thresholds and deltas from "Assertion confidence policy". Exports
       named constants and four pure functions:
