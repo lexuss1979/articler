@@ -397,7 +397,7 @@ confidence as a small bar, and offers a delete button per row.
           returns `null` and inserts nothing.
         - `pnpm test` passes.
 
-- [ ] T-L1-5: Repo: `deleteAssertion` and `replaceAssertions`
+- [x] T-L1-5: Repo: `deleteAssertion` and `replaceAssertions`
       Goal: Add two methods to `profile-assertions-repo.ts`:
         - `deleteAssertion(profileId, assertionId): Promise<boolean>` —
           deletes the row only if it belongs to `profileId` (returns

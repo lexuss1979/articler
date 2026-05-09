@@ -7,9 +7,11 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../../../src/server/db/client';
 import { profileAssertions, profiles, users } from '../../../src/server/db/schema';
 import {
+  deleteAssertion,
   listAssertions,
   recordAgreement,
   recordContradiction,
+  replaceAssertions,
   upsertAssertion,
 } from '../../../src/server/profiles/profile-assertions-repo';
 
@@ -153,6 +155,98 @@ describe.skipIf(!runIntegration)('profile-assertions-repo', () => {
       .select()
       .from(profileAssertions)
       .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, key)));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('deleteAssertion returns true and removes row for correct profileId', async () => {
+    const row = await upsertAssertion({
+      profileId,
+      key: 'custom_delete_me',
+      category: 'custom',
+      assertion: 'to be deleted',
+    });
+    const hit = await deleteAssertion(profileId, row.id);
+    expect(hit).toBe(true);
+    const [dbRow] = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.id, row.id));
+    expect(dbRow).toBeUndefined();
+  });
+
+  it('deleteAssertion returns false and leaves row when profileId does not match', async () => {
+    const row = await upsertAssertion({
+      profileId,
+      key: 'custom_keep_me',
+      category: 'custom',
+      assertion: 'should survive',
+    });
+
+    // Create a second profile
+    const [profile2] = await db
+      .insert(profiles)
+      .values({
+        userId,
+        name: 'Other Profile',
+        format: 'blog',
+        style: 'formal',
+        audience: 'general',
+        targetVolumeMin: 300,
+        targetVolumeMax: 700,
+      })
+      .returning({ id: profiles.id });
+
+    const miss = await deleteAssertion(profile2.id, row.id);
+    expect(miss).toBe(false);
+
+    const [dbRow] = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.id, row.id));
+    expect(dbRow).toBeDefined();
+
+    await db.delete(profiles).where(eq(profiles.id, profile2.id));
+  });
+
+  it('replaceAssertions replaces all existing rows with new ones at default confidence', async () => {
+    const key1 = 'replace_a';
+    const key2 = 'replace_b';
+    const key3 = 'replace_c';
+    await upsertAssertion({ profileId, key: key1, category: 'tone', assertion: 'old a' });
+    await upsertAssertion({ profileId, key: key2, category: 'tone', assertion: 'old b' });
+    await upsertAssertion({ profileId, key: key3, category: 'tone', assertion: 'old c' });
+
+    await replaceAssertions(profileId, [
+      { key: 'replace_x', category: 'format', assertion: 'new x', source: 'examples' },
+      { key: 'replace_y', category: 'format', assertion: 'new y', source: 'examples' },
+    ]);
+
+    const rows = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.profileId, profileId));
+
+    const keys = rows.map((r) => r.key);
+    expect(keys).not.toContain(key1);
+    expect(keys).not.toContain(key2);
+    expect(keys).not.toContain(key3);
+    expect(keys).toContain('replace_x');
+    expect(keys).toContain('replace_y');
+    rows.forEach((r) => {
+      expect(Number(r.confidence)).toBeCloseTo(0.5);
+      expect(r.evidenceCount).toBe(1);
+    });
+  });
+
+  it('replaceAssertions with empty array clears all rows for the profile', async () => {
+    await upsertAssertion({ profileId, key: 'clear_me', category: 'scope', assertion: 'x' });
+
+    await replaceAssertions(profileId, []);
+
+    const rows = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.profileId, profileId));
     expect(rows).toHaveLength(0);
   });
 

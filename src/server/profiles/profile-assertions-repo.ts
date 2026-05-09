@@ -150,6 +150,38 @@ export async function recordContradiction(
   });
 }
 
+export async function deleteAssertion(
+  profileId: number,
+  assertionId: number,
+): Promise<boolean> {
+  const result = await db
+    .delete(profileAssertions)
+    .where(and(eq(profileAssertions.id, assertionId), eq(profileAssertions.profileId, profileId)))
+    .returning({ id: profileAssertions.id });
+  return result.length > 0;
+}
+
+export async function replaceAssertions(
+  profileId: number,
+  items: Array<{ key: string; category: string; assertion: string; source: string }>,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.delete(profileAssertions).where(eq(profileAssertions.profileId, profileId));
+    if (items.length === 0) return;
+    await tx.insert(profileAssertions).values(
+      items.map((item) => ({
+        profileId,
+        key: item.key,
+        category: item.category,
+        assertion: item.assertion,
+        source: item.source,
+        confidence: String(INITIAL_CONFIDENCE),
+        evidenceCount: 1,
+      })),
+    );
+  });
+}
+
 function mapRow(row: typeof profileAssertions.$inferSelect): Assertion {
   return {
     id: row.id,
