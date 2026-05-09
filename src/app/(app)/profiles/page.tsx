@@ -8,11 +8,14 @@ export default async function ProfilesPage() {
   const profiles = await listProfiles(user.id);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto h-full overflow-y-auto pr-1">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Profiles</h1>
-        <Link href="/profiles/new" className="text-blue-600 hover:text-blue-800 text-sm">
-          New profile
+        <Link
+          href="/profiles/new"
+          className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
+        >
+          + New profile
         </Link>
       </div>
       {profiles.length === 0 ? (

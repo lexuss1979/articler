@@ -16,6 +16,7 @@ const EVENT_KINDS = [
   'cost_updated',
   'agent_message',
   'awaiting_user',
+  'budget_blocked',
 ] as const;
 
 export function useSessionEvents(sessionId: number): SessionEvent[] {

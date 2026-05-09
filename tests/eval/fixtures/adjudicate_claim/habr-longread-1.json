@@ -1,0 +1,31 @@
+{
+  "input": {
+    "claim": {
+      "span": {
+        "sectionId": "mechanics",
+        "charStart": 0,
+        "charEnd": 40,
+        "text": "Anthropic's TTL is 5 minutes"
+      },
+      "claimType": "factual",
+      "checkWorthiness": "medium"
+    },
+    "evidence": [
+      {
+        "url": "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
+        "snippet": "The cache has a 5 minute time to live (TTL).",
+        "supports": true
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "adjudicateClaim.outputSchema",
+    "snapshot": {
+      "verdict": "verified",
+      "justification": "The official Anthropic documentation explicitly states the prompt cache TTL is 5 minutes, directly confirming the claim.",
+      "citationUrls": [
+        "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+      ]
+    }
+  }
+}

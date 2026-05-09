@@ -1,0 +1,65 @@
+{
+  "input": {
+    "plan": {
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "sections": [
+        {
+          "id": "intro",
+          "title": "Why Your LLM Costs Are Higher Than They Need to Be",
+          "intent": "Hook the reader with a concrete cost-pain scenario; introduce caching as the solution.",
+          "expectedLength": 400,
+          "keyPoints": [
+            "A typical RAG call re-sends the same 10k-token system prompt every time",
+            "That's ~$0.03 per call multiplied by millions of requests",
+            "Prompt caching changes the economics fundamentally"
+          ]
+        },
+        {
+          "id": "mechanics",
+          "title": "How Prompt Caching Works: Tokens, TTL, and Cache Keys",
+          "intent": "Explain the technical mechanism: what gets cached, for how long, and how the provider identifies cache hits.",
+          "expectedLength": 900,
+          "keyPoints": [
+            "Cache is keyed on the exact prefix of the messages array",
+            "Anthropic's TTL is 5 minutes (extendable via usage)",
+            "Input tokens on a cache hit cost ~10% of full price",
+            "cache_control breakpoint markers in the API"
+          ]
+        }
+      ]
+    },
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    "slot": {
+      "id": "s_hero_1",
+      "kind": "hero",
+      "brief": "An overhead editorial photo of an open laptop on a wooden desk, a stylized translucent overlay showing duplicated lines of code being collapsed into a single cached block, conveying the idea of paying once and reusing many times."
+    }
+  },
+  "expected": {
+    "schemaRef": "composeImagePrompt.outputSchema",
+    "snapshot": {
+      "subject": "An open laptop on a clean wooden desk, viewed from a slight overhead angle. A semi-transparent overlay shows duplicated lines of code being collapsed into a single highlighted cached block above the keyboard.",
+      "style": "editorial photo with subtle digital overlay",
+      "composition": "centered, slight overhead three-quarter angle, shallow depth of field with the laptop screen sharp and the desk surface softened",
+      "palette": ["warm walnut", "cool slate", "muted indigo", "amber accent"],
+      "lighting": "soft window light from the upper left, warm ambient fill",
+      "camera": "35mm prime, f/2.8",
+      "mood": "focused, premium, slightly studious",
+      "negative": "no logos, no readable brand names, no human faces",
+      "aspect": "16:9"
+    }
+  }
+}

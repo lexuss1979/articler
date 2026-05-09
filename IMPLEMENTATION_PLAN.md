@@ -2006,7 +2006,26 @@ is captured.
 
 ## Epic 8 — Review: critics + fact-checker
 
-**Status: planned**
+**Status: shipped (T-8-1 … T-8-18 complete; redesigned post-T-8-18)**
+
+> **Post-shipping redesign (commit `b0ccb78`):** the parallel-critics
+> design from T-8-6/T-8-7 was replaced with a single strong-model
+> review call composing selected lenses, plus a new `apply-revisions`
+> stage that rewrites the full draft from filtered findings. Per-finding
+> actions from T-8-8 (`dismiss/apply/rewriteFromFinding`) and the
+> custom-critic UI were removed; severity is now `critical/medium/minor`
+> with a deterministic critical+medium rewrite gate, minor stays
+> informational. Two new `sessions` columns
+> (`revised_draft_md`, `revision_status`) hold the pending revision; the
+> review UI gained a 3-column "before / after / applied comments" screen.
+> The `run_critic` stage was deleted; `run_review` is now the canonical
+> stage with its own eval fixture (replacing `run_critic/`). Original
+> task acceptance criteria below describe the pre-redesign shape; treat
+> them as historical context for the directories touched, not as the
+> current contract. Drafting also gained resilience (resumable on
+> crash, runner lock, fallback on null LLM content) shipped in the
+> same commit.
+
 **Goal:** When the user finishes drafting the session enters
 `'review'`. The workbench swaps to a two-tab review pane. The
 **Critique** tab lets the user run a panel of critic personas
@@ -2133,7 +2152,7 @@ for the four new stages.
           returns the defaults.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-3: Claim + verdict + evidence schemas + spanHash helper
+- [x] T-8-3: Claim + verdict + evidence schemas + spanHash helper
       Goal: Typed shapes for the three fact-check stages plus the
       span-hash idempotency helper.
       Touches: `src/server/sessions/claims.ts`,
@@ -2175,7 +2194,7 @@ for the four new stages.
           spanHash('Hello')`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-4: Critique repo helpers
+- [x] T-8-4: Critique repo helpers
       Goal: User-scoped persistence for critique rounds and findings
       in the same cross-table-ownership style as the existing
       `sources-repo`.
@@ -2208,7 +2227,7 @@ for the four new stages.
           resolves to `null` / `[]` as appropriate.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-5: Claims repo helpers
+- [x] T-8-5: Claims repo helpers
       Goal: User-scoped persistence for claims, verdicts, and
       evidence, plus the span-hash idempotency lookup.
       Touches: `src/server/sessions/claims-repo.ts`,
@@ -2242,7 +2261,7 @@ for the four new stages.
           resolve to `null` / `[]`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-6: `run_critic` stage
+- [x] T-8-6: `run_critic` stage
       Goal: A `Stage` that runs one critic persona over the draft
       and returns typed `Finding[]`.
       Touches: `src/server/pipeline/stages/run-critic.ts`,
@@ -2277,7 +2296,7 @@ for the four new stages.
           events were emitted in order with the expected payloads.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-7: `runReview` orchestration helper + `startReviewAction`
+- [x] T-8-7: `runReview` orchestration helper + `startReviewAction`
       Goal: A non-runner code path that, on user request, creates a
       new `'critique'` round, fans out the session's active critics
       in parallel, and persists each critic's findings.
@@ -2330,7 +2349,7 @@ for the four new stages.
       `ctx`, so the chat reflects live critic progress. No extra
       code in the orchestrator.
 
-- [ ] T-8-8: Per-finding action server actions
+- [x] T-8-8: Per-finding action server actions
       Goal: Server actions for dismiss / apply verbatim / send-to-
       drafter on a single finding.
       Touches: `src/app/(app)/sessions/[id]/actions.ts`,
@@ -2371,7 +2390,7 @@ for the four new stages.
       are approximate. v1 marks as applied; v2 can add surgical
       replace once spans are anchor-stable.
 
-- [ ] T-8-9: `extract_claims` stage
+- [x] T-8-9: `extract_claims` stage
       Goal: A `Stage` that extracts factual claims from the draft
       with span info and check-worthiness.
       Touches: `src/server/pipeline/stages/extract-claims.ts`,
@@ -2397,7 +2416,7 @@ for the four new stages.
           worthiness ladder.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-10: `verify_claim` stage with sources reuse
+- [x] T-8-10: `verify_claim` stage with sources reuse
       Goal: A `Stage` that gathers evidence for a single claim,
       reusing accepted sources from the session before issuing a
       search query.
@@ -2443,7 +2462,7 @@ for the four new stages.
       net-positive even with false positives — the adjudicator
       filters noise downstream.
 
-- [ ] T-8-11: `adjudicate_claim` stage
+- [x] T-8-11: `adjudicate_claim` stage
       Goal: A `Stage` that emits a verdict + justification + citation
       list given a claim and its evidence pool.
       Touches: `src/server/pipeline/stages/adjudicate-claim.ts`,
@@ -2476,7 +2495,7 @@ for the four new stages.
           fires without calling `routeJsonChat`.
         - `pnpm test` and `pnpm typecheck` exit 0.
 
-- [ ] T-8-12: `runFactCheck` orchestration helper +
+- [x] T-8-12: `runFactCheck` orchestration helper +
       `startFactCheckAction`
       Goal: A non-runner code path that runs the three-stage
       fact-check pipeline with `span_hash` idempotency.
@@ -2531,7 +2550,7 @@ for the four new stages.
           asserts `force` is forwarded.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-13: Per-claim action server actions
+- [x] T-8-13: Per-claim action server actions
       Goal: Server actions for accept-correction / dismiss-verdict /
       mark-as-opinion on a single claim.
       Touches: `src/app/(app)/sessions/[id]/actions.ts`,
@@ -2566,7 +2585,7 @@ for the four new stages.
           `acceptClaimCorrectionAction` short-circuits on `verified`.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-14: Active critics configuration + ad-hoc critic action
+- [x] T-8-14: Active critics configuration + ad-hoc critic action
       Goal: Server action that updates `sessions.active_critics`
       with a new built-in enabledIds list and/or an appended
       custom critic.
@@ -2593,7 +2612,7 @@ for the four new stages.
           before persistence.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-15: Runner — `'review'` state park + `finishReviewAction`
+- [x] T-8-15: Runner — `'review'` state park + `finishReviewAction`
       Goal: When the runner enters the `'review'` case it emits
       a `state_changed` and parks for `review_done`; on resolve it
       transitions to `'decoration'`. Drafting transitions out are
@@ -2626,7 +2645,7 @@ for the four new stages.
           the input and asserts state advances to `'decoration'`.
         - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
 
-- [ ] T-8-16: Workbench `<ReviewPane />` shell + Critique tab +
+- [x] T-8-16: Workbench `<ReviewPane />` shell + Critique tab +
       page wiring
       Goal: While `session.state === 'review'`, the workbench
       shows a two-tab pane. The Critique tab shows past rounds and
@@ -2678,7 +2697,7 @@ for the four new stages.
       future "back to review" affordance. The button is disabled
       with an inline hint.
 
-- [ ] T-8-17: Fact-check tab UI in `<ReviewPane />`
+- [x] T-8-17: Fact-check tab UI in `<ReviewPane />`
       Goal: The Fact-check tab shows claims with their latest
       verdicts and per-claim actions, plus a "Run fact-check"
       button.
@@ -2712,7 +2731,7 @@ for the four new stages.
           rendering).
         - `pnpm typecheck` and `pnpm lint` exit 0.
 
-- [ ] T-8-18: Eval fixtures for the four review stages
+- [x] T-8-18: Eval fixtures for the four review stages
       Goal: Capture one input/expected snapshot per new stage so
       the Epic 12 harness can replay them.
       Touches:
@@ -2750,29 +2769,1767 @@ for the four new stages.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic 9 — Decoration suggestions
 
-**Status: TBD**
-Intent: `propose_decoration` stage; UI overlay on the draft showing
-proposed callouts/quotes/code blocks/tables; per-suggestion accept/reject
-applying the change to `draft_md`.
+**Status: planned**
+
+**Goal:** When the user clicks "Finish review" the session transitions
+to `'decoration'`. The workbench swaps to a `<DecorationPane />` that
+shows the locked draft alongside a list of proposed insertions
+(pull-quotes, callouts, code blocks, comparison tables, info boxes).
+A "Run decoration" button calls a single-shot `propose_decoration`
+LLM stage that returns a structured `{ suggestions: [...] }` payload;
+the suggestions persist on `sessions.decoration` (JSONB — no new
+tables) keyed by `{ sectionId, paragraphIndex }` anchors. Per
+suggestion, the user can **accept** (the helper deterministically
+inserts the suggestion's `contentMd` into the corresponding
+`section_drafts` row at `paragraphIndex` and recomposes
+`sessions.draftMd`) or **reject** (status flip only). Repeat
+"Run decoration" appends a new round, preserving prior statuses. When
+the user clicks "Finish decoration", the runner transitions to
+`'illustration'`. One eval fixture is captured for the new stage.
+
+Decision needed: keep decoration suggestions in `sessions.decoration`
+JSONB or introduce a `decoration_suggestions` table? Default: **JSONB**
+on `sessions.decoration` — the column already exists in the schema
+(see `drizzle/0009_*` / current `schema.ts`), volume is bounded
+(≤ 30 suggestions per session), and there is no cross-session query
+pattern that demands a relational table. If Epic 10 later needs to
+join image-slot rows the same column can be migrated then.
+
+### Tasks
+
+- [x] T-9-1: Decoration domain schemas + paragraph helpers
+      Goal: Typed shapes for decoration suggestions and the persisted
+      `sessions.decoration` payload, plus pure helpers for splitting
+      and rejoining a section's markdown by paragraphs.
+      Touches: `src/server/sessions/decoration.ts`,
+      `tests/unit/sessions/decoration-schema.test.ts`.
+      Acceptance:
+        - Exports `decorationKindSchema = z.enum(['pull_quote',
+          'callout', 'code_block', 'comparison_table', 'info_box'])`.
+        - Exports `suggestionStatusSchema = z.enum(['proposed',
+          'accepted', 'rejected'])`.
+        - Exports `decorationSuggestionSchema`: `{ id: z.string()
+          .min(1).max(60), kind: decorationKindSchema, sectionId:
+          z.string().min(1).max(120), paragraphIndex: z.number().int()
+          .min(0).max(500), contentMd: z.string().min(1).max(4000),
+          rationale: z.string().min(1).max(800), status:
+          suggestionStatusSchema.default('proposed') }`.
+        - Exports `proposeDecorationResponseSchema = z.object({
+          suggestions: z.array(decorationSuggestionSchema.omit({ id:
+          true, status: true })).max(30) })` — the schema the
+          `propose_decoration` stage emits (no id/status, both
+          assigned by the orchestrator).
+        - Exports `decorationRoundSchema = z.object({ id: z.string()
+          .min(1), draftHash: z.string().min(1), createdAt:
+          z.string(), suggestions: z.array(decorationSuggestionSchema)
+          })`.
+        - Exports `decorationStateSchema = z.object({ rounds:
+          z.array(decorationRoundSchema).default([]) })` and
+          `parseDecorationState(value: unknown): DecorationState`
+          which returns `{ rounds: [] }` on null/invalid input.
+        - Exports the helper `splitParagraphs(md: string): string[]`
+          that splits on `/\n{2,}/` and trims trailing whitespace per
+          chunk; an empty string returns `[]`.
+        - Exports `joinParagraphs(paragraphs: string[]): string` that
+          rejoins with `'\n\n'`.
+        - Exports `insertParagraph(md: string, index: number,
+          contentMd: string): string` that splits, clamps `index` to
+          `[0, paragraphs.length]`, splices `contentMd.trim()` in,
+          and rejoins; clamping is silent (no throw).
+        - Exports type aliases `DecorationKind`, `DecorationSuggestion`,
+          `DecorationRound`, `DecorationState`,
+          `ProposeDecorationResponse` via `z.infer<...>`.
+        - Unit test asserts each schema accepts a valid hand-built
+          value and rejects one obvious violation per schema (kind =
+          `'banner'`, paragraphIndex = `-1`, empty `contentMd`);
+          asserts `parseDecorationState(null)` returns `{ rounds: [] }`;
+          asserts `splitParagraphs('a\n\nb\n\n\nc')` length is 3;
+          asserts `insertParagraph('a\n\nb', 1, 'X')` equals
+          `'a\n\nX\n\nb'`; asserts `insertParagraph('a', 99, 'X')`
+          clamps to `'a\n\nX'`.
+        - `pnpm test` and `pnpm typecheck` exit 0.
+
+- [x] T-9-2: Decoration persistence helpers
+      Goal: User-scoped read/append/status helpers for
+      `sessions.decoration` JSONB.
+      Touches: `src/server/sessions/decoration-repo.ts`,
+      `tests/unit/sessions/decoration-repo.test.ts`.
+      Acceptance:
+        - Exports `getDecorationState(userId, sessionId):
+          Promise<DecorationState>` that loads the session
+          (ownership-checked via `getSession`), runs
+          `parseDecorationState(session.decoration)`, returns the
+          parsed value or `{ rounds: [] }` for foreign/missing
+          sessions.
+        - Exports `appendDecorationRound(userId, sessionId, round:
+          { draftHash: string; suggestions:
+          ProposeDecorationResponse['suggestions'] }):
+          Promise<DecorationRound | null>` that:
+          - generates `roundId = 'r_' + Date.now() + '_' +
+            randomBytes(4).toString('hex')`;
+          - assigns each suggestion `id = 's_' + roundId + '_' + i`
+            and `status = 'proposed'`;
+          - reads existing state, appends the new round, persists
+            via `db.update(sessions)` with the ownership predicate
+            and `updatedAt = new Date()`;
+          - returns the new round, or `null` if the update affected
+            zero rows.
+        - Exports `setSuggestionStatus(userId, sessionId,
+          suggestionId, status: 'accepted' | 'rejected'):
+          Promise<DecorationSuggestion | null>` that mutates the
+          matching suggestion's status across all rounds, persists
+          the updated state, returns the updated suggestion or
+          `null` if not found / not owned.
+        - Exports `findSuggestion(userId, sessionId, suggestionId):
+          Promise<{ round: DecorationRound; suggestion:
+          DecorationSuggestion } | null>`.
+        - Unit test mocks the db client (mirroring
+          `tests/unit/sessions/critique-repo.test.ts`); asserts a
+          foreign session yields `null` from
+          `appendDecorationRound`; asserts append produces
+          deterministic suggestion ids in order; asserts
+          `setSuggestionStatus` flips status and rejects unknown
+          ids.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-9-3: `propose_decoration` stage
+      Goal: Single-shot smart-model stage that takes the locked
+      draft + plan + profile and returns structured decoration
+      suggestions.
+      Touches: `src/server/pipeline/stages/propose-decoration.ts`,
+      `tests/unit/pipeline/propose-decoration.test.ts`.
+      Acceptance:
+        - Exports `proposeDecoration: Stage<{ profile: ProfileRow;
+          plan: Plan; sectionDrafts: Array<{ sectionId: string;
+          contentMd: string }> }, ProposeDecorationResponse>` with
+          `name: 'propose_decoration'`, `modelClass: 'smart'`,
+          `inputSchema` and `outputSchema =
+          proposeDecorationResponseSchema`.
+        - System prompt instructs the model to (a) propose at most
+          ~12 high-impact decorations, (b) cite a `sectionId` from
+          the provided sections, (c) set `paragraphIndex` to the
+          paragraph slot WITHIN that section's `contentMd` (split
+          on blank lines) where the decoration should appear (0 =
+          before first paragraph, N = after last), (d) emit
+          `contentMd` as ready-to-paste markdown for the chosen
+          `kind` (e.g. `> ...` for `pull_quote`,
+          ```` ```\n...\n``` ```` for `code_block`, GFM table for
+          `comparison_table`, fenced or HTML callout for `callout` /
+          `info_box` per the profile's `markupRules`), (e) keep
+          `rationale` to one sentence, (f) respond with valid JSON
+          `{ suggestions: [...] }` only.
+        - User-prompt content is built like `run-review`: each
+          section is rendered as `## ${title} [sectionId=${id}]`
+          followed by the section's `contentMd`.
+        - The stage emits `task_started` and `task_completed`
+          events with `{ stage: 'propose_decoration', count:
+          result.suggestions.length }` (matching `run-review`).
+        - Calls `routeJsonChat({ system, user, schema:
+          proposeDecorationResponseSchema, class: 'smart' })` and
+          returns `result`.
+        - Unit test mocks `routeJsonChat` (vi.mock pattern from
+          `run-review-stage.test.ts`); asserts the returned shape
+          matches the mock; asserts `class: 'smart'` is passed;
+          asserts the system prompt mentions every allowed `kind`
+          enum value; asserts an empty `sectionDrafts` array still
+          yields a valid call.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-9-4: Apply-decoration helper (deterministic edit)
+      Goal: Pure persistence helper that takes one accepted
+      suggestion, updates its section's `section_drafts.contentMd`
+      via `insertParagraph`, and recomposes `sessions.draftMd` from
+      all `section_drafts` rows in plan order.
+      Touches: `src/server/pipeline/apply-decoration.ts`,
+      `tests/unit/pipeline/apply-decoration.test.ts`.
+      Acceptance:
+        - Exports `applyDecoration({ sessionId, userId,
+          suggestionId }):
+          Promise<{ ok: true; revisedDraftMd: string }
+          | { ok: false; error: 'not_found' | 'session_invalid'
+          | 'plan_invalid' | 'section_missing' }>`.
+        - Resolves the session (ownership), parses
+          `session.plan` via `planSchema` (errors → `plan_invalid`),
+          looks up the suggestion via `findSuggestion`; if missing
+          → `not_found`.
+        - Loads the section's draft via `getSectionDraft(userId,
+          sessionId, sectionId)`; if missing → `section_missing`.
+        - Computes `nextContentMd = insertParagraph(currentContentMd,
+          paragraphIndex, contentMd)`; calls `upsertSectionDraft` to
+          persist.
+        - Recomposes `revisedDraftMd` by calling
+          `listSectionDrafts(userId, sessionId)`, then ordering rows
+          by `plan.sections.findIndex(s => s.id === row.sectionId)`
+          (sections not in plan keep their natural db order at the
+          tail), and joining `contentMd`s with `'\n\n'`.
+        - Calls `updateSessionDraft(userId, sessionId,
+          revisedDraftMd)` and `setSuggestionStatus(userId,
+          sessionId, suggestionId, 'accepted')`.
+        - Returns `{ ok: true, revisedDraftMd }`.
+        - Unit test mocks `getSession`, `getSectionDraft`,
+          `upsertSectionDraft`, `listSectionDrafts`,
+          `updateSessionDraft`, and the decoration repo; asserts a
+          missing suggestion yields `not_found`; asserts the
+          rebuilt draftMd contains the inserted snippet at the
+          expected position; asserts plan order is honored when
+          recomposing; asserts the suggestion ends in `accepted`
+          status.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-9-5: `runDecoration` orchestrator
+      Goal: Top-level wrapper (analogue of `run-review.ts`) that
+      validates the session, calls the stage with prepared inputs,
+      persists a new round, and emits artifact events.
+      Touches: `src/server/pipeline/run-decoration.ts`,
+      `tests/unit/pipeline/run-decoration.test.ts`.
+      Acceptance:
+        - Exports `async function runDecoration({ sessionId,
+          userId }): Promise<{ ok: true; roundId: string;
+          suggestionCount: number } | { ok: false; error:
+          'session_invalid' | 'no_draft' }>`.
+        - Loads `getSession`, `getProfile`, parses `planSchema`;
+          returns `session_invalid` on any failure. Returns
+          `no_draft` if `session.draftMd` is null/empty.
+        - Computes `draftHash = spanHash(session.draftMd)` (reuse
+          the helper from `src/server/sessions/claims.ts`).
+        - Builds a minimal `ctx` with a real `emit`
+          (`emitEvent(sessionId, ...)`), a no-op `userInput`
+          (mirrors `run-review.ts`), no-op `log.append`, and an
+          unused `llm` placeholder.
+        - Calls `proposeDecoration.run({ profile, plan,
+          sectionDrafts: await listSectionDrafts(userId,
+          sessionId) }, ctx)`.
+        - Calls `appendDecorationRound(userId, sessionId,
+          { draftHash, suggestions: result.suggestions })`; if it
+          returns null treats that as `session_invalid`.
+        - For each persisted suggestion emits
+          `artifact_updated` with `{ kind:
+          'decoration_suggestion', suggestion }`. After the loop
+          emits `artifact_updated` with `{ kind:
+          'decoration_round', roundId: round.id,
+          suggestionCount }`.
+        - Returns `{ ok: true, roundId: round.id,
+          suggestionCount: round.suggestions.length }`.
+        - Unit test mocks the stage and the repo helpers; asserts
+          the happy path emits both event kinds in order; asserts
+          a missing draft short-circuits to `no_draft` BEFORE
+          calling the stage.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-9-6: Decoration server actions
+      Goal: Server actions that wire the pane to the orchestrator
+      and the per-suggestion helpers.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/decoration-actions.test.ts`.
+      Acceptance:
+        - Adds `startDecorationAction(sessionId): Promise<{ ok:
+          true; roundId: string; suggestionCount: number } | {
+          ok: false; error: ... }>` that calls `requireUser` then
+          `runDecoration({ sessionId, userId: user.id })`;
+          revalidates the session path on success.
+        - Adds `acceptDecorationAction(sessionId, suggestionId):
+          Promise<{ ok: true; revisedDraftMd: string } | { ok:
+          false; error: string }>` that calls `requireUser` then
+          `applyDecoration({ sessionId, userId: user.id,
+          suggestionId })`; revalidates on success. Validates
+          `suggestionId` via `z.string().min(1).max(80)`.
+        - Adds `rejectDecorationAction(sessionId, suggestionId):
+          Promise<{ ok: true } | { ok: false; error:
+          'not_found' | 'validation' }>` that calls
+          `setSuggestionStatus(user.id, sessionId, suggestionId,
+          'rejected')`; revalidates on success.
+        - Adds `finishDecorationAction(sessionId): Promise<{ ok:
+          true } | { ok: false; error:
+          'no_pending_decoration' }>` mirroring
+          `finishReviewAction`: calls `resolveUserInput(sessionId,
+          { action: 'finish' })`.
+        - Unit test mocks `requireUser`, `runDecoration`,
+          `applyDecoration`, `setSuggestionStatus`, and
+          `resolveUserInput`; asserts each action passes
+          `user.id` through; asserts validation rejects an empty
+          `suggestionId`; asserts `finishDecorationAction` returns
+          `no_pending_decoration` when nothing is parked.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-9-7: Runner — `'decoration'` state park + transition to
+      `'illustration'`
+      Goal: When the runner enters the `'decoration'` case it
+      emits a `state_changed` (already done by the upstream
+      review case) and parks for `decoration_done`; on resolve it
+      transitions to `'illustration'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-decoration.test.ts`.
+      Acceptance:
+        - The `'review'` case in `runner.ts` is updated to call
+          `await startRunner(sessionId, userId, true)` immediately
+          after transitioning to `'decoration'` (matching the
+          `'planning' → 'research' → 'drafting' → 'review'`
+          chain) so the decoration park activates without waiting
+          for a fresh runner kick.
+        - A new `case 'decoration':` parks via
+          `ctx.userInput('decoration_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'illustration')`,
+          emits `state_changed` (`{ state: 'illustration' }`),
+          and does NOT recursively call `startRunner` (the
+          illustration runner is Epic 10).
+        - Unit test (mirrors `tests/unit/pipeline/runner-review.test.ts`)
+          stubs `getSession` to return a `decoration` session and
+          `updateSessionState`; drives the runner; asserts an
+          `awaiting_user` event with `prompt: 'decoration_done'`
+          fires; calls `resolveUserInput` and asserts state
+          advances to `'illustration'`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-9-8: `<DecorationPane />` shell + `<SuggestionCard />`
+      Goal: Workbench pane for the `'decoration'` state that
+      lists suggestions per round and exposes per-suggestion
+      actions plus a "Finish decoration" button.
+      Touches:
+      `src/app/(app)/sessions/[id]/decoration-pane.tsx`,
+      `src/app/(app)/sessions/[id]/suggestion-card.tsx`.
+      Acceptance:
+        - `decoration-pane.tsx` is a `'use client'` component
+          with props `{ sessionId: number; plan: Plan;
+          initialState: DecorationState; sectionDrafts:
+          Array<{ sectionId: string; contentMd: string }> }`.
+          Local state mirrors `initialState.rounds`; resyncs
+          when `initialState` identity changes (same pattern as
+          `review-pane.tsx`).
+        - Subscribes via `useSessionEvents` and on
+          `artifact_updated` with `kind ===
+          'decoration_suggestion'` appends to the matching
+          round (creating it if missing), and on `kind ===
+          'decoration_round'` records the round shell.
+        - Renders a "Run decoration" button calling
+          `startDecorationAction` (disabled while the latest
+          `task_started/task_completed` for stage
+          `propose_decoration` is in flight; spinner reuses the
+          same activeTasks pattern as `review-pane.tsx`).
+        - Renders rounds most-recent-first; each round expands
+          to a list of `<SuggestionCard>`s grouped by
+          `sectionId` (in plan order).
+        - `<SuggestionCard>` displays: `kind` pill, section
+          title (clickable button stub calling a passed
+          `scrollToSection(id)` prop, which in this task can be
+          a no-op), `paragraphIndex`, the rendered `contentMd`
+          inside a styled preview block (use a `<pre>` for
+          `code_block`, `<blockquote>` for `pull_quote`,
+          neutral box for others — no markdown renderer
+          required, this is a v1 preview), the rationale, and
+          two buttons "Accept" → `acceptDecorationAction`,
+          "Reject" → `rejectDecorationAction`. After accept the
+          card is shown in a faded `applied` state; after
+          reject in a muted `rejected` state. Disabled when
+          `status !== 'proposed'`.
+        - A "Finish decoration" button at the bottom of the
+          pane calls `finishDecorationAction(sessionId)`.
+          Disabled until at least one round exists OR there is
+          at least one accepted suggestion (so a user who
+          rejects everything can still finish — guard purely
+          on `rounds.length > 0`).
+        - Includes one component-level unit test (Vitest +
+          Testing Library, alongside existing component tests
+          if any — otherwise just typecheck): renders the pane
+          with one round and asserts the section title, kind
+          pill, accept/reject buttons, and the rendered
+          `contentMd` are present.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Notes: a real markdown renderer is not required for v1;
+      previews are intentionally raw. Epic 11 (export) handles
+      proper rendering. If a renderer is later wanted,
+      `react-markdown` is the obvious choice.
+
+- [x] T-9-9: Page wiring for `'decoration'` state
+      Goal: `sessions/[id]/page.tsx` mounts `<DecorationPane />`
+      when `session.state === 'decoration'`, loading the
+      suggestions and section drafts server-side.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`.
+      Acceptance:
+        - When `session.state === 'decoration'`, the page
+          parses `planSchema` (skip render with the existing
+          fallback `<p>` if invalid), loads `decorationState =
+          parseDecorationState(session.decoration)` and
+          `sectionDrafts = await listSectionDrafts(user.id,
+          id)`, and mounts `<DecorationPane sessionId={id}
+          plan={plan} initialState={decorationState}
+          sectionDrafts={sectionDrafts} />` inside the
+          workbench area, alongside the existing branches for
+          `briefing | planning | research | drafting | review`.
+        - The fallback `<p className="text-sm text-gray-500">
+          State: {session.state}</p>` continues to render for
+          states that have no pane yet (`illustration | export
+          | done`).
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [x] T-9-10: Eval fixture for `propose_decoration` + fixture-driven
+      unit test
+      Goal: Capture one input/expected snapshot for the new
+      stage so the Epic 12 harness can replay it.
+      Touches:
+      `tests/eval/fixtures/propose_decoration/habr-longread-1.json`,
+      `tests/eval/README.md`,
+      `tests/unit/pipeline/propose-decoration.test.ts`.
+      Acceptance:
+        - Adds `tests/eval/fixtures/propose_decoration/
+          habr-longread-1.json` with shape `{ "input": {...},
+          "expected": { "schemaRef":
+          "proposeDecoration.outputSchema", "snapshot": {...} } }`.
+          The `input` reuses the Habr long-read profile + plan +
+          (non-empty) `sectionDrafts` already seeded for the
+          earlier review fixtures (e.g. copy from
+          `tests/eval/fixtures/run_review/habr-longread-1.json`)
+          so the chain stays consistent; `snapshot` contains 3-5
+          plausible suggestions covering at least three distinct
+          `kind` values.
+        - Updates `tests/eval/README.md` so the table grows by
+          one row to thirteen.
+        - Extends `tests/unit/pipeline/propose-decoration.test.ts`
+          (created in T-9-3) with one additional case that loads
+          the fixture, stubs `routeJsonChat` to return
+          `expected.snapshot`, and asserts the stage's return
+          deep-equals `expected.snapshot`.
+        - `pnpm test` exits 0.
+      Notes: No real LLM calls; the eval harness ships in Epic 12.
+
+---
 
 ## Epic 10 — Image subsystem
 
-**Status: TBD**
-Intent: `propose_image_slots`, `compose_image_prompt`,
-`prerender_images` (NanoBanana + Image 2) stages; structured JSON prompt
-editor; pre-render gallery with selection; stock pathway
-(`stock_keywords` + Unsplash/Pexels/Pixabay search + selection); image
-storage on local volume; references inserted into the draft.
+**Status: planned**
+
+**Goal:** When the user clicks "Finish decoration" the session
+transitions to `'illustration'`. The workbench swaps to an
+`<IllustrationPane />` that lists image slots (one `hero` plus zero or
+more inline slots, each anchored to a section). For each slot the user
+picks **generate** or **stock**. The generate pathway runs
+`compose_image_prompt` (smart) → produces a structured JSON
+`ImagePrompt` the user can edit → `prerender_images` (image class)
+fans out 3 parallel calls to NanoBanana / Image 2 via the existing
+`routeImage` and stores the bytes on disk under
+`data/images/<sessionId>/<slotId>/<candidateId>.<ext>`. The stock
+pathway runs `stock_keywords` (fast) → calls Unsplash via its HTTP API
+and presents thumbnails. In both cases the user picks one candidate;
+the helper inserts a deterministic Markdown image reference into the
+draft (via the same `insertParagraph` / section-draft recompose path as
+Epic 9). When the user clicks "Finish illustration", the runner
+transitions to `'export'` (no export logic yet — Epic 11). Eval
+fixtures captured for the three new LLM stages.
+
+Decision needed: keep image state in `sessions.images` JSONB or split
+into `image_slots` / `image_candidates` tables? Default: **JSONB** on
+`sessions.images` — the column already exists in the schema, the data
+is bounded (≤ 8 slots × ≤ 4 candidates per session), no cross-session
+query is required, and the same persistence pattern works for both
+generated and stock candidates without a polymorphic table.
+
+Decision needed: which stock providers ship in v1 (Unsplash, Pexels,
+Pixabay)? Default: **Unsplash only**. Single API, the most reliable
+free tier, and `UNSPLASH_ACCESS_KEY` is already in `.env.example`.
+Pexels / Pixabay env vars stay reserved; their clients are deferred.
+If the key is missing the stock pathway returns an empty result and
+the UI shows a "stock disabled — set UNSPLASH_ACCESS_KEY" notice.
+
+Decision needed: insert images on per-candidate selection (Epic 9
+decoration pattern) or recompose only on "Finish illustration"?
+Default: **per-selection insertion**, mirroring decoration. First
+selection inserts the Markdown image reference deterministically;
+subsequent re-selections for the same slot update the candidate
+metadata but the v1 UI disables the re-select buttons (a "swap" flow
+is deferred). This keeps the runner contract identical to Epic 9.
+
+### Tasks
+
+- [x] T-10-1: Image domain schemas + slot helpers
+      Goal: Typed shapes for image slots, structured prompts,
+      candidates, and the persisted `sessions.images` payload, plus
+      a pure helper that renders a Markdown image reference for an
+      arbitrary candidate.
+      Touches: `src/server/sessions/images.ts`,
+      `tests/unit/sessions/images-schema.test.ts`.
+      Acceptance:
+        - Exports `imageSlotKindSchema = z.enum(['hero', 'inline'])`.
+        - Exports `imageAspectSchema = z.enum(['16:9', '4:3', '1:1',
+          '3:4'])`.
+        - Exports `imageModeSchema = z.enum(['undecided', 'generate',
+          'stock'])`.
+        - Exports `imageCandidateSourceSchema = z.enum(['generated',
+          'stock'])`.
+        - Exports `imagePromptSchema = z.object({ subject:
+          z.string().min(1).max(600), style: z.string().min(1)
+          .max(200), composition: z.string().min(1).max(400),
+          palette: z.array(z.string().min(1).max(60)).min(1).max(8),
+          lighting: z.string().min(1).max(200), camera:
+          z.string().max(200).optional(), mood: z.string().min(1)
+          .max(200), negative: z.string().max(400).optional(),
+          aspect: imageAspectSchema })`.
+        - Exports `imageCandidateSchema = z.object({ id: z.string()
+          .min(1).max(80), source: imageCandidateSourceSchema,
+          localPath: z.string().min(1).max(400), sourceUrl:
+          z.string().url().optional(), thumbUrl: z.string().url()
+          .optional(), attribution: z.string().max(400).optional(),
+          model: z.string().max(120).optional(), createdAt:
+          z.string() })`.
+        - Exports `imageSlotSchema = z.object({ id: z.string().min(1)
+          .max(60), kind: imageSlotKindSchema, sectionId:
+          z.string().min(1).max(120).optional(), paragraphIndex:
+          z.number().int().min(0).max(500).optional(), brief:
+          z.string().min(1).max(1000), altText: z.string().max(300)
+          .optional(), mode: imageModeSchema.default('undecided'),
+          prompt: imagePromptSchema.optional(), candidates:
+          z.array(imageCandidateSchema).default([]),
+          chosenCandidateId: z.string().max(80).optional() })`. The
+          schema enforces (via `.superRefine`) that `kind === 'inline'`
+          requires both `sectionId` and `paragraphIndex` to be set,
+          and `kind === 'hero'` forbids them.
+        - Exports `imageStateSchema = z.object({ slots:
+          z.array(imageSlotSchema).max(20).default([]) })` and
+          `parseImageState(value: unknown): ImageState` returning
+          `{ slots: [] }` on null/invalid input.
+        - Exports `proposeImageSlotsResponseSchema = z.object({
+          heroBrief: z.string().min(1).max(1000), inlineSlots:
+          z.array(z.object({ sectionId: z.string().min(1).max(120),
+          paragraphIndex: z.number().int().min(0).max(500), brief:
+          z.string().min(1).max(1000) })).max(8) })` — emitted by
+          the `propose_image_slots` stage (no ids; the orchestrator
+          assigns them).
+        - Exports `stockKeywordsResponseSchema = z.object({ keywords:
+          z.array(z.string().min(1).max(60)).min(1).max(8) })`.
+        - Exports type aliases via `z.infer<...>`: `ImageSlotKind`,
+          `ImageAspect`, `ImageMode`, `ImagePrompt`, `ImageCandidate`,
+          `ImageSlot`, `ImageState`, `ProposeImageSlotsResponse`,
+          `StockKeywordsResponse`.
+        - Exports `renderImageMarkdown(candidate: ImageCandidate, alt:
+          string): string` that returns
+          `![alt](localPath)` for `source: 'generated'`,
+          and `![alt](sourceUrl) <sub>${attribution}</sub>` for
+          `source: 'stock'` (omits the `<sub>` if attribution is
+          empty); `alt` is HTML-escaped (`&` → `&amp;`, `[` → `\[`,
+          `]` → `\]`).
+        - Unit test asserts each schema accepts a valid hand-built
+          value and rejects one obvious violation
+          (`palette: []`, `aspect: '21:9'`, `kind: 'inline'` without
+          `sectionId`, candidate without `localPath`); asserts
+          `parseImageState(null)` returns `{ slots: [] }`; asserts
+          `renderImageMarkdown` for a generated candidate equals
+          `'![Hero](/api/images/1/slot_a/c1.png)'` and for a stock
+          candidate includes the attribution; asserts alt with `]`
+          is escaped.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-2: Image persistence helpers (`sessions.images` JSONB)
+      Goal: User-scoped read/write helpers for the image state on the
+      `sessions.images` column, mirroring `decoration-repo.ts`.
+      Touches: `src/server/sessions/images-repo.ts`,
+      `tests/unit/sessions/images-repo.test.ts`.
+      Acceptance:
+        - Exports `getImageState(userId, sessionId):
+          Promise<ImageState>` that loads via `getSession` and runs
+          `parseImageState(session.images)`; returns `{ slots: [] }`
+          on missing/foreign session.
+        - Exports `setImageSlots(userId, sessionId, slots:
+          ImageSlot[]): Promise<ImageSlot[] | null>` that overwrites
+          the slot list (used after `propose_image_slots`); returns
+          the persisted slots or `null` on update miss.
+        - Exports `findSlot(userId, sessionId, slotId):
+          Promise<ImageSlot | null>`.
+        - Exports `updateSlot(userId, sessionId, slotId, mutator:
+          (slot: ImageSlot) => ImageSlot):
+          Promise<ImageSlot | null>` that loads the state, replaces
+          the matching slot, and persists; returns the updated slot
+          or `null` if not found / not owned. All other helpers
+          below are implemented in terms of `updateSlot`.
+        - Exports `setSlotMode(userId, sessionId, slotId, mode:
+          'generate' | 'stock'): Promise<ImageSlot | null>`.
+        - Exports `setSlotPrompt(userId, sessionId, slotId, prompt:
+          ImagePrompt): Promise<ImageSlot | null>`.
+        - Exports `appendSlotCandidates(userId, sessionId, slotId,
+          candidates: ImageCandidate[]): Promise<ImageSlot | null>`
+          that appends; the `id` field is honored as supplied
+          (`prerender_images` and the stock client both assign ids).
+        - Exports `setSlotChoice(userId, sessionId, slotId,
+          candidateId: string): Promise<ImageSlot | null>` that
+          rejects if the candidateId is not present and otherwise
+          stamps `chosenCandidateId`.
+        - Unit tests mock the db client mirroring
+          `tests/unit/sessions/decoration-repo.test.ts`; assert each
+          helper is a no-op (returns `null`) for foreign sessions;
+          assert mode/prompt/candidates round-trip through
+          `parseImageState`; assert `setSlotChoice` rejects an
+          unknown candidate id.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-3: Image file storage utility + serve route
+      Goal: Persist generated bytes (b64) and remote stock URLs to
+      `data/images/<sessionId>/<slotId>/<candidateId>.<ext>` and serve
+      them through a Next.js GET handler so the draft Markdown can
+      reference them as `/api/images/...`.
+      Touches: `src/server/images/storage.ts`,
+      `src/app/api/images/[...path]/route.ts`,
+      `tests/unit/images/storage.test.ts`,
+      `.gitignore` (verify `data/` is already ignored — no change
+      needed if so).
+      Acceptance:
+        - `storage.ts` exports `IMAGES_ROOT = path.resolve(
+          process.cwd(), 'data', 'images')`.
+        - Exports `saveImageFromB64({ sessionId, slotId, candidateId,
+          mime, b64 }): Promise<{ localPath: string; absPath:
+          string }>` that decodes the base64 string into a Buffer,
+          ensures the directory exists via `fs.promises.mkdir`,
+          writes the file with extension derived from `mime`
+          (allowed: `image/png`, `image/jpeg`, `image/webp`; default
+          `png`), and returns
+          `localPath = '/api/images/<sessionId>/<slotId>/<candidate
+          Id>.<ext>'`.
+        - Exports `saveImageFromUrl({ sessionId, slotId, candidateId,
+          url }): Promise<{ localPath: string; absPath: string }>`
+          that fetches via `undici.fetch` (using the same
+          `getDispatcher()` pattern as `openrouter.ts` to honor
+          `HTTP_PROXY`), validates `Content-Type` matches one of
+          the allowed image mimes, and writes the bytes the same
+          way as `saveImageFromB64`.
+        - The GET route `app/api/images/[...path]/route.ts`:
+          - parses `params.path` (string array), rejoins to a
+            relative path, refuses any segment containing `..` or
+            starting with `.` (returns 400);
+          - resolves `path.join(IMAGES_ROOT, relPath)` and asserts
+            the resolved path stays within `IMAGES_ROOT` (else 400);
+          - reads the file via `fs.promises.readFile`; on
+            `ENOENT` returns 404;
+          - sets `Content-Type` from the extension (`.png` →
+            `image/png`, `.jpg`/`.jpeg` → `image/jpeg`, `.webp` →
+            `image/webp`) and `Cache-Control: private, max-age=
+            3600`;
+          - returns the bytes as the response body.
+        - Unit test exercises `saveImageFromB64` with a tiny inline
+          1×1 PNG and asserts the file exists at the returned
+          `absPath`, the bytes match, and `localPath` equals the
+          expected `/api/images/...` URL; uses a tmp directory by
+          monkey-patching `IMAGES_ROOT` via `vi.doMock` or by
+          accepting an injected `root` parameter (whichever keeps
+          tests deterministic — implementer's choice).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Notes: image bytes can be large; do NOT store them in the
+      events table or in JSONB. Only `localPath` is persisted.
+
+- [x] T-10-4: `propose_image_slots` stage
+      Goal: Single-shot smart-model stage that, given the locked
+      draft, plan, and profile, proposes one hero slot and 0–N
+      inline slots anchored to specific section paragraphs.
+      Touches: `src/server/pipeline/stages/propose-image-slots.ts`,
+      `tests/unit/pipeline/propose-image-slots.test.ts`.
+      Acceptance:
+        - Exports `proposeImageSlots: Stage<{ profile: ProfileRow;
+          plan: Plan; sectionDrafts: Array<{ sectionId: string;
+          contentMd: string }> }, ProposeImageSlotsResponse>` with
+          `name: 'propose_image_slots'`, `modelClass: 'smart'`,
+          `inputSchema` and `outputSchema =
+          proposeImageSlotsResponseSchema`.
+        - System prompt instructs the model to (a) emit exactly one
+          `heroBrief` summarizing the article's central image
+          subject in 1–2 sentences, (b) propose at most 4 inline
+          slots, each anchored to a `sectionId` from the provided
+          sections plus a `paragraphIndex` (split on blank lines),
+          (c) keep each `brief` concrete enough to feed an image
+          generator (subject + tone) without specifying camera or
+          composition (those are picked later by
+          `compose_image_prompt`), (d) prefer slots that introduce
+          a new technical concept or a key contrast, (e) respond
+          with valid JSON `{ heroBrief, inlineSlots }` only.
+        - User prompt mirrors `propose-decoration.ts`: each section
+          rendered as `## ${title} [sectionId=${id}]\n${contentMd}`.
+        - Emits `task_started` and `task_completed` events with
+          `{ stage: 'propose_image_slots', count: heroCount +
+          inlineSlots.length }`.
+        - Calls `routeJsonChat({ system, user, schema:
+          proposeImageSlotsResponseSchema, class: 'smart' })`.
+        - Unit test mocks `routeJsonChat` (vi.mock pattern from
+          `propose-decoration.test.ts`); asserts the returned shape;
+          asserts `class: 'smart'` is passed; asserts the system
+          prompt mentions the hero contract; asserts an empty
+          `sectionDrafts` array still yields a valid call.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-5: `compose_image_prompt` stage
+      Goal: Smart-model stage that produces a structured
+      `ImagePrompt` JSON for a single slot.
+      Touches: `src/server/pipeline/stages/compose-image-prompt.ts`,
+      `tests/unit/pipeline/compose-image-prompt.test.ts`.
+      Acceptance:
+        - Exports `composeImagePrompt: Stage<{ profile: ProfileRow;
+          plan: Plan; slot: { id: string; kind: ImageSlotKind;
+          sectionId?: string; paragraphIndex?: number; brief:
+          string }; surroundingMd?: string }, ImagePrompt>` with
+          `name: 'compose_image_prompt'`, `modelClass: 'smart'`,
+          `outputSchema = imagePromptSchema`.
+        - System prompt instructs the model to fill every required
+          field of `ImagePrompt`; pick `aspect` based on slot kind
+          (default `16:9` for hero, `4:3` for inline); avoid
+          banned content (logos, text overlays, real people unless
+          the brief explicitly names them); respond with valid JSON
+          only.
+        - User prompt includes the slot brief, the
+          surrounding paragraph(s) when provided, and the profile
+          style/audience snippet.
+        - Calls `routeJsonChat` and emits `task_started` /
+          `task_completed` with `{ stage: 'compose_image_prompt',
+          slotId }`.
+        - Unit test mocks `routeJsonChat` to return a minimal
+          valid `ImagePrompt`; asserts the stage returns it
+          unchanged; asserts the input is forwarded into the user
+          prompt (substring match on `slot.brief`).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-6: `prerender_images` stage
+      Goal: Image-class stage that fans out 3 parallel `routeImage`
+      calls for one prompt and persists the bytes via the storage
+      utility.
+      Touches: `src/server/pipeline/stages/prerender-images.ts`,
+      `tests/unit/pipeline/prerender-images.test.ts`.
+      Acceptance:
+        - Exports `prerenderImages: Stage<{ sessionId: number;
+          slotId: string; prompt: ImagePrompt; count?: number }
+          , { candidates: ImageCandidate[] }>` with
+          `name: 'prerender_images'`, `modelClass: 'image'`. The
+          `outputSchema` is `z.object({ candidates:
+          z.array(imageCandidateSchema).min(1).max(4) })`.
+        - Builds a single textual prompt from `ImagePrompt` (e.g.
+          ``${subject} — ${style}, ${composition}, ${lighting},
+          mood: ${mood}; palette: ${palette.join(', ')}; aspect
+          ${aspect}; negative: ${negative ?? 'none'}``).
+        - Spawns `count` (default 3, max 4) parallel `ctx.llm
+          .routeImage({ prompt: text })` calls via `Promise
+          .allSettled`. For each fulfilled result it picks the
+          first element of `data` and:
+          - if `b64_json` is set, calls `saveImageFromB64(...)`;
+          - else if `url` is set, calls `saveImageFromUrl(...)`;
+          - else marks the candidate as failed (skipped).
+        - Each candidate gets `id = 'c_' + Date.now() + '_' +
+          randomBytes(3).toString('hex') + '_' + i`, `source:
+          'generated'`, `model: result.modelUsed`, `createdAt:
+          new Date().toISOString()`.
+        - At least one successful candidate is required; if all
+          fail the stage throws an `Error('prerender_images: all
+          calls failed')`.
+        - Emits `task_started` (`{ stage: 'prerender_images',
+          slotId }`) and `task_completed` (`{ stage:
+          'prerender_images', slotId, count: candidates.length }`).
+        - Unit test mocks `ctx.llm.routeImage` to return a fake
+          response with `b64_json` and mocks `saveImageFromB64`
+          via `vi.mock`; asserts 3 candidates returned, each with
+          a `localPath`; asserts an all-fail run throws.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-7: `stock_keywords` stage
+      Goal: Fast-model stage that turns a slot brief into 3–6
+      stock-photo search keywords.
+      Touches: `src/server/pipeline/stages/stock-keywords.ts`,
+      `tests/unit/pipeline/stock-keywords.test.ts`.
+      Acceptance:
+        - Exports `stockKeywords: Stage<{ profile: ProfileRow;
+          slot: { brief: string; kind: ImageSlotKind } },
+          StockKeywordsResponse>` with `name: 'stock_keywords'`,
+          `modelClass: 'fast'`, `outputSchema =
+          stockKeywordsResponseSchema`.
+        - System prompt instructs the model to emit 3–6 single-word
+          or short-phrase English keywords suitable for Unsplash
+          search (no hashtags, no quotes, no punctuation, lowercase
+          preferred), reflect the brief's subject and tone, avoid
+          brand names, respond with valid JSON only.
+        - Calls `routeJsonChat({ class: 'fast' })`.
+        - Emits `task_started` / `task_completed` with `{ stage:
+          'stock_keywords' }`.
+        - Unit test mocks `routeJsonChat`; asserts result passthrough;
+          asserts `class: 'fast'` is forwarded.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-8: Unsplash stock provider client
+      Goal: Pure HTTP client that, given keywords, queries the
+      Unsplash search-photos endpoint and returns up to 6 normalized
+      candidates ready for the slot's candidate list.
+      Touches: `src/server/images/stock.ts`,
+      `tests/unit/images/stock.test.ts`.
+      Acceptance:
+        - Exports `searchUnsplash(keywords: string[], opts?: { perPage?:
+          number }): Promise<{ candidates: Array<{ id: string; sourceUrl:
+          string; thumbUrl: string; attribution: string }> }>`.
+        - Reads `process.env.UNSPLASH_ACCESS_KEY`; if missing,
+          throws `class StockUnconfiguredError extends Error` (also
+          exported) with message `'UNSPLASH_ACCESS_KEY not set'`.
+        - Calls `https://api.unsplash.com/search/photos?query=
+          <encoded keywords joined by '+'>&per_page=<perPage ?? 6>`
+          with the `Authorization: Client-ID <key>` header via the
+          `undici.fetch` + `getDispatcher()` pattern; surfaces a
+          non-200 response as `class StockHttpError extends Error`
+          (also exported) carrying the status code.
+        - Maps each `result` to
+          `{ id: 'unsplash_' + result.id, sourceUrl: result.urls
+          .regular, thumbUrl: result.urls.small, attribution:
+          'Photo by ' + result.user.name + ' on Unsplash' }`.
+        - Unit test stubs `undici.fetch` (e.g. via `vi.mock(
+          'undici', ...)` or by exporting an injectable
+          `fetchImpl` parameter) and asserts: missing env throws
+          `StockUnconfiguredError`; 200 response yields normalized
+          candidates with the expected attribution string; 401
+          response throws `StockHttpError` with `status === 401`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+      Notes: Pexels / Pixabay are out of scope here per the epic's
+      decision default. Their env keys remain in `.env.example`.
+
+- [x] T-10-9: Apply-image helper (deterministic draft insert)
+      Goal: Pure persistence helper that, given a chosen candidate,
+      inserts its Markdown image reference into the appropriate
+      section's `section_drafts.contentMd` (inline) or prepends to
+      the recomposed draft (hero), then recomposes
+      `sessions.draftMd` and stamps `chosenCandidateId` on the slot.
+      Touches: `src/server/pipeline/apply-image.ts`,
+      `tests/unit/pipeline/apply-image.test.ts`.
+      Acceptance:
+        - Exports `applyImageSelection({ sessionId, userId, slotId,
+          candidateId }): Promise<{ ok: true; revisedDraftMd:
+          string } | { ok: false; error: 'not_found' |
+          'session_invalid' | 'plan_invalid' | 'section_missing' |
+          'already_chosen' }>`.
+        - Resolves the session (ownership), parses `session.plan`
+          via `planSchema` (errors → `plan_invalid`).
+        - Loads the slot via `findSlot`; if missing → `not_found`.
+          If `slot.chosenCandidateId` is already set → returns
+          `already_chosen` and DOES NOT touch the draft (the v1
+          UI disables re-selection; this is a defensive guard).
+        - Looks up the candidate inside `slot.candidates` by
+          `candidateId`; if missing → `not_found`.
+        - For `kind === 'inline'`: loads `getSectionDraft(userId,
+          sessionId, slot.sectionId)`; if missing →
+          `section_missing`; computes `nextContentMd =
+          insertParagraph(currentContentMd, slot.paragraphIndex,
+          renderImageMarkdown(candidate, slot.altText ?? ''))`;
+          calls `upsertSectionDraft` to persist; recomposes
+          `revisedDraftMd` exactly like
+          `apply-decoration.ts` (`listSectionDrafts` + plan order
+          join with `'\n\n'`).
+        - For `kind === 'hero'`: skips `section_drafts` entirely;
+          `revisedDraftMd =
+          renderImageMarkdown(candidate, slot.altText ?? '') +
+          '\n\n' + composedFromSectionDrafts`.
+        - Calls `updateSessionDraft(userId, sessionId,
+          revisedDraftMd)` and `setSlotChoice(userId, sessionId,
+          slotId, candidateId)`.
+        - Returns `{ ok: true, revisedDraftMd }`.
+        - Unit test mocks `getSession`, `getSectionDraft`,
+          `upsertSectionDraft`, `listSectionDrafts`,
+          `updateSessionDraft`, and the images repo; asserts inline
+          slot inserts at the right paragraph index; asserts hero
+          slot prepends; asserts `already_chosen` short-circuits;
+          asserts plan order is honored.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-10: `runIllustration` orchestrator
+      Goal: One-shot wrapper (analogue of `run-decoration.ts`) that
+      validates the session, calls `propose_image_slots`, persists
+      the resulting slots, and emits artifact events.
+      Touches: `src/server/pipeline/run-illustration.ts`,
+      `tests/unit/pipeline/run-illustration.test.ts`.
+      Acceptance:
+        - Exports `async function runIllustration({ sessionId,
+          userId }): Promise<{ ok: true; slotCount: number } | {
+          ok: false; error: 'session_invalid' | 'no_draft' }>`.
+        - Loads `getSession`, `getProfile`, parses `planSchema`;
+          returns `session_invalid` on any failure. Returns
+          `no_draft` if `session.draftMd` is null/empty.
+        - Builds a minimal `ctx` mirroring `run-decoration.ts`
+          (real `emit`, no-op `userInput`, no-op `log.append`,
+          unused `llm` placeholder).
+        - Calls `proposeImageSlots.run({ profile, plan,
+          sectionDrafts: await listSectionDrafts(userId,
+          sessionId) }, ctx)`.
+        - Materializes a `Hero` slot (`id = 's_hero_' + Date.now()`,
+          `kind: 'hero'`, brief from `result.heroBrief`) plus one
+          `inline` slot per `result.inlineSlots[i]`
+          (`id = 's_in_' + Date.now() + '_' + i`).
+        - Calls `setImageSlots(userId, sessionId, slots)`; if it
+          returns `null` treats that as `session_invalid`.
+        - For each persisted slot emits `artifact_updated` with
+          `{ kind: 'image_slot', slot }`.
+        - After the loop emits `artifact_updated` with `{ kind:
+          'image_slots_round', slotCount: slots.length }`.
+        - Returns `{ ok: true, slotCount: slots.length }`.
+        - Unit test mocks the stage and the repo helpers; asserts
+          a missing draft short-circuits to `no_draft` BEFORE the
+          stage runs; asserts the happy path emits both event
+          kinds and the persisted slot list contains exactly one
+          hero plus the proposed inline slots; asserts re-running
+          REPLACES the slot list (overwrite, not append — Epic 10
+          v1 supports a single round).
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-11: Illustration server actions + slot helpers
+      Goal: Server actions wiring the pane to the orchestrator,
+      per-slot prompt composition, prerender, stock search,
+      candidate selection, and the finish handoff.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/illustration-actions.test.ts`.
+      Acceptance:
+        - Adds `startIllustrationAction(sessionId): Promise<{ ok:
+          true; slotCount: number } | { ok: false; error: ... }>`
+          that calls `requireUser` then `runIllustration({
+          sessionId, userId: user.id })`; revalidates on success.
+        - Adds `setSlotModeAction(sessionId, slotId, mode):
+          Promise<{ ok: true; slot: ImageSlot } | { ok: false;
+          error: 'validation' | 'not_found' }>` validating
+          `slotId` (`z.string().min(1).max(60)`) and `mode`
+          (`imageModeSchema.exclude(['undecided'])`).
+        - Adds `composePromptAction(sessionId, slotId): Promise<{
+          ok: true; prompt: ImagePrompt } | { ok: false; error: ... }>`
+          that loads the slot, runs `composeImagePrompt`, persists
+          via `setSlotPrompt`, returns the persisted prompt.
+        - Adds `savePromptAction(sessionId, slotId, prompt:
+          unknown): Promise<{ ok: true; prompt: ImagePrompt } |
+          { ok: false; error: 'validation' | 'not_found' }>`
+          validating against `imagePromptSchema`.
+        - Adds `prerenderSlotAction(sessionId, slotId): Promise<{
+          ok: true; candidates: ImageCandidate[] } | { ok: false;
+          error: 'no_prompt' | 'not_found' | 'session_invalid' }>`
+          that requires `slot.prompt`, calls
+          `prerenderImages.run`, persists via
+          `appendSlotCandidates`. Builds a minimal `ctx`
+          (analogous to `run-illustration.ts`).
+        - Adds `stockSearchAction(sessionId, slotId): Promise<{
+          ok: true; candidates: ImageCandidate[] } | { ok:
+          false; error: 'unconfigured' | 'http_error' |
+          'not_found' }>` that runs `stockKeywords.run`, calls
+          `searchUnsplash`, downloads each result via
+          `saveImageFromUrl` (so the local cache stays
+          self-contained), persists via `appendSlotCandidates`.
+          Maps `StockUnconfiguredError` → `unconfigured`,
+          `StockHttpError` → `http_error`.
+        - Adds `selectCandidateAction(sessionId, slotId,
+          candidateId): Promise<{ ok: true; revisedDraftMd:
+          string } | { ok: false; error: ... }>` calling
+          `applyImageSelection`.
+        - Adds `finishIllustrationAction(sessionId): Promise<{ ok:
+          true } | { ok: false; error:
+          'no_pending_illustration' }>` mirroring
+          `finishDecorationAction`: calls `resolveUserInput(
+          sessionId, { action: 'finish' })`.
+        - Unit test mocks `requireUser`, `runIllustration`,
+          `composeImagePrompt`, `prerenderImages`, `stockKeywords`,
+          `searchUnsplash`, `applyImageSelection`,
+          `setSlotMode/Prompt`, and `resolveUserInput`; asserts
+          each action threads `user.id`; asserts validation
+          rejects empty `slotId`; asserts the
+          `StockUnconfiguredError` mapping; asserts
+          `finishIllustrationAction` returns
+          `no_pending_illustration` when nothing is parked.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-12: Runner — `'illustration'` state park + transition to
+      `'export'`
+      Goal: When the runner enters the `'illustration'` case it
+      parks for `illustration_done`; on resolve it transitions to
+      `'export'`. The previous `'decoration'` case is updated so
+      it kicks the runner forward into `'illustration'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-illustration.test.ts`.
+      Acceptance:
+        - The `'decoration'` case is updated to call
+          `await startRunner(sessionId, userId, true)` immediately
+          after transitioning to `'illustration'` (matching the
+          existing `'review' → 'decoration'` chain), so the
+          illustration park activates without a fresh kick.
+        - A new `case 'illustration':` parks via
+          `ctx.userInput('illustration_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'export')`,
+          emits `state_changed` (`{ state: 'export' }`), and does
+          NOT recursively call `startRunner` (Epic 11 owns the
+          export runner).
+        - Unit test (mirrors
+          `tests/unit/pipeline/runner-decoration.test.ts`) stubs
+          `getSession` to return an `illustration` session and
+          `updateSessionState`; drives the runner; asserts an
+          `awaiting_user` event with `prompt:
+          'illustration_done'` fires; calls `resolveUserInput` and
+          asserts state advances to `'export'`.
+        - `pnpm test`, `pnpm typecheck`, and `pnpm lint` exit 0.
+
+- [x] T-10-13: `<IllustrationPane />` + `<ImageSlotCard />` +
+      `<ImagePromptEditor />`
+      Goal: Workbench pane for the `'illustration'` state with one
+      card per slot, mode toggle, prompt editor (generate path),
+      candidate gallery, candidate selection, and a "Finish
+      illustration" button.
+      Touches:
+      `src/app/(app)/sessions/[id]/illustration-pane.tsx`,
+      `src/app/(app)/sessions/[id]/image-slot-card.tsx`,
+      `src/app/(app)/sessions/[id]/image-prompt-editor.tsx`.
+      Acceptance:
+        - `illustration-pane.tsx` is a `'use client'` component
+          with props `{ sessionId: number; plan: Plan;
+          initialState: ImageState }`. Local state mirrors
+          `initialState.slots`; resyncs on `initialState`
+          identity change (same pattern as `decoration-pane.tsx`).
+        - Subscribes via `useSessionEvents`; on `artifact_updated`
+          with `kind === 'image_slot'` upserts by `slot.id`.
+        - Renders a "Run illustration proposal" button calling
+          `startIllustrationAction`. Disabled while a
+          `propose_image_slots` task is in flight (reuse the
+          activeTasks pattern from `decoration-pane.tsx`). Hidden
+          when `slots.length > 0` (the v1 flow supports one
+          round).
+        - Lists slots in this order: hero first, then inline slots
+          in the plan's section order (sections not in plan fall
+          to the tail).
+        - `<ImageSlotCard>` displays for each slot: the kind pill
+          ('Hero' or 'Inline — <section title>'), the brief, a
+          two-button mode toggle ('Generate' / 'Stock'), the
+          relevant sub-pane based on `mode`, the candidate gallery
+          (4-up grid of thumbnails), and once a candidate is
+          chosen, a faded "Selected" overlay on the chosen
+          thumbnail (re-selection disabled in v1).
+        - Generate sub-pane: shows the
+          `<ImagePromptEditor />` (a controlled `<textarea>` over
+          `JSON.stringify(prompt, null, 2)`, with "Compose
+          prompt" → `composePromptAction`, "Save prompt" →
+          `savePromptAction`, "Prerender" → `prerenderSlotAction`
+          buttons). Save validates client-side via `try {
+          JSON.parse(...) } catch` and shows an inline error
+          before round-tripping to the server.
+        - Stock sub-pane: a "Search Unsplash" button →
+          `stockSearchAction`. On `error: 'unconfigured'` shows
+          a static notice "Stock pathway disabled — set
+          `UNSPLASH_ACCESS_KEY`."
+        - Each thumbnail tile triggers `selectCandidateAction(
+          sessionId, slot.id, candidate.id)`.
+        - A "Finish illustration" button at the bottom calls
+          `finishIllustrationAction(sessionId)`; surfaces
+          `no_pending_illustration` with the same Resume button
+          pattern as `decoration-pane.tsx`. Disabled until
+          `slots.every(s => s.chosenCandidateId)` is true OR until
+          the user explicitly skips a slot (deferred — for v1 the
+          button is enabled when ALL slots have a chosen
+          candidate, so a user who wants to leave a slot empty
+          must reject the slot via the deferred "skip" flow; for
+          v1 enable the button when `slots.length > 0` instead so
+          the user is never blocked).
+        - One component-level smoke test (Vitest + Testing
+          Library) renders the pane with one hero slot and one
+          inline slot, asserts both kind pills, the mode toggles,
+          the brief text, and the "Finish illustration" button
+          appear.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+      Notes: actually rendering generated PNGs in `<img>` tags is
+      fine — the `/api/images/...` route serves them. Stock
+      thumbnails point at the Unsplash CDN URLs we cached.
+
+- [x] T-10-14: Page wiring for `'illustration'` state
+      Goal: `sessions/[id]/page.tsx` mounts `<IllustrationPane />`
+      when `session.state === 'illustration'`, loading the slots
+      server-side.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`.
+      Acceptance:
+        - When `session.state === 'illustration'`, the page parses
+          `planSchema` (existing fallback render on failure),
+          loads `imageState = parseImageState(session.images)`,
+          and mounts `<IllustrationPane sessionId={id} plan={plan}
+          initialState={imageState} />` inside the workbench area,
+          alongside the existing branches.
+        - The fallback `<p>State: {session.state}</p>` continues
+          to render for `'export' | 'done'`.
+        - `pnpm typecheck` and `pnpm lint` exit 0.
+
+- [x] T-10-15: Eval fixtures for the new LLM stages
+      Goal: One captured input/expected snapshot for each of
+      `propose_image_slots`, `compose_image_prompt`, and
+      `stock_keywords` so the Epic 12 harness can replay them.
+      Touches:
+      `tests/eval/fixtures/propose_image_slots/habr-longread-1.json`,
+      `tests/eval/fixtures/compose_image_prompt/habr-longread-1.json`,
+      `tests/eval/fixtures/stock_keywords/habr-longread-1.json`,
+      `tests/eval/README.md`,
+      `tests/unit/pipeline/propose-image-slots.test.ts`,
+      `tests/unit/pipeline/compose-image-prompt.test.ts`,
+      `tests/unit/pipeline/stock-keywords.test.ts`.
+      Acceptance:
+        - Each fixture has shape `{ "input": {...}, "expected": {
+          "schemaRef": "<stageExport>.outputSchema", "snapshot":
+          {...} } }`. Inputs reuse the Habr long-read profile +
+          plan + section drafts already seeded for earlier
+          fixtures (copy from `propose_decoration` /
+          `run_review`) so the chain stays consistent. Snapshots
+          contain plausible values (1 hero brief + 2 inline
+          slots; one full `ImagePrompt`; 4 keywords).
+        - `tests/eval/README.md` table grows by three rows to
+          sixteen.
+        - Each of the three stage tests is extended (or, where
+          freshly created in T-10-4 / T-10-5 / T-10-7, includes a
+          second case) that loads the fixture, stubs
+          `routeJsonChat` to return `expected.snapshot`, and
+          asserts the stage's return deep-equals the snapshot.
+        - `pnpm test` exits 0.
+      Notes: `prerender_images` is NOT eval-fixtured — it doesn't
+      route through `routeJsonChat` and image generations are
+      non-deterministic.
+
+---
 
 ## Epic 11 — Export
 
-**Status: TBD**
-Intent: Markdown (canonical), HTML (per-profile rules), DOCX, PDF.
-Export route returns a downloadable artifact bundle (article + images).
+**Status: planned**
+**Goal:** From a session in `'export'` state, the user can download the
+finished article as Markdown, HTML, DOCX, or PDF — each containing the
+chosen images. Markdown and HTML ship as a zip with a sidecar `images/`
+folder; DOCX and PDF embed images directly. The runner advances
+`'export' → 'done'` on user confirmation. Profile `markup_rules` are
+honored by the HTML pipeline.
+
+Decisions taken (defaults — change before implementation if needed):
+- PDF backend: Playwright Chromium at runtime (architecture-preferred).
+  The production image gets Chromium installed in T-11-2.
+- HTML pipeline: `remark` + `remark-gfm` + `remark-rehype` +
+  `rehype-stringify` (architecture-prescribed).
+- DOCX library: `docx` (architecture-prescribed).
+- Bundle archiver: `jszip` (pure JS, no native deps).
+- v1 `markup_rules` fields: `{ flavor: 'standard' | 'habr',
+  headingShift: integer (-2..3) }`. Existing `{}` profiles parse to
+  `{ flavor: 'standard', headingShift: 0 }`.
+- Stock images are always re-bundled from the local cache so a zip
+  bundle is offline-usable; attribution preserved as `<sub>…</sub>`.
+- Download filename pattern: `article-<sessionId>.<ext>`
+  (e.g. `article-42.docx`, `article-42-md.zip`).
+- Tables, footnotes, and inline raw-HTML beyond `<sub>` are out of
+  scope for v1 renderers.
+
+### Tasks
+
+- [x] T-11-1: v1 `markup_rules` schema + parser
+      Goal: Define a typed v1 schema for profile `markup_rules` with
+      backward-compatible defaults so HTML / DOCX renderers can rely
+      on it.
+      Touches: `src/server/profiles/markup.ts`,
+      `src/server/profiles/schema.ts`,
+      `tests/unit/profiles/markup-schema.test.ts`.
+      Acceptance:
+        - `markup.ts` exports `markupRulesSchema` (zod) with shape
+          `{ flavor: z.enum(['standard','habr']).default('standard'),
+          headingShift: z.number().int().min(-2).max(3).default(0) }`,
+          and `parseMarkupRules(value: unknown): MarkupRules` that
+          returns the parsed object on success or the defaults on
+          failure (mirrors `parseImageState`).
+        - `profileInputSchema.markupRules` is replaced by
+          `markupRulesSchema` (still optional via `.default({})` so
+          existing API callers that send `{}` keep working).
+        - Unit test asserts: empty object → defaults; valid full
+          object round-trips; invalid `flavor` falls back to
+          defaults via `parseMarkupRules`; `headingShift` outside
+          range fails strict parse but `parseMarkupRules` returns
+          defaults.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: no DB migration — `markupRules` jsonb column is
+      unchanged; only the validation layer tightens.
+
+- [x] T-11-2: Install export dependencies + ship Chromium in the
+      production image
+      Goal: Add the runtime libraries the renderers need and make
+      Playwright's Chromium available inside the `runner` Docker
+      stage so PDF export works in `docker compose up`.
+      Touches: `package.json`, `pnpm-lock.yaml`, `Dockerfile`.
+      Acceptance:
+        - `pnpm add remark remark-parse remark-gfm remark-rehype
+          rehype-stringify rehype-raw unified docx jszip
+          playwright@1.59.1` adds them to `dependencies` (NOT
+          devDependencies). The existing `@playwright/test`
+          devDependency stays for e2e. `playwright` is pinned to
+          the same version as `@playwright/test` so they share one
+          Chromium revision.
+        - The Docker base FROM is changed from `node:22-alpine` to
+          `node:22-bookworm-slim` (apt-based) so Playwright's
+          `--with-deps` install path works. The `addgroup`/
+          `adduser` invocation is replaced with `groupadd`/
+          `useradd` from the passwd package, which is the Debian-
+          standard equivalent.
+        - `Dockerfile`'s `runner` stage sets
+          `ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`, then runs
+          `RUN npx --yes playwright@1.59.1 install --with-deps
+          chromium` (as root, before the `USER nextjs` directive).
+          The browsers land in `/ms-playwright` so the unprivileged
+          `nextjs` user can read them at runtime.
+        - The `deps` and `builder` stages set
+          `ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so the install
+          step doesn't redundantly download Chromium during
+          `pnpm install` (the runner stage handles that once).
+        - `pnpm install --frozen-lockfile` succeeds locally.
+        - `docker build -t articler-web .` succeeds.
+        - `pnpm typecheck` exits 0 (so the new module typings
+          resolve).
+      Notes: image size will grow by ~400 MB (Debian base + apt
+      deps + Chromium). Acceptable for v1.
+
+- [x] T-11-3: Markdown article renderer + image manifest
+      Goal: Produce the canonical Markdown body of the export plus a
+      manifest of bundle-relative image attachments, with image
+      refs rewritten from `/api/images/...` and external Unsplash
+      URLs to relative `images/<slotId>.<ext>` paths.
+      Touches: `src/server/export/markdown.ts`,
+      `tests/unit/export/markdown.test.ts`.
+      Acceptance:
+        - Exports `renderMarkdownArticle({ session, imageState }: {
+          session: { draftMd: string | null; id: number };
+          imageState: ImageState }): Promise<{ contentMd: string;
+          attachments: ImageAttachment[] }>` and the type
+          `ImageAttachment = { bundlePath: string; absSourcePath:
+          string; mime: 'image/png' | 'image/jpeg' | 'image/webp' }`.
+        - For each slot in `imageState.slots` with a
+          `chosenCandidateId`: derive the candidate's expected
+          markdown URL the same way `renderImageMarkdown`
+          constructs it (`localPath` for generated, `sourceUrl ??
+          localPath` for stock); replace literal URL occurrences
+          inside `contentMd` with `images/<slotId>.<ext>`; add an
+          `ImageAttachment` whose `absSourcePath` is derived from
+          `candidate.localPath` by stripping `/api/images/` and
+          joining `IMAGES_ROOT`, and `mime` is inferred from the
+          file extension.
+        - Empty `draftMd` → `contentMd: ''`, `attachments: []`.
+        - Image refs that don't match any chosen candidate are
+          left untouched.
+        - Unit test feeds a sample `draftMd` with one hero
+          generated image ref and one inline stock ref (with
+          `<sub>` attribution); asserts both URLs are rewritten,
+          the `<sub>` block survives, and the manifest contains
+          two attachments with the expected `bundlePath` /
+          `absSourcePath` / `mime`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: filesystem reads happen later (in T-11-7); this
+      module is pure (string-in, manifest-out).
+
+- [x] T-11-4: HTML article renderer (remark/rehype, markup-rules
+      aware)
+      Goal: Convert Markdown to standalone HTML applying the
+      profile's `markup_rules`.
+      Touches: `src/server/export/html.ts`,
+      `tests/unit/export/html.test.ts`.
+      Acceptance:
+        - Exports `renderHtmlArticle(markdown: string, rules:
+          MarkupRules): Promise<string>` that builds a `unified()`
+          pipeline: `remarkParse → remarkGfm → remarkRehype({
+          allowDangerousHtml: true }) → rehypeRaw → rehypeStringify`
+          and returns the HTML body wrapped in a minimal
+          `<!doctype html><html><head><meta charset="utf-8">
+          <title>Article</title></head><body>…</body></html>`
+          envelope.
+        - `headingShift` is applied via a custom remark transformer:
+          for each heading node, set `depth = clamp(depth +
+          rules.headingShift, 1, 6)`.
+        - `flavor: 'habr'` defaults `headingShift` to `+1` when the
+          caller passes `0` (Habr article body uses H2 as the top
+          slot; H1 is reserved for the title set by the platform),
+          and wraps top-level headings in an extra newline (no
+          other transformations for v1; document this as the v1
+          Habr stub).
+        - `flavor: 'standard'` produces clean semantic HTML with
+          GFM tables disabled in DOCX/PDF (no impact here).
+        - `<sub>…</sub>` blocks survive the round-trip
+          (`allowDangerousHtml + rehypeRaw` enables this).
+        - Unit test snapshots two cases: standard flavor with
+          `headingShift: 0` over a markdown sample with H1/H2/code
+          fence/list/image+`<sub>`; Habr flavor with `headingShift:
+          0` over the same sample (asserts H1→H2 shift).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: tables/footnotes intentionally rely on default GFM
+      behavior; no extra config in v1.
+
+- [x] T-11-5: DOCX article renderer
+      Goal: Build a Word document from the Markdown article with
+      embedded images.
+      Touches: `src/server/export/docx.ts`,
+      `tests/unit/export/docx.test.ts`.
+      Acceptance:
+        - Exports `renderDocxArticle({ contentMd, attachments,
+          rules }: { contentMd: string; attachments:
+          ImageAttachment[]; rules: MarkupRules }): Promise<Buffer>`.
+        - Uses `unified() + remarkParse + remarkGfm` to build the
+          mdast, then walks the AST mapping nodes to `docx`
+          primitives:
+            - `heading` → `Paragraph` with
+              `HeadingLevel.HEADING_1..6` (offset by
+              `rules.headingShift`, clamped 1..6).
+            - `paragraph` → `Paragraph` with mixed `TextRun`s
+              (bold/italic/link).
+            - `list` (ordered/unordered) → `Paragraph`s with the
+              relevant numbering or bullet style.
+            - `code` (block) → preformatted `Paragraph` (single
+              `TextRun` with `font: 'Courier New'`).
+            - `blockquote` → `Paragraph` with `style: 'IntenseQuote'`
+              (use `docx` built-in style).
+            - `image` (`url` matches an attachment's `bundlePath`)
+              → `ImageRun` reading bytes from
+              `attachment.absSourcePath`; `transformation: { width:
+              480, height: 270 }` for v1 (no aspect detection).
+            - Unknown / unsupported nodes (table, footnote,
+              raw HTML) → skipped with a single
+              `Paragraph(TextRun({ text: '[unsupported: <kind>]',
+              italics: true }))` placeholder so output is never
+              empty for valid-looking input.
+        - Unit test feeds a markdown sample (heading + paragraph
+          + bullet list + image referencing a fixture PNG copied
+          into a tmp dir) plus the matching attachments, calls
+          `renderDocxArticle`, then:
+            - asserts the buffer starts with the ZIP magic `PK\x03\x04`,
+            - opens the buffer with `JSZip` and asserts it contains
+              `word/document.xml` and `word/media/image1.png` (or
+              similarly named entry).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: this task adds a small fixture under
+      `tests/unit/export/fixtures/` (a 1×1 PNG is fine).
+
+- [x] T-11-6: PDF article renderer (Playwright Chromium)
+      Goal: Render the HTML form of the article to PDF bytes,
+      embedding images by serving them from a tmp directory.
+      Touches: `src/server/export/pdf.ts`,
+      `tests/unit/export/pdf.test.ts`.
+      Acceptance:
+        - Exports `renderPdfArticle({ html, attachments }: { html:
+          string; attachments: ImageAttachment[] }): Promise<Buffer>`.
+        - Implementation: `mkdtempSync` a working dir, write
+          `index.html` (with a tiny embedded print stylesheet —
+          system font, max-width:42rem, `img { max-width: 100%; }`),
+          copy each attachment from its `absSourcePath` into the
+          dir under `attachment.bundlePath` (creating
+          subdirectories), launch `chromium.launch({ headless:
+          true })`, open a new page, call `page.goto('file://' +
+          path.join(tmpDir, 'index.html'))`, then `page.pdf({
+          format: 'A4', margin: { top: '20mm', right: '15mm',
+          bottom: '20mm', left: '15mm' } })`. Always close the
+          browser and remove the tmp dir.
+        - Unit test mocks `playwright` via `vi.mock('playwright',
+          () => ({ chromium: { launch: vi.fn().mockResolvedValue(
+          { newPage: vi.fn().mockResolvedValue({ goto: vi.fn(),
+          pdf: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7'))
+          }), close: vi.fn() }) } }))`; asserts the returned
+          buffer starts with `%PDF-`, that `goto` was called with
+          a `file://` URL inside an `os.tmpdir()` subtree, and
+          that the tmp dir is cleaned up afterwards.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: real PDF rendering is not exercised in unit tests
+      (no Chromium in CI). It ships in the docker image via
+      T-11-2.
+
+- [x] T-11-7: Zip bundle assembler
+      Goal: Pack arbitrary files into a zip buffer; used by the
+      route to ship MD/HTML bundles.
+      Touches: `src/server/export/bundle.ts`,
+      `tests/unit/export/bundle.test.ts`.
+      Acceptance:
+        - Exports `buildZipBundle(files: Array<{ path: string;
+          bytes: Buffer | string }>): Promise<Buffer>` using
+          `jszip`.
+        - Exports `buildAttributionsReadme(attachments:
+          ImageAttachment[], imageState: ImageState): string` that
+          returns plain text listing each stock candidate's
+          attribution (skips generated). Returns `'No external
+          attributions.\n'` if none.
+        - Unit test calls `buildZipBundle` with three entries
+          (`article.md`, `images/hero.png`, `README.txt`), parses
+          the result back with `JSZip`, and asserts all three
+          entries exist with their expected payloads.
+        - Second unit test calls `buildAttributionsReadme` over
+          one stock + one generated slot; asserts only the stock
+          line appears with its attribution string.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [x] T-11-8: Export route handler
+      Goal: `GET /api/sessions/:id/export?format=md|html|docx|pdf`
+      returns a downloadable artifact gated by ownership and
+      session state.
+      Touches: `src/app/api/sessions/[id]/export/route.ts`,
+      `tests/unit/api/export-route.test.ts`.
+      Acceptance:
+        - `requireUser` enforced; `getSession(user.id, id)` ensures
+          ownership; if `session.state` is not `'export'` or
+          `'done'` returns `409 { error: 'wrong_state' }`.
+        - Validates `format` query param against `z.enum(['md',
+          'html', 'docx', 'pdf'])`; on miss returns `400 { error:
+          'bad_format' }`.
+        - For all formats: load the session's profile, parse
+          `markupRules` via `parseMarkupRules`, parse `imageState`
+          via `parseImageState`, call `renderMarkdownArticle` to
+          get `{ contentMd, attachments }`.
+        - `format=md`: build a zip via `buildZipBundle` containing
+          `article.md` (`contentMd`), `images/<slot>.<ext>` (read
+          from `attachment.absSourcePath`), and `README.txt`
+          (`buildAttributionsReadme(...)`). Response headers:
+          `Content-Type: application/zip`,
+          `Content-Disposition: attachment;
+          filename="article-<id>-md.zip"`.
+        - `format=html`: same, but the article entry is
+          `article.html` produced by `renderHtmlArticle(contentMd,
+          rules)`. Filename `article-<id>-html.zip`.
+        - `format=docx`: call `renderDocxArticle({ contentMd,
+          attachments, rules })`; respond with bytes,
+          `Content-Type: application/vnd.openxmlformats-
+          officedocument.wordprocessingml.document`,
+          `filename="article-<id>.docx"`.
+        - `format=pdf`: call `renderHtmlArticle` then
+          `renderPdfArticle({ html, attachments })`; respond with
+          `Content-Type: application/pdf`,
+          `filename="article-<id>.pdf"`.
+        - Unit test mocks `requireUser`, `getSession`,
+          `getProfile`, and the four renderers; for each format
+          asserts the renderer is called with the right inputs,
+          the response status is 200, the content type matches,
+          and the disposition filename matches the pattern.
+          Negative cases: missing format → 400; wrong state → 409;
+          unowned session → 404 (returned by `getSession` ⇒ null
+          ⇒ route maps to 404).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: read attachment bytes using
+      `fs.readFile(attachment.absSourcePath)` inside the route
+      (not in `renderMarkdownArticle`).
+
+- [x] T-11-9: Runner — `'export'` state park + transition to
+      `'done'`
+      Goal: When the runner enters the `'export'` case it parks
+      for `export_done`; on resolve it transitions to `'done'`.
+      The previous `'illustration'` case is updated so it kicks
+      the runner forward into `'export'`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-export.test.ts`.
+      Acceptance:
+        - The `'illustration'` case is updated to call
+          `await startRunner(sessionId, userId, true)` immediately
+          after transitioning to `'export'` (matching the existing
+          `'decoration' → 'illustration'` chain).
+        - A new `case 'export':` parks via
+          `ctx.userInput('export_done', z.object({ action:
+          z.literal('finish') }))`; on resolve calls
+          `updateSessionState(userId, sessionId, 'done')`, emits
+          `state_changed` (`{ state: 'done' }`), and does NOT
+          recurse into `startRunner` (`'done'` is terminal).
+        - Unit test (mirrors
+          `tests/unit/pipeline/runner-decoration.test.ts`) stubs
+          `getSession` to return an `export` session and
+          `updateSessionState`; drives the runner; asserts an
+          `awaiting_user` event with `prompt: 'export_done'`
+          fires; calls `resolveUserInput` and asserts state
+          advances to `'done'`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [x] T-11-10: `finishExportAction` server action
+      Goal: Server action the UI calls to confirm the user is
+      done downloading; resolves the runner's `export_done` park.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`,
+      `tests/unit/sessions/finish-export-action.test.ts`.
+      Acceptance:
+        - Adds `finishExportAction(sessionId: number): Promise<{
+          ok: true } | { ok: false; error:
+          'no_pending_export' }>` mirroring `finishDecorationAction`
+          / `finishIllustrationAction`: calls `requireUser`,
+          asserts ownership via `getSession`, calls
+          `resolveUserInput(sessionId, { action: 'finish' })`,
+          maps `false` → `'no_pending_export'`.
+        - Unit test mocks `requireUser`, `getSession`, and
+          `resolveUserInput`; asserts ownership check rejects
+          (returns `'no_pending_export'`) when `getSession`
+          returns null; asserts the action threads `user.id`;
+          asserts `'no_pending_export'` when `resolveUserInput`
+          returns `false`; asserts `{ ok: true }` on resolve.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [x] T-11-11: `<ExportPane />` + page wiring for `'export'` /
+      `'done'` states
+      Goal: Workbench pane for the `'export'` state with one
+      download button per format and a "Mark as done" action.
+      `'done'` state shows the same downloads with a banner.
+      Touches:
+      `src/app/(app)/sessions/[id]/export-pane.tsx`,
+      `src/app/(app)/sessions/[id]/page.tsx`,
+      `tests/unit/sessions/export-pane.test.tsx`.
+      Acceptance:
+        - `export-pane.tsx` is a `'use client'` component with
+          props `{ sessionId: number; state: 'export' | 'done' }`.
+        - Renders four download links — `Markdown (.zip)`,
+          `HTML (.zip)`, `DOCX`, `PDF` — each as `<a download
+          href={'/api/sessions/' + sessionId + '/export?format=' +
+          fmt}>`.
+        - When `state === 'export'`: also renders a `Mark as done`
+          button calling `finishExportAction(sessionId)`; on
+          `error: 'no_pending_export'` shows a "Resume" link that
+          POSTs to `startSessionAction` (mirror the pattern from
+          `decoration-pane.tsx`).
+        - When `state === 'done'`: shows a static banner "Article
+          complete." in place of the button; downloads remain
+          enabled.
+        - `page.tsx` mounts `<ExportPane sessionId={id}
+          state={session.state} />` when `session.state ===
+          'export' || session.state === 'done'`, replacing the
+          existing fallback `<p>State: {session.state}</p>` for
+          those two states only.
+        - Component-level smoke test (Vitest + Testing Library)
+          renders the pane in `state='export'`, asserts all four
+          download links exist with correct `href`s, and the
+          `Mark as done` button is present. Second case
+          `state='done'` asserts the banner replaces the button.
+        - `pnpm typecheck`, `pnpm lint`, `pnpm test` exit 0.
+
+- [x] T-11-12: Surface render errors as JSON in the export route
+      Goal: When a renderer throws (e.g. Playwright Chromium can't
+      launch in dev/WSL2), the route must return a structured JSON
+      error with the right status — never the raw HTML/text error
+      page that the browser saves as `.txt`.
+      Touches: `src/app/api/sessions/[id]/export/route.ts`,
+      `tests/unit/api/export-route.test.ts`.
+      Acceptance:
+        - Each format branch wraps its renderer + zip calls in a
+          try/catch.
+        - For `format=pdf`: when the caught error message matches
+          one of the Playwright-launch failure signatures
+          (`browserType.launch`, `Executable doesn't exist`,
+          `libnspr4`, `error while loading shared libraries`,
+          `was not found`), return `503 { error:
+          'pdf_unavailable', message }`. Other PDF errors fall
+          through to the generic 500 path.
+        - All other render failures return `500 { error:
+          'render_failed', format, message }`.
+        - Tests:
+          - PDF renderer rejects with a Chromium-launch-shaped
+            error → response 503 with `error: 'pdf_unavailable'`
+            in the JSON body.
+          - PDF renderer rejects with a generic error → 500 with
+            `error: 'render_failed'`.
+          - DOCX/HTML/MD renderer rejects → 500 with `error:
+            'render_failed'` and `format` matching the request.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: do not log full stack traces in the response body;
+      only the `Error.message` text. The full error stays in
+      console / `appendRunLog`-style logs (out of scope here).
+
+- [x] T-11-13: Skip empty README from md/html bundles
+      Goal: When there are no external attributions, do not
+      include a `README.txt` file in the zip — today the bundle
+      ships a `README.txt` containing the sentinel "No external
+      attributions.\n", which is noise.
+      Touches: `src/app/api/sessions/[id]/export/route.ts`,
+      `tests/unit/api/export-route.test.ts`.
+      Acceptance:
+        - In the md/html branches, call
+          `buildAttributionsReadme(...)` and only push a
+          `README.txt` entry when the result is NOT equal to the
+          sentinel `'No external attributions.\n'`.
+        - Test: empty attachments → md zip has NO `README.txt`
+          entry; with at least one stock attribution → md zip
+          DOES contain `README.txt`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+
+- [x] T-11-14: Hero survives subsequent inline image applies
+      Goal: Selecting an inline image after a hero must NOT erase
+      the hero from `draft_md`. Today `applyImageSelection` for
+      inline rebuilds `draft_md` from `section_drafts` only —
+      hero is gone because it was only ever inlined into the
+      composed `draft_md` and never persisted into a section
+      draft.
+      Touches: `src/server/pipeline/apply-image.ts`,
+      `tests/unit/pipeline/apply-image.test.ts`.
+      Acceptance:
+        - `composeFromSectionDrafts` is extended to take an
+          `imageState: ImageState` argument and, after composing
+          the section bodies, prepend the rendered hero image
+          markdown if a `hero` slot has a `chosenCandidateId` (use
+          `renderImageMarkdown` with the slot's `altText`).
+        - Both inline and hero branches of `applyImageSelection`
+          call this single composer; the bespoke hero branch (the
+          `${imageMd}\n\n${composed}` template) is removed.
+        - For the hero branch the order is: `setSlotChoice` first
+          (so `imageState` reflects the new choice), THEN compose,
+          THEN `updateSessionDraft`. Inline branch keeps its
+          existing order but uses the new composer.
+        - Tests:
+          - Existing hero test still passes (`prepends hero image
+            and honors plan order`).
+          - New test: a hero slot already has `chosenCandidateId`
+            in `imageState`; applying an inline slot produces a
+            `revisedDraftMd` that contains BOTH the hero ref AND
+            the inline ref.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: this fixes the bug where md/html bundles dropped
+      the hero image. Markdown export logic itself
+      (`renderMarkdownArticle`) does not change — once the hero
+      ref is back in `draft_md`, it will be picked up.
+
+- [x] T-11-15: Article preview on the export/done screen
+      Goal: When a session reaches `'export'` or `'done'`, the
+      user sees a rendered preview of the finished article on the
+      same screen as the download buttons — not just a list of
+      buttons.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/export-pane.tsx`,
+      `tests/unit/sessions/export-pane.test.ts`.
+      Acceptance:
+        - `page.tsx` server-renders the article HTML for
+          `state in {export, done}`: load the session's profile,
+          parse `markupRules` via `parseMarkupRules`, parse
+          `imageState` via `parseImageState`, call
+          `renderMarkdownArticle({ session, imageState })` and
+          then `renderHtmlArticle(contentMd, rules)`. Pass the
+          resulting `previewHtml` string to
+          `<ExportPane previewHtml={...} ... />`.
+        - `<ExportPane>` accepts an optional `previewHtml: string`
+          prop. When present, renders an `<iframe srcDoc={previewHtml}
+          sandbox="" title="Article preview" />` in the top half
+          of the pane (full width, min height ~60vh, with a
+          subtle border). The download buttons + Mark as done /
+          banner stay at the bottom.
+        - The iframe uses `sandbox=""` (no scripts, no same-origin
+          access) so the article's HTML is rendered safely; image
+          refs that point at `/api/sessions/...` paths still
+          resolve because the iframe inherits the parent origin
+          for relative URLs (sandbox does not block image loads).
+          Note: the export bundle's relative `images/<slot>.<ext>`
+          refs WILL be broken inside the preview (no sidecar
+          folder served) — this is fine; the in-app draft still
+          uses `/api/images/...` URLs which DO resolve. The
+          preview shows the in-app draft markdown, not the bundle
+          markdown.
+        - Existing tests still pass; one new test asserts the
+          iframe with `srcDoc` is rendered when `previewHtml` is
+          passed and absent otherwise.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: the preview reuses `renderMarkdownArticle` purely
+      to fold the chosen images into `draft_md` (preview shows
+      `/api/images/...` URLs, not bundle paths — those work in
+      the iframe because the parent origin serves them).
+      Decision needed: layout — top/bottom split is the simplest
+      and was chosen to keep download buttons always visible
+      below the fold; could be revisited.
+
+- [x] T-11-16: Shared readable stylesheet for HTML and PDF
+      Goal: The exported HTML (and the in-app preview iframe) and
+      the PDF render currently look bare-browser-default, which
+      is ugly. Add one shared editorial stylesheet that both
+      formats use; the preview iframe and the downloaded `.html`
+      pick it up automatically because they share `renderHtmlArticle`.
+      Touches: `src/server/export/styles.ts`,
+      `src/server/export/html.ts`, `src/server/export/pdf.ts`,
+      `tests/unit/export/html.test.ts`.
+      Acceptance:
+        - New module `src/server/export/styles.ts` exports
+          `ARTICLE_STYLESHEET: string` — a short CSS string
+          covering: system-font body, ~42rem container, headings
+          (h1..h6) sizing/spacing, paragraph spacing, responsive
+          centred images with light corner radius, `<sub>` styled
+          as a centred caption under the preceding image, links,
+          `code`/`pre` (GitHub-ish background), blockquote, `hr`,
+          GFM tables.
+        - `renderHtmlArticle` injects `<style>${ARTICLE_STYLESHEET}
+          </style>` into the document `<head>`.
+        - `renderPdfArticle` replaces its local `PRINT_STYLESHEET`
+          with the shared one (so in-app preview, downloaded
+          `.html`, and `.pdf` look consistent).
+        - HTML test asserts the style tag is present and contains
+          a few load-bearing markers (e.g. `max-width:42rem`,
+          `font-family`, `blockquote`).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: kept as a single CSS string (no per-element classes
+      added to the renderer) so we don't have to touch the
+      remark/rehype/docx pipelines. The DOCX renderer keeps its
+      own paragraph/run styling — DOCX has its own format and
+      doesn't consume CSS.
+
+- [x] T-11-17: Render images in the article preview iframe
+      Goal: The preview iframe currently shows the article text
+      without images: (a) `page.tsx` runs `renderMarkdownArticle`
+      which rewrites image refs to bundle-relative
+      `images/<slot>.<ext>` paths (no sidecar folder is served);
+      (b) the iframe uses `sandbox=""` (empty), giving srcdoc an
+      opaque origin so `/api/images/...` paths can't resolve
+      against parent origin anyway.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/export-pane.tsx`,
+      `tests/unit/sessions/export-pane.test.ts`.
+      Acceptance:
+        - `page.tsx` no longer threads `renderMarkdownArticle`
+          output into `previewHtml`. Instead it feeds the raw
+          `session.draftMd` (or empty string) directly to
+          `renderHtmlArticle(rawMd, rules)`. The
+          `renderMarkdownArticle` import is dropped if no longer
+          used here.
+        - `<ExportPane>` renders the iframe with
+          `sandbox="allow-same-origin"` (no `allow-scripts`,
+          `allow-forms`, etc.) so srcdoc inherits the parent's
+          origin and absolute `/api/images/...` paths resolve.
+        - Existing iframe tests stay green; one assertion is
+          updated from `sandbox=""` to
+          `sandbox="allow-same-origin"`.
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: `allow-same-origin` without `allow-scripts` is safe
+      — the iframe still cannot run JS or open popups; it just
+      counts as same-origin so cookies and CORS see it as the
+      app, which is what we need for `/api/images/`. Article
+      content is the user's own draft, so the trust boundary is
+      already inside the user.
+
+- [x] T-11-18: Allow re-selecting a chosen image candidate
+      Goal: Once the user picks a candidate for a slot, they
+      can't change their mind — both the UI and the server reject
+      it. Allow re-selection. Hero re-selection just swaps the
+      chosen candidate (composer reads it from imageState). Inline
+      re-selection replaces the previously-inserted image
+      markdown in the section draft with the new candidate's
+      markdown at the same position.
+      Touches: `src/server/pipeline/apply-image.ts`,
+      `src/app/(app)/sessions/[id]/actions.ts`,
+      `src/app/(app)/sessions/[id]/image-slot-card.tsx`,
+      `tests/unit/pipeline/apply-image.test.ts`.
+      Acceptance:
+        - `apply-image.ts` no longer returns `'already_chosen'`.
+          The error variant is removed from the union.
+        - For hero re-selection: skip the section-draft branch;
+          `setSlotChoice` overwrites; composer re-runs and
+          rebuilds `draft_md` with the new chosen hero.
+        - For inline re-selection: locate the previously-chosen
+          candidate's markdown via `renderImageMarkdown(oldCand,
+          slot.altText)`; if that exact string is present in the
+          current section draft, replace it with the new
+          candidate's markdown (string `replace`, single
+          occurrence). If not present (user manually edited),
+          fall back to `insertParagraph` at the slot's stored
+          `paragraphIndex`.
+        - Same-candidate re-apply (user clicks the
+          already-chosen tile) is a no-op for both kinds and
+          returns `{ ok: true, revisedDraftMd }`.
+        - `actions.ts` `selectCandidateAction` return-type union
+          drops `'already_chosen'`.
+        - `image-slot-card.tsx`: `handleSelect` no longer
+          short-circuits when `chosenCandidateId` is set;
+          `<CandidateThumb>` is disabled only for the
+          currently-chosen tile (so the user can't re-click the
+          one already selected, but can pick any other).
+        - Tests:
+          - The existing `'returns already_chosen ...'` test is
+            removed.
+          - New test: re-selecting a hero swaps
+            `chosenCandidateId` and the composer renders the new
+            URL.
+          - New test: re-selecting an inline candidate produces
+            a section draft whose old-image markdown is replaced
+            by the new-image markdown at the same position
+            (verify via `mocks.upsertSectionDraft` argument).
+          - New test: re-applying the same candidate is a no-op
+            (returns ok, no string replacement, no insert).
+        - `pnpm test`, `pnpm typecheck`, `pnpm lint` exit 0.
+      Notes: deletion-and-replacement of inline image markdown
+      via string replace is fragile if the user manually edited
+      the surrounding text — the fallback to `insertParagraph` at
+      the original `paragraphIndex` keeps the slot reapplyable in
+      that case (price: a duplicate image may end up in the
+      section if the user partially edited around the old image).
+      A future task could persist the inline image position
+      out-of-band so the composer is the single source of truth
+      for image insertion.
+
+---
+
+<!-- PLANING_CHECKPOINT_SKIPPED Epic 12 — replan before tackling -->
 
 ## Epic 12 — Eval harness
 
@@ -2783,10 +4540,174 @@ gated behind an explicit env flag.
 
 ## Epic 13 — Budget enforcement (v2)
 
-**Status: TBD**
-Intent: per-user and per-session caps in user settings; router
-short-circuits with a typed error when a call would exceed the cap; UI
-surfaces the remaining budget.
+**Status: planned**
+**Goal:** Move from passive cost tracking to active enforcement. Each
+user has configurable spending caps (lifetime total + per-session). The
+LLM router consults a pre-call guard against current cumulative spend;
+if a cap is already reached, the call short-circuits with a typed
+`BudgetExceededError`, the block is logged like a real run for
+auditability, and a `budget_blocked` event reaches the UI. The session
+header surfaces remaining budget against both caps in real time.
+
+**Decision needed:** What window does the "user cap" cover — lifetime,
+calendar-month rolling, or 30-day rolling? Default chosen: **lifetime
+total** (cumulative over all `runs.cost_usd` for the user). Rationale:
+simplest correct implementation; rolling-window can be added later as a
+separate column without breaking the enforcement contract. The user
+should confirm or override before T-13-1 is committed.
+
+**Decision needed:** Pre-call check basis — actual cumulative spend
+only, or cumulative + predicted-cost-of-this-call? Default chosen:
+**cumulative-only**. Rationale: predicting per-call cost requires a
+tokenizer + a `max_tokens` assumption per stage; the cumulative-only
+check is mechanically simple, never under-estimates more than one call,
+and matches the "running cost" model already in place. Document as a
+known-imprecise behavior; revisit if any single call risks blowing past
+the cap by a meaningful margin.
+
+### Tasks
+
+- [x] T-13-1: Add `user_settings` table with budget caps
+      Goal: New table `user_settings` with one row per user storing
+      `monthly_cap_usd` (nullable numeric) and `session_cap_usd`
+      (nullable numeric). Nullable = "no cap". Drizzle migration
+      generated and applies cleanly.
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/00XX_<name>.sql` (new), `drizzle/meta/_journal.json`.
+      Acceptance:
+        - `pnpm db:generate` produces a new migration referencing
+          `user_settings`.
+        - `pnpm db:migrate` against the compose DB creates the table;
+          re-run is a no-op.
+        - `pnpm typecheck` passes with the new schema export.
+      Notes: column name `monthly_cap_usd` is kept even though the
+      default semantic is lifetime — see "Decision needed" above.
+      Renaming later is a one-line schema change.
+
+- [x] T-13-2: Server accessors for user settings
+      Goal: `getUserSettings(userId)` returns the row (or default
+      `{monthlyCapUsd: null, sessionCapUsd: null}` if absent).
+      `upsertUserSettings(userId, patch)` inserts or updates; null
+      values clear the cap. Both functions exported from
+      `src/server/settings/budget.ts`.
+      Touches: `src/server/settings/budget.ts` (new),
+      `tests/unit/server/settings/budget.test.ts` (new).
+      Acceptance:
+        - Unit test: get on a user with no row returns the empty
+          defaults.
+        - Unit test: upsert then get round-trips both numeric values
+          and explicit nulls (clearing).
+        - `pnpm test` passes.
+
+- [x] T-13-3: Budget settings API + page
+      Goal: `GET /api/settings/budget` returns the current user's caps.
+      `PUT /api/settings/budget` accepts `{monthlyCapUsd, sessionCapUsd}`
+      (each `number | null`), validates with Zod, calls
+      `upsertUserSettings`. New page at
+      `src/app/(app)/settings/budget/page.tsx` with a form (two inputs,
+      "save" button, "remove cap" toggle per field). Both endpoints go
+      through the existing `requireUser` guard.
+      Touches: `src/app/api/settings/budget/route.ts` (new),
+      `src/app/(app)/settings/budget/page.tsx` (new),
+      `src/app/(app)/settings/budget/budget-form.tsx` (new client comp),
+      `tests/integration/settings/budget.test.ts` (new).
+      Acceptance:
+        - Integration test: PUT then GET returns the saved values
+          for the same authenticated user; another user gets defaults.
+        - Manual: visit `/settings/budget`, set values, reload, values
+          persist.
+        - `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+- [x] T-13-4: `BudgetExceededError` + `assertBudget` pre-call guard
+      Goal: New typed error class
+      `BudgetExceededError extends Error` with fields
+      `{scope: 'user' | 'session', spent: number, cap: number}`.
+      New helper `assertBudget({userId, sessionId})` in
+      `src/server/llm/budget-guard.ts` that:
+        1. loads user settings,
+        2. if `monthlyCapUsd != null`, calls `getUserCost(userId)` and
+           throws `BudgetExceededError({scope:'user', ...})` if
+           `spent >= cap`,
+        3. if `sessionId != null && sessionCapUsd != null`, same check
+           with `getSessionCost(sessionId)` and `scope:'session'`.
+      No-op when both caps are null or when user has no settings row.
+      Touches: `src/server/llm/budget-guard.ts` (new),
+      `src/server/llm/errors.ts` (new or extend existing),
+      `tests/unit/server/llm/budget-guard.test.ts` (new).
+      Acceptance:
+        - Unit test: with no cap set, `assertBudget` resolves.
+        - Unit test: with `sessionCapUsd = 0.5` and mocked
+          `getSessionCost` returning `0.6`, throws
+          `BudgetExceededError` with `scope:'session'`.
+        - Unit test: user cap takes precedence when both are exceeded
+          (deterministic order — user checked first).
+
+- [x] T-13-5: Wire `assertBudget` into `wrapWithLogging`
+      Goal: At the top of `wrapWithLogging`, before `await call()`,
+      invoke `assertBudget({userId, sessionId})`. If it throws
+      `BudgetExceededError`:
+        - append a JSONL line with `error: true`,
+          `error_kind: 'budget_blocked'`, `scope`, `spent`, `cap`,
+          and the `request` (no `response`),
+        - emit a `budget_blocked` event onto the session bus
+          (extend `src/server/events/bus.ts` event union),
+        - re-throw so callers can react.
+      All existing tests for `wrapWithLogging` keep passing.
+      Touches: `src/server/logging/wrap.ts`,
+      `src/server/events/bus.ts`,
+      `tests/unit/server/logging/wrap.test.ts` (extend),
+      `tests/unit/server/logging/wrap-budget.test.ts` (new).
+      Acceptance:
+        - Unit test: wrap a fake call with a mocked guard that throws;
+          the JSONL writer is invoked once with `error_kind:
+          'budget_blocked'`, the bus emit is called once with
+          `budget_blocked`, and `db.insert(runs)` is NOT called.
+        - Unit test: when the guard resolves, behavior is unchanged
+          (existing tests pass without modification).
+
+- [x] T-13-6: Remaining-budget API + session header surface
+      Goal: New `GET /api/sessions/:id/budget` returns
+      `{sessionSpent, sessionCap, userSpent, userCap}`. Session header
+      component (`src/app/(app)/sessions/[id]/session-header.tsx` or
+      equivalent — locate via `grep -rn "running cost\|stage:" src/app`)
+      consumes this on mount and refreshes whenever a `cost_updated`
+      or `budget_blocked` event arrives via the existing
+      `use-session-events` SSE hook. Display format: `$0.42 / $1.00
+      (session) · $12.30 / $50.00 (user)`; hide either segment when
+      its cap is null.
+      Touches: `src/app/api/sessions/[id]/budget/route.ts` (new),
+      `src/app/(app)/sessions/[id]/session-header.tsx` (extend or
+      create), `src/app/(app)/sessions/[id]/use-session-events.ts`,
+      `tests/integration/sessions/budget-endpoint.test.ts` (new).
+      Acceptance:
+        - Integration test: endpoint returns correct numbers after
+          inserting fixture `runs` rows and `user_settings` for that
+          user.
+        - Cross-user access returns 403/404 (consistent with other
+          session endpoints).
+        - Manual: open a session, header shows the budget line and
+          updates after a stage produces a new run.
+
+- [x] T-13-7: End-to-end enforcement integration test
+      Goal: One integration test exercises the full block path.
+      Setup: create a user, set `sessionCapUsd: 0.001`, create a
+      session, insert a `runs` row at cost `0.002` (mimicking prior
+      spend in this session). Then call a thin wrapper that invokes
+      `routeChat` through `wrapWithLogging` with a mocked OpenRouter.
+      Expect: the call rejects with `BudgetExceededError`, OpenRouter
+      mock is NOT invoked, JSONL contains a `budget_blocked` line,
+      and the event bus saw `budget_blocked`.
+      Touches: `tests/integration/llm/budget-enforcement.test.ts` (new),
+      possibly small test helpers under `tests/integration/_setup/`.
+      Acceptance:
+        - Test passes against a real test Postgres (same harness used
+          by other integration tests).
+        - Test fails (proves coverage) if `assertBudget` is
+          temporarily commented out of `wrapWithLogging`.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic 14 — Ralph loop integration
 
@@ -2794,3 +4715,639 @@ surfaces the remaining budget.
 Intent: a small driver that, given the repo, decides whether to run the
 planner or the implementer prompt next, executes lint/typecheck/test
 between iterations, and commits on green.
+
+## Epic 15 — Post-draft polish via sentence-level diff
+
+**Status: TBD (design open)**
+Intent: an interactive co-editor that proposes small humanization edits
+at sentence granularity — short focused presets ("shorter sentences",
+"kill cliches", "personal voice", "concrete over abstract", "one
+rhetorical question", "break monotonous rhythm"), each ~10–30-line
+prompt — and surfaces the result as a diff with per-hunk
+accept / reject / edit-and-accept. Lives as an independent action,
+NOT a new pipeline state. Open design questions: batch vs sequential
+apply; single active variant vs many; structured JSON output from the
+LLM (`[{ original, replacement, reason? }]`) so alignment between
+original and rewrite is robust. Risk: LLM-driven rewriting can break
+facts/numbers — must trigger fact-check after polish, AND constrain via
+prompt. Reference notes in memory `project_next_session_agenda.md`.
+
+## Epic 16 — Author voice priming at session start
+
+**Status: TBD**
+Intent: before the planning agent generates anything, ask the author
+for their own opinions, lived experience, memories, attitudes about the
+topic — a short free-form input that gives the article a piece of the
+author's actual voice. Hypothesis: priming the smart model with the
+author's own takes (even a paragraph or two) makes the resulting
+drafts noticeably more alive and less generic than briefs alone.
+Initial scope: optional voice-priming step between brief submission
+and angle proposal; threaded into the drafting context for every
+section. Test as A/B: same brief with vs. without priming.
+
+## Epic 17 — Dictation / voice transcription
+
+**Status: TBD**
+Intent: capability to dictate any long-form input instead of typing.
+Pipeline: capture audio → transcribe (whisper-class model) → fast-model
+cleanup pass (remove disfluencies, repeats, false starts, light
+syntactic smoothing) → editable text in the same form field. Used by
+the brief, the voice-priming step (Epic 16), custom critic / polish
+prompt fragments, free-form revision instructions. Cross-cutting;
+worth landing as a reusable widget once and wiring into existing forms.
+
+## Epic 18 — Adopt OpenRouter usage.cost as source of truth
+
+**Status: planned**
+**Goal:** Stop computing LLM cost from a hand-maintained price table
+(`src/server/llm/pricing.ts`) and start trusting the authoritative
+`usage.cost` that OpenRouter now always returns on every chat / search
+/ image response. Capture the new usage detail fields (`cached_tokens`,
+`cache_write_tokens`, `reasoning_tokens`) on the run record so cache
+hit-rate and thinking-token spend become observable. Keep the local
+pricing table as a defensive fallback so an unexpected null `cost` from
+OpenRouter never silently zeroes out a run.
+
+**Why now:** Epic 13 just shipped budget enforcement that compares
+cumulative spend against user-set caps. The "spend" number is currently
+our own estimate, which (a) drifts whenever OpenRouter changes prices,
+(b) defaults to $0 for any model name not in our table — silently
+under-counting, and (c) ignores prompt-cache discounts entirely, so
+cache-heavy stages overstate cost. Adopting `usage.cost` makes the
+enforcement honest and the budget header in the UI factual.
+
+**Out of scope:** removing `pricing.ts` (kept as fallback);
+backfilling historical `runs` rows (cost figures pre-Epic 18 stay as
+they were); BYOK / `upstream_inference_cost` plumbing.
+
+**Decision needed:** What to do when OpenRouter returns `cost: 0` —
+a real free model vs. a parsing miss? Default chosen: **trust the 0**
+(treat as authoritative). Rationale: misclassifying a $0 free model
+as an "unknown" and falling back to the local table would charge for
+free traffic; the inverse failure mode (a parser miss erroneously
+returning 0) is unlikely now that OpenRouter promises the field on
+every response. Document so future debugging looks at the response
+shape, not at this default.
+
+### Tasks
+
+- [x] T-18-1: Surface cost + new usage detail fields from openrouter.ts
+      Goal: Extend the `ChatResponse` interface in `openrouter.ts` to
+      include `cost: number`, `prompt_tokens_details?: {cached_tokens?:
+      number, cache_write_tokens?: number}`, and
+      `completion_tokens_details?: {reasoning_tokens?: number}`. The
+      runtime parser already returns the full JSON, so this is purely
+      a type widening — no parsing code changes.
+      Touches: `src/server/llm/openrouter.ts`,
+      `tests/unit/llm/openrouter.test.ts` (extend a fixture).
+      Acceptance:
+        - `pnpm typecheck` passes with the new fields accessed in
+          downstream code.
+        - One openrouter unit test asserts that `cost` and
+          `prompt_tokens_details.cached_tokens` survive the round-trip
+          through the existing parser.
+
+- [x] T-18-2: Plumb cost + detail fields through the router result
+      Goal: Add `cost?: number`, `cachedTokens?: number`,
+      `cacheWriteTokens?: number`, `reasoningTokens?: number` to
+      `RouterResult` in `router.ts`. Populate them in `routeChat`,
+      `routeSearch`, and `routeImage` from the openrouter response.
+      Fields are optional so callers that don't care are unaffected.
+      Touches: `src/server/llm/router.ts`,
+      `tests/unit/llm/router.test.ts` (extend).
+      Acceptance:
+        - Unit test: a mocked openrouter response with `cost: 0.42`
+          and `prompt_tokens_details.cached_tokens: 100` produces a
+          `ChatRouterResult` with `cost === 0.42` and `cachedTokens
+          === 100`.
+        - Existing router tests keep passing.
+
+- [x] T-18-3: Use OpenRouter cost in wrapWithLogging with local fallback
+      Goal: In `wrapWithLogging`, replace the unconditional
+      `costFor(...)` call with `result.cost ?? costFor(...)`. The
+      JSONL line and the inserted `runs` row both use the same value.
+      Image path uses the same precedence (image responses now also
+      come with `usage.cost` per OpenRouter docs); the
+      `IMAGE_PRICES.perImage` entry only fires if `cost` is missing.
+      Touches: `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts` (extend),
+      `tests/unit/logging/wrap-cost.test.ts` (new).
+      Acceptance:
+        - Unit test: when the call returns `result.cost = 0.0231`,
+          the JSONL entry's `cost_usd` and the `runs` row's `costUsd`
+          both equal 0.0231 and `costFor` is NOT called.
+        - Unit test: when `result.cost` is undefined, `costFor` is
+          called and its return value is used (existing behavior).
+        - Unit test: `result.cost = 0` is treated as authoritative
+          (no fallback to local table) — locks in the "Decision
+          needed" default above.
+
+- [x] T-18-4: Persist cached + reasoning token counts on the run record
+      Goal: Add nullable `cached_tokens` and `reasoning_tokens` integer
+      columns to `runs`. `wrapWithLogging` writes them when present
+      on `result`. JSONL line gets the same fields under
+      `prompt_tokens_details` / `completion_tokens_details` to mirror
+      the OpenRouter shape.
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/00XX_<name>.sql` (new),
+      `drizzle/meta/_journal.json`,
+      `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts` (extend).
+      Acceptance:
+        - `pnpm db:generate` produces a migration adding both columns
+          as nullable integers; `pnpm db:migrate` applies cleanly and
+          re-runs are no-ops.
+        - Unit test: when `result.cachedTokens = 1500`, the inserted
+          `runs` row carries `cachedTokens: 1500`.
+        - When the fields are absent on the result, the row's
+          values stay null and no insert error fires.
+
+---
+
+## Epic 19 — Wire wrapWithLogging into stage LLM calls (AsyncLocalStorage)
+
+**Status: planned**
+**Goal:** Make every LLM call from any stage automatically flow through
+`wrapWithLogging`, so the `runs` table actually fills, JSONL gets
+written, `assertBudget` (Epic 13) actually fires, and `cost_updated`
+events (just-fixed) actually fire — without rewriting 17 stages and
+without forcing every future stage to remember a convention.
+
+**The bug being fixed:** `wrapWithLogging` is unit- and integration-
+tested in isolation, and the integration tests pass. But in production,
+**no stage ever calls it**. 17 of 18 stages import `routeChat` /
+`routeSearch` / `routeImage` (or `routeJsonChat` which calls them)
+directly from `src/server/llm/router.ts` and `src/server/llm/structured.ts`,
+both of which bypass `wrapWithLogging`. Net effect: zero rows ever land
+in `runs`, so Epic 13's enforcement and Epic 18's cost-of-truth are
+both currently dead code in production. (Only `prerender-images.ts` uses
+`ctx.llm.routeImage`, but `runner.ts` builds `ctx.llm` as a pass-through
+to the bare router, also without wrap.)
+
+**Design — AsyncLocalStorage:** A new module
+`src/server/llm/context.ts` exposes `runWithLLMContext(ctx, fn)` and
+`getLLMContext()`. Router functions consult `getLLMContext()` and, if
+set, wrap their underlying openrouter call through `wrapWithLogging`
+using the context's `userId`, `sessionId`, `stage`, `task`. If no
+context is set (tests, scripts, eval harness), behavior is unchanged
+— the call goes straight to openrouter. `runner.ts` sets the context
+once around each stage invocation. Stage code does not change.
+
+**Decision needed:** Granularity of `task` per LLM call. Default
+chosen: `task = <stage.name>` shared across every call inside that
+stage's `run()`. Rationale: simplest correct implementation;
+`structured.ts` retries naturally land as separate `runs` rows under
+the same logical task, which is fine for cost analytics. A future
+task can introduce per-call task names if needed (e.g., `draft-section`
+firing one LLM call per section).
+
+**Out of scope:** removing `ctx.llm.*` from `StageCtx`
+(low-risk later cleanup); migrating eval harness to set its own
+context; per-call granular task names.
+
+### Tasks
+
+- [x] T-19-1: Add `src/server/llm/context.ts` with AsyncLocalStorage
+      Goal: Exports `runWithLLMContext<T>(ctx: LLMContext, fn: () =>
+      Promise<T>): Promise<T>` and `getLLMContext(): LLMContext |
+      undefined`. `LLMContext = {userId?: number, sessionId?: number,
+      stage: string, task: string, baseDir?: string}`. Built on
+      `node:async_hooks` AsyncLocalStorage. No router/wrap consumer
+      yet — pure utility.
+      Touches: `src/server/llm/context.ts` (new),
+      `tests/unit/llm/context.test.ts` (new).
+      Acceptance:
+        - Unit test: `getLLMContext()` returns `undefined` outside
+          `runWithLLMContext`.
+        - Unit test: inside `runWithLLMContext({...}, async () =>
+          getLLMContext())` the inner call returns the same object.
+        - Unit test: nested `runWithLLMContext` propagates the inner
+          ctx, restores the outer on return.
+        - Unit test: ctx survives an `await` boundary inside `fn`.
+
+- [x] T-19-2: Wrap router functions when LLM context is set
+      Goal: `routeChat`, `routeSearch`, `routeImage` consult
+      `getLLMContext()`. When present, the underlying openrouter
+      call is wrapped via `wrapWithLogging({stage, task, userId,
+      sessionId, baseDir, call: () => <existing inner call>,
+      request: <args>})`. When absent, behavior is unchanged.
+      Touches: `src/server/llm/router.ts`,
+      `tests/unit/llm/router.test.ts` (extend).
+      Acceptance:
+        - Existing router tests keep passing (all run without ctx).
+        - Unit test: `routeChat` invoked inside a
+          `runWithLLMContext({userId: 7, sessionId: 42, stage: 's',
+          task: 't'})` block triggers `wrapWithLogging` once with
+          the matching args. Verified by mocking `wrapWithLogging`.
+        - Unit test: same call outside any context invokes openrouter
+          directly without going through `wrapWithLogging`.
+
+- [x] T-19-3: Set LLM context in runner.ts around each stage call
+      Goal: For each `await <stage>.run(input, ctx)` site in
+      `runner.ts`, wrap with `runWithLLMContext({userId, sessionId,
+      stage: <stageName>, task: <stageName>}, () =>
+      <stage>.run(...))`. Use the stage's `name` field as both
+      `stage` and `task` (per the Decision above).
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner.test.ts` (extend).
+      Acceptance:
+        - Existing runner tests keep passing.
+        - Unit test: a fake `clarifyBrief.run` mock is invoked with
+          a `runWithLLMContext` wrapper such that `getLLMContext()`
+          inside it returns `{userId, sessionId, stage:
+          'clarify_brief', task: 'clarify_brief'}`. Verified by
+          spying on a getLLMContext snapshot.
+
+- [x] T-19-4: End-to-end test — one stage call writes one runs row
+      Goal: Real DB + real router (openrouter mocked at the HTTP
+      boundary) + real wrapWithLogging via AsyncLocalStorage.
+      Run a minimal stage (`clarifyBrief.run`) inside
+      `runWithLLMContext({userId, sessionId, stage: 'clarify_brief',
+      task: 'clarify_brief'})`. Assert one row landed in `runs` with
+      the expected `userId`, `sessionId`, `stage`, `model_class`.
+      This is the test that would have caught the original bug.
+      Touches: `tests/integration/pipeline/stage-logging.test.ts`
+      (new).
+      Acceptance:
+        - Test passes against the compose DB.
+        - Test fails (proves coverage) if `runWithLLMContext` is
+          temporarily commented out in runner.ts.
+
+---
+
+## Epic 20 — Wire wrapWithLogging into non-runner orchestrators
+
+**Status: planned**
+**Goal:** Close the remaining holes Epic 19 left open. `runner.ts`
+sets LLM context for the planning→drafting flow, but six other
+server-side orchestrator files (`run-review`, `run-fact-check`,
+`run-illustration`, `run-decoration`, `apply-revisions`,
+`regenerate-section`) and three direct stage calls in `actions.ts`
+(image flow) still invoke `stage.run()` without setting context. Net
+effect: review, fact-check, decoration, illustration, revision-apply,
+and section-regenerate flows all bypass `wrapWithLogging` →
+`assertBudget` (Epic 13) doesn't fire there, no `runs` rows land,
+no `cost_updated` events. Same dead-code pattern Epic 19 set out to
+fix, just in non-runner orchestrators.
+
+Also fold in two reviewer-flagged hardening fixes:
+- The `db.insert(runs)` in `wrap.ts` runs AFTER the LLM call
+  succeeds; if the insert throws (transient DB), the user sees an
+  error even though the model already executed and was billed.
+- The Epic 19 e2e test calls `runWithLLMContext` directly, not
+  through `startRunner`, so a regression that drops `withStageCtx`
+  from `runner.ts` would slip through.
+
+**Out of scope:** ESLint rule preventing direct `routeChat` imports
+from stages (proposed in Epic 19 plan, not done — defer to a future
+hygiene pass); per-call task granularity (still coarse via stage.name).
+
+### Tasks
+
+- [x] T-20-1: Extract `withStageCtx` to a shared module
+      Goal: Move the `withStageCtx` helper from `runner.ts` into
+      `src/server/pipeline/with-stage-ctx.ts` and re-import from
+      `runner.ts`. No behavior change. Makes the helper reusable
+      from non-runner orchestrators and from `actions.ts`.
+      Touches: `src/server/pipeline/with-stage-ctx.ts` (new),
+      `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/with-stage-ctx.test.ts` (new).
+      Acceptance:
+        - `pnpm test` and existing runner tests pass unchanged.
+        - One unit test asserts `withStageCtx({name: 's'}, 1, 2,
+          () => getLLMContext())` returns ctx with stage='s',
+          task='s', userId=2, sessionId=1.
+
+- [x] T-20-2: Wrap stage calls in run-review, run-fact-check,
+      run-decoration, run-illustration
+      Goal: Each orchestrator file already has access to `userId`
+      and `sessionId` (they're passed in or fetched via getSession).
+      For every `stage.run()` site: wrap with `withStageCtx(stage,
+      sessionId, userId, () => stage.run(...))`. Affected sites:
+      `run-review.ts:50` (runReviewStage), `run-fact-check.ts:63,91,92`
+      (extractClaims, verifyClaim, adjudicateClaim),
+      `run-decoration.ts:43` (proposeDecoration),
+      `run-illustration.ts:42` (proposeImageSlots).
+      Touches: those four files only.
+      Acceptance:
+        - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+        - Manual grep: no remaining `stage.run(` in those files
+          outside a `withStageCtx` call.
+
+- [x] T-20-3: Wrap stage calls in apply-revisions, regenerate-section
+      Goal: Same treatment for the two single-stage orchestrators.
+      `apply-revisions.ts` calls `applyRevisionsStage.run`;
+      `regenerate-section.ts` calls `draftSection.run`.
+      Touches: `src/server/pipeline/apply-revisions.ts`,
+      `src/server/pipeline/regenerate-section.ts`.
+      Acceptance:
+        - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+        - No `stage.run(` outside `withStageCtx` in those files.
+
+- [x] T-20-4: Wrap the three direct stage calls in actions.ts
+      Goal: `composeImagePrompt.run` (line 473),
+      `prerenderImages.run` (line 534), `stockKeywords.run`
+      (line 570) all run inside server actions with `requireUser()`
+      already in scope. Wrap each with `withStageCtx(<stage>,
+      sessionId, user.id, () => <stage>.run(...))`.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts`.
+      Acceptance:
+        - `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+        - No `stage.run(` outside `withStageCtx` in this file.
+
+- [x] T-20-5: Harden wrap.ts — DB insert failure must not mask
+      successful LLM call
+      Goal: Wrap the `db.insert(runs)` block in `wrap.ts` in a
+      try/catch. On insert failure: log the error to the JSONL
+      file (best-effort) and emit a `cost_updated` event with a
+      sentinel `runId: null`, then return the success result so the
+      caller still sees the LLM output. The user already paid for
+      the call — losing the run record is bad but losing the
+      response is worse.
+      Touches: `src/server/logging/wrap.ts`,
+      `tests/unit/logging/wrap.test.ts` (extend) or
+      `tests/unit/logging/wrap-robustness.test.ts` (new).
+      Acceptance:
+        - Unit test: when `db.insert` throws, wrapWithLogging
+          resolves with the LLM result (not rejects), runId is
+          null/-1, and an error JSONL line was appended.
+        - Existing tests still pass.
+
+- [x] T-20-6: Strengthen e2e test — go through startRunner
+      Goal: Add a second test (or rewrite T-19-4) that calls
+      `startRunner(sessionId, userId)` directly with mocked
+      `openrouterChat` and a fixture session in `planning` state.
+      Asserts that one runs row lands per stage actually invoked
+      by the runner (clarifyBrief at minimum). This catches a
+      regression where `withStageCtx` is removed from `runner.ts`
+      itself.
+      Touches: `tests/integration/pipeline/stage-logging.test.ts`
+      (extend), possibly small fixture helpers.
+      Acceptance:
+        - Test passes.
+        - Test fails (proves coverage) if `withStageCtx` is removed
+          from the planning case in `runner.ts`.
+
+---
+
+## Epic 21 — Dashboard with navigation, sessions, images, budget, profiles
+
+**Status: planned**
+**Goal:** Replace the current placeholder `/dashboard` (just shows
+"Signed in as <email>") with a useful landing page that surfaces
+the user's in-progress sessions, recent finished articles, recent
+generated images, current spend / caps, and platform profiles —
+plus a top navigation bar in the app layout so users can move
+between dashboard / profiles / sessions / budget without typing
+URLs.
+
+**Layout:**
+
+```
++-----------------------------------------------------------+
+| articler  Dashboard · Profiles · Sessions · Budget   email|
++-----------------------------------------------------------+
+| Welcome back.                       [+ New session]       |
+|                                                           |
+| ┌─ Continue working ────────────────────────────────────┐ |
+| │ active sessions, ordered by updated_at, top 5         │ |
+| │ View all sessions →                                   │ |
+| └───────────────────────────────────────────────────────┘ |
+|                                                           |
+| ┌─ Recent images ───────────────────────────────────────┐ |
+| │ [thumb] [thumb] [thumb] [thumb] [thumb] [thumb]       │ |
+| │ View illustrations →                                  │ |
+| └───────────────────────────────────────────────────────┘ |
+|                                                           |
+| ┌─ Spend ────────┐ ┌─ Profiles ─────┐ ┌─ Recent ────────┐|
+| │ lifetime / cap │ │ list, edit     │ │ done sessions   │|
+| │ session avg    │ │ + New profile  │ │ open / export   │|
+| │ Edit caps →    │ │                │ │                 │|
+| └────────────────┘ └────────────────┘ └─────────────────┘|
++-----------------------------------------------------------+
+```
+
+**Out of scope:** spend timeseries / charts; search/filter on
+sessions; mobile-specific layout (works at desktop widths only);
+inline article preview in Recent.
+
+### Tasks
+
+- [x] T-21-1: Top navigation bar in app layout
+      Goal: Move LogoutButton from dashboard into the layout's
+      header. Add nav links to Dashboard, Profiles, Sessions,
+      Budget. Layout becomes `header (logo + nav + email +
+      logout) | main`. The dashboard no longer needs to render
+      its own logout button.
+      Touches: `src/app/(app)/layout.tsx`,
+      `src/app/(app)/dashboard/page.tsx` (drop logout block).
+      Acceptance:
+        - `pnpm build` passes; nav links render on every (app)
+          page; clicking each navigates to the right route.
+        - `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
+
+- [x] T-21-2: Dashboard data helper
+      Goal: One server function `loadDashboardData(userId)` in
+      `src/server/dashboard/data.ts` that returns
+      `{active, done, profiles, images, spend, settings}` in
+      parallel. `active` = sessions with state ∉ {'briefing',
+      'done'}, ordered by updated_at desc, top 5. `done` = top 3
+      done sessions. `profiles` = listProfiles. `images` = scan
+      sessions (any state) for slot.chosenCandidateId,
+      flatten to {sessionId, slotId, localPath, model,
+      createdAt}, sort desc by candidate createdAt, top 8.
+      `spend` = {lifetime: getUserCost}. `settings` =
+      getUserSettings.
+      Touches: `src/server/dashboard/data.ts` (new),
+      `tests/unit/dashboard/data.test.ts` (new).
+      Acceptance:
+        - Unit test (mocked db): function returns the expected
+          shape; image extraction correctly skips slots without
+          chosenCandidateId; ordering is by candidate createdAt
+          desc.
+        - Per-user isolation: function only reads rows for the
+          passed userId.
+
+- [x] T-21-3: Dashboard page rendering
+      Goal: New dashboard page consumes `loadDashboardData` and
+      renders the five-card grid + hero CTA. Each card has its
+      own component file under `src/app/(app)/dashboard/`. Uses
+      `/api/images/<localPath>` for thumbnails. Empty states
+      ("no active sessions yet — start one") for each card when
+      data is empty.
+      Touches: `src/app/(app)/dashboard/page.tsx` (rewrite),
+      `src/app/(app)/dashboard/continue-card.tsx` (new),
+      `src/app/(app)/dashboard/images-card.tsx` (new),
+      `src/app/(app)/dashboard/spend-card.tsx` (new),
+      `src/app/(app)/dashboard/profiles-card.tsx` (new),
+      `src/app/(app)/dashboard/recent-card.tsx` (new).
+      Acceptance:
+        - `pnpm build` succeeds; visit /dashboard in dev
+          container, all cards render with real data.
+        - Empty state shown when a section has no rows.
+        - `pnpm lint`, `pnpm typecheck`, `pnpm test` pass.
+
+---
+
+## Epic 22 — First public deployment + CI/CD + closed registration
+
+**Status: done** (deploy infra in repo; first push-to-master will trigger
+the actual production rollout once VPS bootstrap + GitHub secrets are set)
+**Goal:** Get articler running on a public URL (operator's VPS)
+for invited testers without exposing the operator's OpenRouter
+spend to anyone who can hit /register. Concretely: close
+registration behind an env flag, ship a small CLI to seed test
+users, wire a GitHub Actions CI pipeline (lint/typecheck/test on
+every push), and wire a deploy workflow that builds the image,
+pushes to GHCR, and SSH-deploys onto the VPS.
+
+**Deployment target:** operator's VPS. Build artifact lives in
+GitHub Container Registry (`ghcr.io/<owner>/articler`); the VPS
+runs `docker compose` against a `docker-compose.prod.yml` that
+references the published image rather than building locally.
+Caddy in front for TLS via Let's Encrypt, Postgres in a sibling
+container with a named volume, app + caddy + db networked via
+compose. Deploy step from GHA is SSH → `docker compose pull web
+&& docker compose up -d web && pnpm db:migrate` (one-shot via
+`docker compose run --rm web pnpm db:migrate`).
+
+**Decision needed:** Default budget caps for newly registered users
+(once we're ready to re-open registration). For this epic, with
+registration closed, this isn't blocking — flagged here so it
+isn't forgotten when registration eventually reopens. Suggested:
+`monthlyCapUsd = 5, sessionCapUsd = 0.5` set in the user-settings
+row at registration time.
+
+**Out of scope:** OAuth (Google/GitHub) provider; multi-tenant
+OpenRouter keys (each user brings their own); blue/green deploys;
+db backup automation; observability stack (Sentry/etc).
+
+### Tasks
+
+- [x] T-22-1: Close registration behind ALLOW_REGISTRATION env flag
+      Goal: New env var `ALLOW_REGISTRATION` (default `false` in
+      production, `true` in dev). When false, the `/register` page
+      redirects to `/login` and the `registerAction` server action
+      returns `{ok: false, error: 'registration_closed'}`. Login
+      page shows a small "registration is invite-only" hint when
+      flag is off.
+      Touches: `src/app/(auth)/register/page.tsx`,
+      `src/app/(auth)/register/actions.ts` (or wherever the
+      register action lives — find with grep),
+      `src/app/(auth)/login/page.tsx` (hint),
+      `.env.example` (document the flag),
+      `tests/unit/auth/register-action.test.ts` (extend or new).
+      Acceptance:
+        - Unit test: with `ALLOW_REGISTRATION=false` the action
+          returns the expected error, no row inserted.
+        - Unit test: with `ALLOW_REGISTRATION=true` (or unset in
+          dev) the action behaves as today.
+        - `pnpm lint && pnpm typecheck && pnpm test` pass.
+
+- [x] T-22-2: CLI seed script to create users
+      Goal: `pnpm tsx scripts/create-user.ts <email> [--password=X]`
+      hashes the password with the existing argon2id helper and
+      inserts a `users` row. If `--password` is omitted, generates
+      a random 16-char password and prints it to stdout. Idempotent
+      on email (skips and prints "already exists" if the email is
+      taken). Reads DATABASE_URL from env.
+      Run the script once locally to seed `user1@mail.com` and
+      `user2@mail.com` against the compose DB; print the generated
+      passwords for the operator to capture.
+      Touches: `scripts/create-user.ts` (new),
+      `package.json` (script entry: `"create-user":
+      "tsx scripts/create-user.ts"`).
+      Acceptance:
+        - `pnpm create-user user1@mail.com` creates the row and
+          prints the password; second run prints "already exists"
+          and exits 0.
+        - `psql ... -c "SELECT email FROM users"` shows both seeded
+          users locally.
+
+- [x] T-22-3: GitHub Actions CI workflow
+      Goal: `.github/workflows/ci.yml` runs on push and pull_request
+      to any branch: checkout, install pnpm, run `pnpm install
+      --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm
+      test`. Uses Node 22 and pnpm v9+ (matches local). Caches
+      pnpm store between runs. No DB required for unit tests;
+      integration tests skip without DATABASE_URL (already wired).
+      Touches: `.github/workflows/ci.yml` (new).
+      Acceptance:
+        - Push triggers a green run on a fresh branch.
+        - PR shows the check status.
+
+- [x] T-22-4: Production env template + health check endpoint
+      Goal: `.env.production.example` lists every var the prod
+      build expects (DATABASE_URL, AUTH_SECRET, AUTH_URL,
+      OPENROUTER_API_KEY, ALLOW_REGISTRATION=false, optional stock
+      keys). New `GET /api/health` returns 200 with `{ok: true,
+      now: <iso>}` for the Fly.io healthcheck and human pings —
+      no DB query (so a DB outage doesn't fail the check). Add a
+      brief "Deploying" section to README documenting required
+      secrets.
+      Touches: `.env.production.example` (new),
+      `src/app/api/health/route.ts` (new), `README.md` (extend).
+      Acceptance:
+        - `curl localhost:18080/api/health` returns 200 + JSON.
+        - `pnpm build` still succeeds.
+
+- [x] T-22-5: VPS compose config + GHCR build/push + SSH deploy
+      Goal: Three pieces, one task because they're tightly coupled:
+
+      (a) `docker-compose.prod.yml` at repo root for the VPS:
+        - `web` service uses `image: ghcr.io/<owner>/articler:latest`
+          (no build), restart unless-stopped, env_file `.env.prod`
+          on the VPS, depends_on db (healthy).
+        - `db` Postgres 16 with named volume `db_data`, restart
+          policy, healthcheck.
+        - `caddy` in front, exposes 80/443, reverse-proxies to
+          `web:3000`, mounts `Caddyfile` and a `caddy_data` named
+          volume for the certificate cache. `Caddyfile` (also new)
+          has one site block per registered domain → `web:3000`
+          with automatic Let's Encrypt.
+        - Bind-mount the host `./logs` into `web` (same parity as
+          dev) so JSONL survives container churn. Use a named
+          volume for `./data` on prod (image storage doesn't need
+          host-side editing).
+
+      (b) `.github/workflows/deploy.yml` triggers on push to
+      `master` after CI is green:
+        1. checkout, set up Buildx + QEMU.
+        2. login to GHCR with `GITHUB_TOKEN`.
+        3. build + push image tagged `:latest` and `:<sha>` from
+           the existing Dockerfile.
+        4. SSH to the VPS using `appleboy/ssh-action` and a deploy
+           key stored as `DEPLOY_SSH_KEY` repo secret. Run on the
+           server: `cd /srv/articler && docker compose pull web &&
+           docker compose run --rm web pnpm db:migrate &&
+           docker compose up -d web caddy`.
+
+      (c) README "Deploying" section documenting the one-time VPS
+      bootstrap: install docker engine + compose plugin, create
+      `/srv/articler` with the prod compose file + Caddyfile +
+      `.env.prod`, register the deploy SSH key, configure DNS
+      A-record to the VPS, run the workflow.
+
+      Touches: `docker-compose.prod.yml` (new), `Caddyfile` (new),
+      `.github/workflows/deploy.yml` (new), `README.md` (extend).
+
+      Acceptance:
+        - Push to master after green CI completes the workflow
+          (build → push → ssh → up).
+        - Public domain serves `/login` over HTTPS with a valid
+          Let's Encrypt cert.
+        - `docker compose ps` on the VPS shows web, db, caddy all
+          healthy.
+        - `pnpm db:migrate` ran cleanly during deploy (visible in
+          the `db_data` volume's `__drizzle_migrations` table).
+
+      Notes: switching to Fly.io / Railway later is a swap of this
+      one task only — app code is unchanged.
+      Decision needed before implementing:
+        - VPS host + ssh creds (separate `deploy` user without
+          root sudo recommended).
+        - Domain + DNS A-record control.
+        - Whether Postgres lives in the same compose stack (default
+          chosen here, simplest) or as managed/external.
+
+---

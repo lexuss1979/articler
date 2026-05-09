@@ -2,12 +2,13 @@ import { z, type ZodSchema } from 'zod';
 import { emitEvent } from '../events/bus';
 import { appendRunLog } from '../logging/jsonl';
 import { routeChat, routeSearch, routeImage } from '../llm/router';
+import { withStageCtx } from './with-stage-ctx';
 import { getProfile } from '../profiles/repo';
 import { briefSchema } from '../sessions/brief';
 import { planSchema } from '../sessions/plan';
 import { getSession, updateSessionDraft, updateSessionPlan, updateSessionState } from '../sessions/repo';
 import { insertSource, listSessionSources } from '../sessions/sources-repo';
-import { upsertSectionDraft } from '../sessions/section-drafts-repo';
+import { upsertSectionDraft, listSectionDrafts } from '../sessions/section-drafts-repo';
 import { clarifyBrief } from './stages/clarify-brief';
 import { proposeAngles } from './stages/propose-angles';
 import { buildPlan } from './stages/build-plan';
@@ -26,8 +27,11 @@ type Pending = {
 declare global {
   // eslint-disable-next-line no-var
   var __pendingInputs: Map<number, Pending> | undefined;
+  // eslint-disable-next-line no-var
+  var __activeRunners: Set<number> | undefined;
 }
 const pendingInputs = (global.__pendingInputs ??= new Map<number, Pending>());
+const activeRunners = (global.__activeRunners ??= new Set<number>());
 
 function makeCtx(sessionId: number, state: string) {
   return {
@@ -56,7 +60,27 @@ function makeCtx(sessionId: number, state: string) {
   };
 }
 
-export async function startRunner(sessionId: number, userId: number): Promise<void> {
+export async function startRunner(
+  sessionId: number,
+  userId: number,
+  internal = false,
+): Promise<void> {
+  if (!internal) {
+    if (activeRunners.has(sessionId)) return;
+    if (pendingInputs.has(sessionId)) return;
+    activeRunners.add(sessionId);
+  }
+  try {
+    await runStage(sessionId, userId);
+  } catch (err) {
+    console.error('[runner] crashed:', err instanceof Error ? err.message : err);
+    throw err;
+  } finally {
+    if (!internal) activeRunners.delete(sessionId);
+  }
+}
+
+async function runStage(sessionId: number, userId: number): Promise<void> {
   const session = await getSession(userId, sessionId);
   if (!session) return;
 
@@ -78,7 +102,9 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
       }
 
       // Step 1: clarify brief
-      const { questions } = await clarifyBrief.run({ brief, profile }, ctx);
+      const { questions } = await withStageCtx(clarifyBrief, sessionId, userId, () =>
+        clarifyBrief.run({ brief, profile }, ctx),
+      );
 
       let clarifications: Array<{ question: string; answer: string }> = [];
       if (questions.length > 0) {
@@ -91,7 +117,9 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
       }
 
       // Step 2: propose angles
-      const { angles } = await proposeAngles.run({ brief, profile, clarifications }, ctx);
+      const { angles } = await withStageCtx(proposeAngles, sessionId, userId, () =>
+        proposeAngles.run({ brief, profile, clarifications }, ctx),
+      );
       await ctx.emit('artifact_updated', { kind: 'angles', angles });
 
       const { index } = await ctx.userInput(
@@ -101,7 +129,9 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
       const chosenAngle = angles[index]!;
 
       // Step 3: build plan
-      const plan = await buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx);
+      const plan = await withStageCtx(buildPlan, sessionId, userId, () =>
+        buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx),
+      );
       await updateSessionPlan(userId, sessionId, plan);
       await ctx.emit('artifact_updated', { kind: 'plan', plan });
 
@@ -110,7 +140,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'research');
       await ctx.emit('state_changed', { state: 'research' });
-      await startRunner(sessionId, userId);
+      await startRunner(sessionId, userId, true);
       break;
     }
     case 'research': {
@@ -128,19 +158,27 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
       }
 
       try {
-        const { hypotheses } = await planSearchHypotheses.run({ plan, profile }, ctx);
+        const { hypotheses } = await withStageCtx(planSearchHypotheses, sessionId, userId, () =>
+          planSearchHypotheses.run({ plan, profile }, ctx),
+        );
         await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
 
         await Promise.all(
           hypotheses.map(async (hypothesis) => {
-            const { queries } = await formulateQueries.run({ hypothesis }, ctx);
+            const { queries } = await withStageCtx(formulateQueries, sessionId, userId, () =>
+              formulateQueries.run({ hypothesis }, ctx),
+            );
             for (const query of queries) {
-              const { hits } = await webSearch.run({ sessionId, userId, hypothesis, query }, ctx);
+              const { hits } = await withStageCtx(webSearch, sessionId, userId, () =>
+                webSearch.run({ sessionId, userId, hypothesis, query }, ctx),
+              );
               for (const hit of hits) {
                 try {
-                  const { summary, relevanceScore } = await summarizeSource.run(
-                    { hypothesis, query, hit },
-                    ctx,
+                  const { summary, relevanceScore } = await withStageCtx(
+                    summarizeSource,
+                    sessionId,
+                    userId,
+                    () => summarizeSource.run({ hypothesis, query, hit }, ctx),
                   );
                   const status =
                     relevanceScore >= 70 ? 'accepted' : relevanceScore < 40 ? 'rejected' : 'proposed';
@@ -167,6 +205,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        console.error('[research] failed:', err);
         await ctx.emit('agent_message', { text: `Research failed: ${msg}`, error: true });
         return;
       }
@@ -175,7 +214,7 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
 
       await updateSessionState(userId, sessionId, 'drafting');
       await ctx.emit('state_changed', { state: 'drafting' });
-      await startRunner(sessionId, userId);
+      await startRunner(sessionId, userId, true);
       break;
     }
     case 'drafting': {
@@ -202,27 +241,42 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
       const allSources = await listSessionSources(userId, sessionId);
       const acceptedSources = allSources.filter((s) => s.status === 'accepted');
 
-      // TODO: consider parallel drafting with a second pass for cohesion
+      const existingDrafts = await listSectionDrafts(userId, sessionId);
+      const existingMap = new Map(existingDrafts.map((d) => [d.sectionId, d.contentMd]));
+
       const drafted: Array<{ id: string; contentMd: string }> = [];
       for (const section of plan.sections) {
+        const cached = existingMap.get(section.id);
+        if (cached && cached.trim().length > 0) {
+          drafted.push({ id: section.id, contentMd: cached });
+          await ctx.emit('artifact_updated', {
+            kind: 'section_draft',
+            sectionId: section.id,
+            contentMd: cached,
+          });
+          continue;
+        }
+
         const sectionSources = acceptedSources.filter((s) => s.sectionId === section.id);
         const prevSections = [...drafted];
 
-        const { contentMd } = await draftSection.run(
-          {
-            profile,
-            plan,
-            section,
-            acceptedSources: sectionSources.map((s) => ({
-              url: s.url,
-              title: s.title,
-              summary: s.summary,
-              rawExcerpt: s.rawExcerpt,
-            })),
-            prevSections,
-            rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
-          },
-          ctx,
+        const { contentMd } = await withStageCtx(draftSection, sessionId, userId, () =>
+          draftSection.run(
+            {
+              profile,
+              plan,
+              section,
+              acceptedSources: sectionSources.map((s) => ({
+                url: s.url,
+                title: s.title,
+                summary: s.summary,
+                rawExcerpt: s.rawExcerpt,
+              })),
+              prevSections,
+              rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
+            },
+            ctx,
+          ),
         );
 
         await upsertSectionDraft(userId, sessionId, section.id, contentMd);
@@ -233,10 +287,48 @@ export async function startRunner(sessionId: number, userId: number): Promise<vo
         await ctx.emit('artifact_updated', { kind: 'section_draft', sectionId: section.id, contentMd });
       }
 
+      // Make sure draftMd reflects all sections (in case some were resumed from cache)
+      const fullDraft = drafted.map((d) => d.contentMd).join('\n\n');
+      if (fullDraft !== session.draftMd) {
+        await updateSessionDraft(userId, sessionId, fullDraft);
+      }
+
       await ctx.userInput('draft_done', z.object({ action: z.literal('finish') }));
 
       await updateSessionState(userId, sessionId, 'review');
       await ctx.emit('state_changed', { state: 'review' });
+      await startRunner(sessionId, userId, true);
+      break;
+    }
+    case 'review': {
+      await ctx.userInput('review_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'decoration');
+      await ctx.emit('state_changed', { state: 'decoration' });
+      await startRunner(sessionId, userId, true);
+      break;
+    }
+    case 'decoration': {
+      await ctx.userInput('decoration_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'illustration');
+      await ctx.emit('state_changed', { state: 'illustration' });
+      await startRunner(sessionId, userId, true);
+      break;
+    }
+    case 'illustration': {
+      await ctx.userInput('illustration_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'export');
+      await ctx.emit('state_changed', { state: 'export' });
+      await startRunner(sessionId, userId, true);
+      break;
+    }
+    case 'export': {
+      await ctx.userInput('export_done', z.object({ action: z.literal('finish') }));
+
+      await updateSessionState(userId, sessionId, 'done');
+      await ctx.emit('state_changed', { state: 'done' });
       break;
     }
     default:

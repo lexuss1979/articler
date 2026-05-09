@@ -32,15 +32,15 @@ vi.mock('../../../src/server/llm/router', () => ({
 }));
 
 vi.mock('../../../src/server/pipeline/stages/clarify-brief', () => ({
-  clarifyBrief: { run: vi.fn() },
+  clarifyBrief: { name: 'clarify_brief', run: vi.fn() },
 }));
 
 vi.mock('../../../src/server/pipeline/stages/propose-angles', () => ({
-  proposeAngles: { run: vi.fn() },
+  proposeAngles: { name: 'propose_angles', run: vi.fn() },
 }));
 
 vi.mock('../../../src/server/pipeline/stages/build-plan', () => ({
-  buildPlan: { run: vi.fn() },
+  buildPlan: { name: 'build_plan', run: vi.fn() },
 }));
 
 afterEach(() => vi.clearAllMocks());
@@ -54,10 +54,10 @@ describe('startRunner', () => {
   });
 
   it('does nothing for an unregistered state', async () => {
-    mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'review', brief: null, profileId: 1 });
+    mocks.getSessionFn.mockResolvedValue({ id: 11, userId: 1, state: 'done', brief: null, profileId: 1 });
     mocks.emitEventFn.mockResolvedValue({});
     const { startRunner } = await import('../../../src/server/pipeline/runner');
-    await startRunner(10, 1);
+    await startRunner(11, 1);
     expect(mocks.emitEventFn).not.toHaveBeenCalled();
     expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
   });
@@ -72,6 +72,55 @@ describe('startRunner', () => {
     const emitCalls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
     expect(emitCalls.some(([, k]) => k === 'agent_message')).toBe(true);
     expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
+  });
+
+  it('runs stage.run inside an LLMContext set to {userId, sessionId, stage, task}', async () => {
+    mocks.getSessionFn.mockResolvedValue({
+      id: 42,
+      userId: 7,
+      state: 'planning',
+      brief: { topic: 'x', goal: '', notes: '', sourceArticles: [] },
+      profileId: 1,
+    });
+    mocks.emitEventFn.mockResolvedValue({});
+
+    const profileMod = await import('../../../src/server/profiles/repo');
+    vi.mocked(profileMod.getProfile).mockResolvedValue({
+      id: 1,
+      userId: 7,
+      name: 'p',
+      format: 'long_read',
+      style: 's',
+      audience: 'a',
+      targetVolumeMin: 100,
+      targetVolumeMax: 200,
+      markupRules: {},
+      extraPrompt: '',
+      createdAt: new Date(),
+    });
+
+    const ctxMod = await import('../../../src/server/llm/context');
+    let captured: ReturnType<typeof ctxMod.getLLMContext>;
+
+    const stageMod = await import('../../../src/server/pipeline/stages/clarify-brief');
+    vi.mocked(stageMod.clarifyBrief.run).mockImplementation(async () => {
+      captured = ctxMod.getLLMContext();
+      return { questions: [] };
+    });
+
+    const anglesMod = await import('../../../src/server/pipeline/stages/propose-angles');
+    const sentinel = new Error('STOP_AFTER_CLARIFY');
+    vi.mocked(anglesMod.proposeAngles.run).mockRejectedValue(sentinel);
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await expect(startRunner(42, 7)).rejects.toBe(sentinel);
+
+    expect(captured).toEqual({
+      userId: 7,
+      sessionId: 42,
+      stage: 'clarify_brief',
+      task: 'clarify_brief',
+    });
   });
 });
 

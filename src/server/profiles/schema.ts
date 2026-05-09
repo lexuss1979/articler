@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { markupRulesSchema } from './markup';
 
 export const PROFILE_FORMATS = ['long_read', 'listicle', 'news', 'tutorial'] as const;
 export type ProfileFormat = (typeof PROFILE_FORMATS)[number];
@@ -11,7 +12,7 @@ export const profileInputSchema = z
     audience: z.string().min(1).max(500),
     targetVolumeMin: z.number().int().positive(),
     targetVolumeMax: z.number().int().positive(),
-    markupRules: z.record(z.string(), z.unknown()),
+    markupRules: markupRulesSchema.default({ flavor: 'standard', headingShift: 0 }),
     extraPrompt: z.string().default(''),
   })
   .superRefine((data, ctx) => {

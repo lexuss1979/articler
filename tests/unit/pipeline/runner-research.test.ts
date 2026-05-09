@@ -124,10 +124,13 @@ describe('startRunner — research state', () => {
   });
 
   it('inserts source for each hit and emits artifact_updated in correct order', async () => {
-    // First call returns research session; recursive startRunner for drafting gets drafting session
+    // research → drafting (recursive) → review (recursive, parks for review_done) → null (stop)
+    const reviewSession = { id: 10, userId: 1, state: 'review', plan, brief, profileId: 1, mode: 'write' };
     mocks.getSessionFn
       .mockResolvedValueOnce(researchSession)
-      .mockResolvedValue(draftingSession);
+      .mockResolvedValueOnce(draftingSession)
+      .mockResolvedValueOnce(reviewSession)
+      .mockResolvedValue(null);
     mocks.getProfileFn.mockResolvedValue(profile);
     mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 10, kind: '', payload: {}, ts: new Date() });
     mocks.updateSessionStateFn.mockResolvedValue({ id: 10, state: 'drafting' });
@@ -166,7 +169,16 @@ describe('startRunner — research state', () => {
       expect(calls.some(([, k, p]) => k === 'awaiting_user' && (p as { prompt: string }).prompt === 'draft_done')).toBe(true);
     }, { timeout: 3000 });
 
-    // Unpark draft_done
+    // Unpark draft_done → runner transitions to review and parks at review_done
+    resolveUserInput(10, { action: 'finish' });
+
+    // Wait until parks at review_done
+    await vi.waitFor(() => {
+      const calls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+      expect(calls.some(([, k, p]) => k === 'awaiting_user' && (p as { prompt: string }).prompt === 'review_done')).toBe(true);
+    }, { timeout: 3000 });
+
+    // Unpark review_done
     resolveUserInput(10, { action: 'finish' });
 
     await runnerPromise;

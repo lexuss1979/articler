@@ -1,8 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../db/client';
-import { profiles, sessions } from '../db/schema';
+import { critiqueFindings, critiqueRounds, profiles, sessions } from '../db/schema';
 import type { BriefInput } from './brief';
 import type { Plan } from './plan';
+import type { ActiveCritics } from './critics';
 
 export class ProfileNotOwnedError extends Error {
   constructor() {
@@ -71,4 +72,92 @@ export async function updateSessionDraft(userId: number, id: number, draftMd: st
     .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
     .returning();
   return row ?? null;
+}
+
+export async function updateSessionActiveCritics(userId: number, id: number, activeCritics: ActiveCritics) {
+  const [row] = await db
+    .update(sessions)
+    .set({ activeCritics, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function updateSessionRevision(
+  userId: number,
+  id: number,
+  fields: { revisedDraftMd: string | null; revisionStatus: string | null },
+) {
+  const [row] = await db
+    .update(sessions)
+    .set({ ...fields, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function acceptRevisions(userId: number, id: number) {
+  return db.transaction(async (tx) => {
+    const [session] = await tx
+      .select()
+      .from(sessions)
+      .where(and(eq(sessions.id, id), eq(sessions.userId, userId)));
+    if (!session || !session.revisedDraftMd) return null;
+
+    const [updated] = await tx
+      .update(sessions)
+      .set({
+        draftMd: session.revisedDraftMd,
+        revisedDraftMd: null,
+        revisionStatus: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+      .returning();
+
+    const ownedRounds = tx
+      .select({ id: critiqueRounds.id })
+      .from(critiqueRounds)
+      .where(eq(critiqueRounds.sessionId, id));
+
+    await tx
+      .update(critiqueFindings)
+      .set({ status: 'applied' })
+      .where(
+        and(
+          eq(critiqueFindings.status, 'pending_apply'),
+          inArray(critiqueFindings.roundId, ownedRounds),
+        ),
+      );
+
+    return updated ?? null;
+  });
+}
+
+export async function discardRevisions(userId: number, id: number) {
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(sessions)
+      .set({ revisedDraftMd: null, revisionStatus: null, updatedAt: new Date() })
+      .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+      .returning();
+    if (!updated) return null;
+
+    const ownedRounds = tx
+      .select({ id: critiqueRounds.id })
+      .from(critiqueRounds)
+      .where(eq(critiqueRounds.sessionId, id));
+
+    await tx
+      .update(critiqueFindings)
+      .set({ status: 'open' })
+      .where(
+        and(
+          eq(critiqueFindings.status, 'pending_apply'),
+          inArray(critiqueFindings.roundId, ownedRounds),
+        ),
+      );
+
+    return updated;
+  });
 }

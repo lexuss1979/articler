@@ -1,0 +1,27 @@
+{
+  "input": {
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    "slot": {
+      "kind": "hero",
+      "brief": "An overhead editorial photo of an open laptop on a wooden desk, conveying focused engineering work."
+    }
+  },
+  "expected": {
+    "schemaRef": "stockKeywords.outputSchema",
+    "snapshot": {
+      "keywords": ["laptop desk", "code on screen", "developer workspace", "wooden desk"]
+    }
+  }
+}

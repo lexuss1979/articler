@@ -5,14 +5,14 @@ export const MODEL_PRICES: Record<string, { promptPerMTok: number; completionPer
   'perplexity/sonar-pro': { promptPerMTok: 3, completionPerMTok: 15 },
   'openai/gpt-5': { promptPerMTok: 10, completionPerMTok: 30 },
   'openai/gpt-5-mini': { promptPerMTok: 0.6, completionPerMTok: 2.4 },
-  'google/nano-banana': { promptPerMTok: 0, completionPerMTok: 0 },
-  'openai/image-2': { promptPerMTok: 0, completionPerMTok: 0 },
+  'google/gemini-3.1-flash-image-preview': { promptPerMTok: 0, completionPerMTok: 0 },
+  'openai/gpt-5.4-image-2': { promptPerMTok: 0, completionPerMTok: 0 },
 };
 
 // TODO: refresh these prices from OpenRouter — last checked 2026-05-01
 export const IMAGE_PRICES: Record<string, { perImage: number }> = {
-  'google/nano-banana': { perImage: 0.04 },
-  'openai/image-2': { perImage: 0.04 },
+  'google/gemini-3.1-flash-image-preview': { perImage: 0.04 },
+  'openai/gpt-5.4-image-2': { perImage: 0.04 },
 };
 
 export function costFor(model: string, prompt: number, completion: number): number {

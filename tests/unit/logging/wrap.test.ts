@@ -11,6 +11,18 @@ vi.mock('../../../src/server/db/client', () => {
   return { db: { insert } };
 });
 
+vi.mock('../../../src/server/llm/budget-guard', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/server/llm/budget-guard')>();
+  return {
+    ...actual,
+    assertBudget: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock('../../../src/server/events/bus', () => ({
+  emitEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 afterEach(() => {
   vi.clearAllMocks();
 });
@@ -88,6 +100,81 @@ describe('wrapWithLogging', () => {
 
     expect(result.runId).toBe(42);
     expect(result.content).toBe('hello');
+  });
+
+  it('persists cachedTokens and reasoningTokens onto the runs row when present', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { db } = await import('../../../src/server/db/client');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'detail-tokens',
+      call: async () => ({ ...FAKE_RESULT, cachedTokens: 1500, reasoningTokens: 200 }),
+      request: {},
+    });
+
+    const valuesSpy = (db.insert as ReturnType<typeof vi.fn>).mock.results[0].value.values;
+    const [row] = (valuesSpy as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(row.cachedTokens).toBe(1500);
+    expect(row.reasoningTokens).toBe(200);
+  });
+
+  it('emits cost_updated on the bus after a successful run when sessionId is set', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { emitEvent } = await import('../../../src/server/events/bus');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'emits',
+      sessionId: 42,
+      call: async () => ({ ...FAKE_RESULT, cost: 0.0231 }),
+      request: {},
+    });
+
+    expect(emitEvent).toHaveBeenCalledOnce();
+    const [sid, kind, payload] = (emitEvent as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      number,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(sid).toBe(42);
+    expect(kind).toBe('cost_updated');
+    expect(payload.delta).toBe(0.0231);
+  });
+
+  it('does not emit cost_updated when sessionId is missing', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { emitEvent } = await import('../../../src/server/events/bus');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'no-sid',
+      call: async () => FAKE_RESULT,
+      request: {},
+    });
+
+    expect(emitEvent).not.toHaveBeenCalled();
+  });
+
+  it('writes nulls for the detail token columns when fields are absent on the result', async () => {
+    const { wrapWithLogging } = await import('../../../src/server/logging/wrap');
+    const { db } = await import('../../../src/server/db/client');
+
+    await wrapWithLogging({
+      stage: 'test',
+      task: 'no-detail',
+      call: async () => FAKE_RESULT,
+      request: {},
+    });
+
+    const valuesSpy = (db.insert as ReturnType<typeof vi.fn>).mock.results[0].value.values;
+    const [row] = (valuesSpy as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(row.cachedTokens).toBeNull();
+    expect(row.reasoningTokens).toBeNull();
   });
 
   it('writes an error JSONL line and rethrows on failure without inserting a runs row', async () => {

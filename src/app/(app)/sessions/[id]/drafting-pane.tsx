@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSessionEvents } from './use-session-events';
 import { SectionCard } from './section-card';
-import { finishDraftAction } from './actions';
+import { finishDraftAction, startSessionAction } from './actions';
 import type { Plan } from '../../../../server/sessions/plan';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { sectionDrafts } from '../../../../server/db/schema';
@@ -27,6 +27,7 @@ export function DraftingPane({
   );
   const [awaitingFinish, setAwaitingFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [resuming, setResuming] = useState(false);
 
   useEffect(() => {
     const newEvents = events.slice(processedCount.current);
@@ -58,6 +59,15 @@ export function DraftingPane({
     }
   }
 
+  async function handleResume() {
+    setResuming(true);
+    try {
+      await startSessionAction(sessionId);
+    } finally {
+      setResuming(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -85,7 +95,7 @@ export function DraftingPane({
         ))}
       </div>
 
-      <div className="mt-2 flex flex-col gap-1 self-start">
+      <div className="mt-2 flex flex-col gap-2 self-start">
         <button
           onClick={() => void handleFinish()}
           disabled={!canFinish || finishing}
@@ -94,7 +104,18 @@ export function DraftingPane({
           {finishing ? 'Finishing…' : 'Finish drafting'}
         </button>
         {!allDrafted && (
-          <p className="text-xs text-gray-400">All sections must be drafted before finishing</p>
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={() => void handleResume()}
+              disabled={resuming}
+              className="text-xs px-3 py-1.5 rounded border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-40 self-start"
+            >
+              {resuming ? 'Resuming…' : 'Resume drafting'}
+            </button>
+            <p className="text-xs text-gray-400">
+              Drafting stuck? Click Resume to pick up where it stopped (already-written sections are skipped).
+            </p>
+          </div>
         )}
         {allDrafted && !awaitingFinish && (
           <p className="text-xs text-gray-400">Available when drafting completes</p>

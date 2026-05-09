@@ -1,0 +1,74 @@
+{
+  "input": {
+    "plan": {
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "sections": [
+        {
+          "id": "intro",
+          "title": "Why Your LLM Costs Are Higher Than They Need to Be",
+          "intent": "Hook the reader with a concrete cost-pain scenario; introduce caching as the solution.",
+          "expectedLength": 400,
+          "keyPoints": [
+            "A typical RAG call re-sends the same 10k-token system prompt every time",
+            "That's ~$0.03 per call multiplied by millions of requests",
+            "Prompt caching changes the economics fundamentally"
+          ]
+        },
+        {
+          "id": "mechanics",
+          "title": "How Prompt Caching Works: Tokens, TTL, and Cache Keys",
+          "intent": "Explain the technical mechanism: what gets cached, for how long, and how the provider identifies cache hits.",
+          "expectedLength": 900,
+          "keyPoints": [
+            "Cache is keyed on the exact prefix of the messages array",
+            "Anthropic's TTL is 5 minutes (extendable via usage)",
+            "Input tokens on a cache hit cost ~10% of full price",
+            "cache_control breakpoint markers in the API"
+          ]
+        }
+      ]
+    },
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    "sectionDrafts": [
+      {
+        "sectionId": "intro",
+        "contentMd": "## Why Your LLM Costs Are Higher Than They Need to Be\n\nYou've built a RAG pipeline. Every query sends a 10 000-token system prompt to the model before a single word of user content. At $0.003 per 1K input tokens that's $0.03 per call. At a million calls a month you're paying $30 000 just to re-transmit context the model has already seen a million times.\n\nPrompt caching changes this calculus. Cache a prefix once, and every subsequent call that shares that prefix pays only 10% of the normal input price for those tokens."
+      },
+      {
+        "sectionId": "mechanics",
+        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nPrompt caching works by storing the KV (key-value) computation for a prefix of your messages array on Anthropic's servers. The cache is keyed on the exact byte sequence of that prefix — any change invalidates it. By default the TTL is 5 minutes, extended each time the entry is read.\n\nTo mark a breakpoint you add `\"cache_control\": {\"type\": \"ephemeral\"}` to the last message in the prefix you want cached. The API response then includes `cache_creation_input_tokens` and `cache_read_input_tokens` counters so you can track hit rate."
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "proposeImageSlots.outputSchema",
+    "snapshot": {
+      "heroBrief": "An overhead editorial photo of an open laptop on a wooden desk, a stylized translucent overlay showing duplicated lines of code being collapsed into a single cached block, conveying the idea of paying once and reusing many times.",
+      "inlineSlots": [
+        {
+          "sectionId": "intro",
+          "paragraphIndex": 1,
+          "brief": "A clean isometric illustration of a long pipeline with one stage repeatedly re-sending the same large brick of context to an LLM, while a meter on the side ticks up dollars — emphasizing wasted re-transmission."
+        },
+        {
+          "sectionId": "mechanics",
+          "paragraphIndex": 1,
+          "brief": "A diagrammatic explainer image: a prefix of message bubbles glowing as 'cached', followed by a fresh user-message bubble; a tiny 5-minute clock floats above the cached bubbles to convey TTL."
+        }
+      ]
+    }
+  }
+}

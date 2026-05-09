@@ -7,6 +7,7 @@ import { getProfile } from '../profiles/repo';
 import { listSessionSources } from '../sessions/sources-repo';
 import { listSectionDrafts, upsertSectionDraft } from '../sessions/section-drafts-repo';
 import { draftSection } from './stages/draft-section';
+import { withStageCtx } from './with-stage-ctx';
 
 export async function regenerateSection({
   sessionId,
@@ -61,22 +62,24 @@ export async function regenerateSection({
     llm: {} as never,
   };
 
-  const { contentMd } = await draftSection.run(
-    {
-      profile,
-      plan,
-      section,
-      acceptedSources: acceptedSources.map((s) => ({
-        url: s.url,
-        title: s.title,
-        summary: s.summary,
-        rawExcerpt: s.rawExcerpt,
-      })),
-      prevSections,
-      instruction: instruction || undefined,
-      rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
-    },
-    ctx,
+  const { contentMd } = await withStageCtx(draftSection, sessionId, userId, () =>
+    draftSection.run(
+      {
+        profile,
+        plan,
+        section,
+        acceptedSources: acceptedSources.map((s) => ({
+          url: s.url,
+          title: s.title,
+          summary: s.summary,
+          rawExcerpt: s.rawExcerpt,
+        })),
+        prevSections,
+        instruction: instruction || undefined,
+        rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
+      },
+      ctx,
+    ),
   );
 
   await upsertSectionDraft(userId, sessionId, sectionId, contentMd);

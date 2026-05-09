@@ -18,6 +18,15 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const userSettings = pgTable('user_settings', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  monthlyCapUsd: numeric('monthly_cap_usd', { precision: 12, scale: 6 }),
+  sessionCapUsd: numeric('session_cap_usd', { precision: 12, scale: 6 }),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const profiles = pgTable('profiles', {
   id: serial('id').primaryKey(),
   userId: integer('user_id')
@@ -47,6 +56,8 @@ export const sessions = pgTable('sessions', {
   brief: jsonb('brief'),
   plan: jsonb('plan'),
   draftMd: text('draft_md'),
+  revisedDraftMd: text('revised_draft_md'),
+  revisionStatus: text('revision_status'),
   activeCritics: jsonb('active_critics'),
   decoration: jsonb('decoration'),
   images: jsonb('images'),
@@ -194,6 +205,8 @@ export const runs = pgTable('runs', {
   modelName: text('model_name').notNull(),
   promptTokens: integer('prompt_tokens').notNull(),
   completionTokens: integer('completion_tokens').notNull(),
+  cachedTokens: integer('cached_tokens'),
+  reasoningTokens: integer('reasoning_tokens'),
   costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull(),
   latencyMs: integer('latency_ms').notNull(),
   ts: timestamp('ts').defaultNow().notNull(),

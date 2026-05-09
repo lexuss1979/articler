@@ -1,0 +1,91 @@
+{
+  "input": {
+    "plan": {
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "sections": [
+        {
+          "id": "intro",
+          "title": "Why Your LLM Costs Are Higher Than They Need to Be",
+          "intent": "Hook the reader with a concrete cost-pain scenario; introduce caching as the solution.",
+          "expectedLength": 400,
+          "keyPoints": [
+            "A typical RAG call re-sends the same 10k-token system prompt every time",
+            "That's ~$0.03 per call multiplied by millions of requests",
+            "Prompt caching changes the economics fundamentally"
+          ]
+        },
+        {
+          "id": "mechanics",
+          "title": "How Prompt Caching Works: Tokens, TTL, and Cache Keys",
+          "intent": "Explain the technical mechanism: what gets cached, for how long, and how the provider identifies cache hits.",
+          "expectedLength": 900,
+          "keyPoints": [
+            "Cache is keyed on the exact prefix of the messages array",
+            "Anthropic's TTL is 5 minutes (extendable via usage)",
+            "Input tokens on a cache hit cost ~10% of full price",
+            "cache_control breakpoint markers in the API"
+          ]
+        }
+      ]
+    },
+    "profile": {
+      "id": 1,
+      "userId": 1,
+      "name": "Habr",
+      "format": "long_read",
+      "style": "Technical, precise, example-driven",
+      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "targetVolumeMin": 3000,
+      "targetVolumeMax": 6000,
+      "markupRules": {},
+      "extraPrompt": "",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    "sectionDrafts": [
+      {
+        "sectionId": "intro",
+        "contentMd": "## Why Your LLM Costs Are Higher Than They Need to Be\n\nYou've built a RAG pipeline. Every query sends a 10 000-token system prompt to the model before a single word of user content. At $0.003 per 1K input tokens that's $0.03 per call. At a million calls a month you're paying $30 000 just to re-transmit context the model has already seen a million times.\n\nPrompt caching changes this calculus. Cache a prefix once, and every subsequent call that shares that prefix pays only 10% of the normal input price for those tokens."
+      },
+      {
+        "sectionId": "mechanics",
+        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nPrompt caching works by storing the KV (key-value) computation for a prefix of your messages array on Anthropic's servers. The cache is keyed on the exact byte sequence of that prefix — any change invalidates it. By default the TTL is 5 minutes, extended each time the entry is read.\n\nTo mark a breakpoint you add `\"cache_control\": {\"type\": \"ephemeral\"}` to the last message in the prefix you want cached. The API response then includes `cache_creation_input_tokens` and `cache_read_input_tokens` counters so you can track hit rate."
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "proposeDecoration.outputSchema",
+    "snapshot": {
+      "suggestions": [
+        {
+          "kind": "pull_quote",
+          "sectionId": "intro",
+          "paragraphIndex": 2,
+          "contentMd": "> At a million calls a month you're paying $30 000 just to re-transmit context the model has already seen a million times.",
+          "rationale": "Surfaces the headline cost figure as a memorable anchor before the reader scrolls past it."
+        },
+        {
+          "kind": "callout",
+          "sectionId": "intro",
+          "paragraphIndex": 3,
+          "contentMd": "> **Tip:** the 10% cache-hit price applies only to input tokens — output tokens are billed at the normal rate.",
+          "rationale": "Pre-empts the most common misreading of the pricing claim made in the previous paragraph."
+        },
+        {
+          "kind": "code_block",
+          "sectionId": "mechanics",
+          "paragraphIndex": 2,
+          "contentMd": "```json\n{\n  \"role\": \"system\",\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"<your large system prompt>\",\n      \"cache_control\": { \"type\": \"ephemeral\" }\n    }\n  ]\n}\n```",
+          "rationale": "Engineers expect a copy-paste API snippet immediately after the prose explaining the breakpoint marker."
+        },
+        {
+          "kind": "comparison_table",
+          "sectionId": "mechanics",
+          "paragraphIndex": 3,
+          "contentMd": "| Token type | Cache miss | Cache hit |\n|---|---|---|\n| Input | 100% of base price | ~10% of base price |\n| Cache write | +25% surcharge | n/a |\n| Output | 100% of base price | 100% of base price |",
+          "rationale": "A side-by-side table makes the cost arithmetic concrete and lets readers re-derive break-even quickly."
+        }
+      ]
+    }
+  }
+}

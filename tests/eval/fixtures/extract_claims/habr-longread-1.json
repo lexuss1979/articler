@@ -1,0 +1,70 @@
+{
+  "input": {
+    "plan": {
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "sections": [
+        {
+          "id": "intro",
+          "title": "Why Your LLM Costs Are Higher Than They Need to Be",
+          "intent": "Hook the reader with a concrete cost-pain scenario; introduce caching as the solution.",
+          "expectedLength": 400,
+          "keyPoints": [
+            "A typical RAG call re-sends the same 10k-token system prompt every time",
+            "That's ~$0.03 per call multiplied by millions of requests",
+            "Prompt caching changes the economics fundamentally"
+          ]
+        },
+        {
+          "id": "mechanics",
+          "title": "How Prompt Caching Works: Tokens, TTL, and Cache Keys",
+          "intent": "Explain the technical mechanism: what gets cached, for how long, and how the provider identifies cache hits.",
+          "expectedLength": 900,
+          "keyPoints": [
+            "Cache is keyed on the exact prefix of the messages array",
+            "Anthropic's TTL is 5 minutes (extendable via usage)",
+            "Input tokens on a cache hit cost ~10% of full price",
+            "cache_control breakpoint markers in the API"
+          ]
+        }
+      ]
+    },
+    "sectionDrafts": [
+      {
+        "sectionId": "intro",
+        "contentMd": "## Why Your LLM Costs Are Higher Than They Need to Be\n\nYou've built a RAG pipeline. Every query sends a 10 000-token system prompt to the model before a single word of user content. At $0.003 per 1K input tokens that's $0.03 per call. At a million calls a month you're paying $30 000 just to re-transmit context the model has already seen a million times.\n\nPrompt caching changes this calculus. Cache a prefix once, and every subsequent call that shares that prefix pays only 10% of the normal input price for those tokens."
+      },
+      {
+        "sectionId": "mechanics",
+        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nThe cache is keyed on the exact prefix of the messages array. Anthropic's TTL is 5 minutes. Input tokens on a cache hit cost 10% of full price."
+      }
+    ]
+  },
+  "expected": {
+    "schemaRef": "extractClaims.outputSchema",
+    "snapshot": {
+      "claims": [
+        {
+          "span": {
+            "sectionId": "intro",
+            "charStart": 0,
+            "charEnd": 50,
+            "text": "$0.03 per call at a million calls a month costs $30 000"
+          },
+          "claimType": "statistic",
+          "checkWorthiness": "high"
+        },
+        {
+          "span": {
+            "sectionId": "mechanics",
+            "charStart": 0,
+            "charEnd": 40,
+            "text": "Anthropic's TTL is 5 minutes"
+          },
+          "claimType": "factual",
+          "checkWorthiness": "medium"
+        }
+      ]
+    }
+  }
+}
