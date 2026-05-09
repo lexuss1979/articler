@@ -136,6 +136,18 @@ describe('startRunner — decoration state', () => {
     expect(stateChangedCalls.at(-1)?.[2]).toMatchObject({ state: 'illustration' });
   });
 
+  it('returns immediately without any userInput or state advance when mode is light', async () => {
+    mocks.getSessionFn.mockResolvedValue({ id: 99, userId: 1, state: 'decoration', plan: null, brief: null, profileId: 1, mode: 'light' });
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    const calls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    expect(calls.every(([, k]) => k !== 'awaiting_user')).toBe(true);
+    expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
+  });
+
   it('chains into a recursive startRunner so the illustration park activates immediately', async () => {
     mocks.getSessionFn
       .mockResolvedValueOnce(makeDecorationSession())

@@ -19,6 +19,7 @@ import { formulateQueries } from './stages/formulate-queries';
 import { webSearch } from './stages/web-search';
 import { summarizeSource } from './stages/summarize-source';
 import { draftSection } from './stages/draft-section';
+import { draftFull } from './stages/draft-full';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -323,69 +324,98 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
         return;
       }
 
-      const allSources = await listSessionSources(userId, sessionId);
-      const acceptedSources = allSources.filter((s) => s.status === 'accepted');
-
-      const existingDrafts = await listSectionDrafts(userId, sessionId);
-      const existingMap = new Map(existingDrafts.map((d) => [d.sectionId, d.contentMd]));
-
-      const drafted: Array<{ id: string; contentMd: string }> = [];
-      for (const section of plan.sections) {
-        const cached = existingMap.get(section.id);
-        if (cached && cached.trim().length > 0) {
-          drafted.push({ id: section.id, contentMd: cached });
-          await ctx.emit('artifact_updated', {
-            kind: 'section_draft',
-            sectionId: section.id,
-            contentMd: cached,
-          });
-          continue;
-        }
-
-        const sectionSources = acceptedSources.filter((s) => s.sectionId === section.id);
-        const prevSections = [...drafted];
-
-        const { contentMd } = await withStageCtx(draftSection, sessionId, userId, () =>
-          draftSection.run(
+      if (session.mode === 'light') {
+        const allSources = await listSessionSources(userId, sessionId);
+        const acceptedSources = allSources.filter((s) => s.status === 'accepted');
+        const { contentMd, wordCount } = await withStageCtx(draftFull, sessionId, userId, () =>
+          draftFull.run(
             {
               profile,
+              brief,
               plan,
-              section,
-              acceptedSources: sectionSources.map((s) => ({
+              sources: acceptedSources.map((s) => ({
                 url: s.url,
                 title: s.title,
                 summary: s.summary,
                 rawExcerpt: s.rawExcerpt,
               })),
-              prevSections,
-              rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
+              lightMaxWords: profile.lightMaxWords,
             },
             ctx,
           ),
         );
+        await updateSessionDraft(userId, sessionId, contentMd);
+        await ctx.emit('artifact_updated', { kind: 'full_draft', contentMd, wordCount });
+        await updateSessionState(userId, sessionId, 'review');
+        await ctx.emit('state_changed', { state: 'review' });
+        await startRunner(sessionId, userId, true);
+      } else {
+        const allSources = await listSessionSources(userId, sessionId);
+        const acceptedSources = allSources.filter((s) => s.status === 'accepted');
 
-        await upsertSectionDraft(userId, sessionId, section.id, contentMd);
-        drafted.push({ id: section.id, contentMd });
+        const existingDrafts = await listSectionDrafts(userId, sessionId);
+        const existingMap = new Map(existingDrafts.map((d) => [d.sectionId, d.contentMd]));
 
-        const draftMd = drafted.map((d) => d.contentMd).join('\n\n');
-        await updateSessionDraft(userId, sessionId, draftMd);
-        await ctx.emit('artifact_updated', { kind: 'section_draft', sectionId: section.id, contentMd });
+        const drafted: Array<{ id: string; contentMd: string }> = [];
+        for (const section of plan.sections) {
+          const cached = existingMap.get(section.id);
+          if (cached && cached.trim().length > 0) {
+            drafted.push({ id: section.id, contentMd: cached });
+            await ctx.emit('artifact_updated', {
+              kind: 'section_draft',
+              sectionId: section.id,
+              contentMd: cached,
+            });
+            continue;
+          }
+
+          const sectionSources = acceptedSources.filter((s) => s.sectionId === section.id);
+          const prevSections = [...drafted];
+
+          const { contentMd } = await withStageCtx(draftSection, sessionId, userId, () =>
+            draftSection.run(
+              {
+                profile,
+                plan,
+                section,
+                acceptedSources: sectionSources.map((s) => ({
+                  url: s.url,
+                  title: s.title,
+                  summary: s.summary,
+                  rawExcerpt: s.rawExcerpt,
+                })),
+                prevSections,
+                rewriteSourceArticles: session.mode === 'rewrite' ? brief.sourceArticles : undefined,
+              },
+              ctx,
+            ),
+          );
+
+          await upsertSectionDraft(userId, sessionId, section.id, contentMd);
+          drafted.push({ id: section.id, contentMd });
+
+          const draftMd = drafted.map((d) => d.contentMd).join('\n\n');
+          await updateSessionDraft(userId, sessionId, draftMd);
+          await ctx.emit('artifact_updated', { kind: 'section_draft', sectionId: section.id, contentMd });
+        }
+
+        // Make sure draftMd reflects all sections (in case some were resumed from cache)
+        const fullDraft = drafted.map((d) => d.contentMd).join('\n\n');
+        if (fullDraft !== session.draftMd) {
+          await updateSessionDraft(userId, sessionId, fullDraft);
+        }
+
+        await ctx.userInput('draft_done', z.object({ action: z.literal('finish') }));
+
+        await updateSessionState(userId, sessionId, 'review');
+        await ctx.emit('state_changed', { state: 'review' });
+        await startRunner(sessionId, userId, true);
       }
-
-      // Make sure draftMd reflects all sections (in case some were resumed from cache)
-      const fullDraft = drafted.map((d) => d.contentMd).join('\n\n');
-      if (fullDraft !== session.draftMd) {
-        await updateSessionDraft(userId, sessionId, fullDraft);
-      }
-
-      await ctx.userInput('draft_done', z.object({ action: z.literal('finish') }));
-
-      await updateSessionState(userId, sessionId, 'review');
-      await ctx.emit('state_changed', { state: 'review' });
-      await startRunner(sessionId, userId, true);
       break;
     }
     case 'review': {
+      if (session.mode === 'light') return;
+
       await ctx.userInput('review_done', z.object({ action: z.literal('finish') }));
 
       await updateSessionState(userId, sessionId, 'decoration');
@@ -394,6 +424,8 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       break;
     }
     case 'decoration': {
+      if (session.mode === 'light') return;
+
       await ctx.userInput('decoration_done', z.object({ action: z.literal('finish') }));
 
       await updateSessionState(userId, sessionId, 'illustration');
@@ -402,6 +434,8 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       break;
     }
     case 'illustration': {
+      if (session.mode === 'light') return;
+
       await ctx.userInput('illustration_done', z.object({ action: z.literal('finish') }));
 
       await updateSessionState(userId, sessionId, 'export');
@@ -410,6 +444,8 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       break;
     }
     case 'export': {
+      if (session.mode === 'light') return;
+
       await ctx.userInput('export_done', z.object({ action: z.literal('finish') }));
 
       await updateSessionState(userId, sessionId, 'done');

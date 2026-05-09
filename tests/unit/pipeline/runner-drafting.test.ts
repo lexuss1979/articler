@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listSessionSourcesFn: vi.fn(),
   upsertSectionDraftFn: vi.fn(),
   draftSectionRunFn: vi.fn(),
+  draftFullRunFn: vi.fn(),
 }));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
@@ -50,6 +51,10 @@ vi.mock('../../../src/server/sessions/section-drafts-repo', () => ({
 
 vi.mock('../../../src/server/pipeline/stages/draft-section', () => ({
   draftSection: { run: mocks.draftSectionRunFn },
+}));
+
+vi.mock('../../../src/server/pipeline/stages/draft-full', () => ({
+  draftFull: { run: mocks.draftFullRunFn },
 }));
 
 // No-op mocks for stages imported by runner but not used in drafting path
@@ -203,5 +208,60 @@ describe('startRunner — drafting state', () => {
     const kinds = (mocks.emitEventFn.mock.calls as [number, string, unknown][]).map(([, k]) => k);
     expect(kinds).toContain('agent_message');
     expect(mocks.draftSectionRunFn).not.toHaveBeenCalled();
+  });
+});
+
+describe('startRunner — drafting state (light mode)', () => {
+  it('calls draftFull with lightMaxWords and skips section-by-section loop', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 20, userId: 1, state: 'drafting', plan, brief, profileId: 1, mode: 'light' })
+      .mockResolvedValue(null);
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 20, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 20 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 20 });
+    mocks.listSessionSourcesFn.mockResolvedValue([]);
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    mocks.draftFullRunFn.mockResolvedValue({ contentMd: '## Article\n\nContent.', wordCount: 700 });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(20, 1);
+
+    expect(mocks.draftFullRunFn).toHaveBeenCalledOnce();
+    const callArg = mocks.draftFullRunFn.mock.calls[0][0] as { lightMaxWords: number };
+    expect(callArg.lightMaxWords).toBe(profile.lightMaxWords);
+    expect(mocks.draftSectionRunFn).not.toHaveBeenCalled();
+    expect(mocks.upsertSectionDraftFn).not.toHaveBeenCalled();
+    expect(mocks.updateSessionDraftFn).toHaveBeenCalledWith(1, 20, '## Article\n\nContent.');
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 20, 'review');
+
+    const emitted = (mocks.emitEventFn.mock.calls as [number, string, unknown][]);
+    const fullDraftEvent = emitted.find(([, k, p]) => k === 'artifact_updated' && (p as { kind: string }).kind === 'full_draft');
+    expect(fullDraftEvent).toBeDefined();
+    expect(fullDraftEvent![2]).toMatchObject({ kind: 'full_draft', contentMd: '## Article\n\nContent.', wordCount: 700 });
+  });
+
+  it('never requests draft_done userInput in light mode', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 21, userId: 1, state: 'drafting', plan, brief, profileId: 1, mode: 'light' })
+      .mockResolvedValue(null);
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 21, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 21 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 21 });
+    mocks.listSessionSourcesFn.mockResolvedValue([]);
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    mocks.draftFullRunFn.mockResolvedValue({ contentMd: 'Draft content.', wordCount: 500 });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(21, 1);
+
+    const emitted = (mocks.emitEventFn.mock.calls as [number, string, unknown][]);
+    const draftDoneEvent = emitted.find(
+      ([, k, p]) => k === 'awaiting_user' && (p as { prompt: string }).prompt === 'draft_done',
+    );
+    expect(draftDoneEvent).toBeUndefined();
   });
 });
