@@ -188,64 +188,118 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
         return;
       }
 
-      try {
-        const { hypotheses } = await withStageCtx(planSearchHypotheses, sessionId, userId, () =>
-          planSearchHypotheses.run({ plan, profile }, ctx),
-        );
-        await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
+      if (session.mode === 'light') {
+        if (profile.lightResearchSources === 0) {
+          await ctx.emit('artifact_updated', { kind: 'research_skipped' });
+        } else {
+          const briefParsed = briefSchema.safeParse(session.brief);
+          if (!briefParsed.success) {
+            await ctx.emit('agent_message', { text: 'Session brief is missing or invalid.', error: true });
+            return;
+          }
+          const brief = briefParsed.data;
+          const lightHypothesis = { id: 'light', sectionId: 'all', text: brief.topic, evidenceKind: 'general' };
+          const lightQuery = { text: brief.topic };
 
-        await Promise.all(
-          hypotheses.map(async (hypothesis) => {
-            const { queries } = await withStageCtx(formulateQueries, sessionId, userId, () =>
-              formulateQueries.run({ hypothesis }, ctx),
+          try {
+            const { hits } = await withStageCtx(webSearch, sessionId, userId, () =>
+              webSearch.run({ sessionId, userId, hypothesis: lightHypothesis, query: lightQuery }, ctx),
             );
-            for (const query of queries) {
-              const { hits } = await withStageCtx(webSearch, sessionId, userId, () =>
-                webSearch.run({ sessionId, userId, hypothesis, query }, ctx),
-              );
-              for (const hit of hits) {
-                try {
-                  const { summary, relevanceScore } = await withStageCtx(
-                    summarizeSource,
-                    sessionId,
-                    userId,
-                    () => summarizeSource.run({ hypothesis, query, hit }, ctx),
-                  );
-                  const status =
-                    relevanceScore >= 70 ? 'accepted' : relevanceScore < 40 ? 'rejected' : 'proposed';
-                  const source = await insertSource(userId, sessionId, {
-                    sectionId: hypothesis.sectionId,
-                    hypothesis: hypothesis.text,
-                    query: query.text,
-                    url: hit.url,
-                    title: hit.title,
-                    rawExcerpt: hit.snippet,
-                    summary,
-                    relevanceScore,
-                    status,
-                  });
-                  if (source) {
-                    await ctx.emit('artifact_updated', { kind: 'source', source });
-                  }
-                } catch (err) {
-                  console.warn('[research] skipping hit due to error:', hit.url, err instanceof Error ? err.message : err);
+            const retainedHits = hits.slice(0, profile.lightResearchSources);
+            for (const hit of retainedHits) {
+              try {
+                const { summary, relevanceScore } = await withStageCtx(summarizeSource, sessionId, userId, () =>
+                  summarizeSource.run({ hypothesis: lightHypothesis, query: lightQuery, hit }, ctx),
+                );
+                const source = await insertSource(userId, sessionId, {
+                  sectionId: null,
+                  hypothesis: brief.topic,
+                  query: brief.topic,
+                  url: hit.url,
+                  title: hit.title,
+                  rawExcerpt: hit.snippet,
+                  summary,
+                  relevanceScore,
+                  status: 'accepted',
+                });
+                if (source) {
+                  await ctx.emit('artifact_updated', { kind: 'source', source });
                 }
+              } catch (err) {
+                console.warn('[research/light] skipping hit:', hit.url, err instanceof Error ? err.message : err);
               }
             }
-          }),
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[research] failed:', err);
-        await ctx.emit('agent_message', { text: `Research failed: ${msg}`, error: true });
-        return;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error('[research/light] failed:', err);
+            await ctx.emit('agent_message', { text: `Research failed: ${msg}`, error: true });
+            return;
+          }
+        }
+
+        await updateSessionState(userId, sessionId, 'drafting');
+        await ctx.emit('state_changed', { state: 'drafting' });
+        await startRunner(sessionId, userId, true);
+      } else {
+        try {
+          const { hypotheses } = await withStageCtx(planSearchHypotheses, sessionId, userId, () =>
+            planSearchHypotheses.run({ plan, profile }, ctx),
+          );
+          await ctx.emit('artifact_updated', { kind: 'hypotheses', hypotheses });
+
+          await Promise.all(
+            hypotheses.map(async (hypothesis) => {
+              const { queries } = await withStageCtx(formulateQueries, sessionId, userId, () =>
+                formulateQueries.run({ hypothesis }, ctx),
+              );
+              for (const query of queries) {
+                const { hits } = await withStageCtx(webSearch, sessionId, userId, () =>
+                  webSearch.run({ sessionId, userId, hypothesis, query }, ctx),
+                );
+                for (const hit of hits) {
+                  try {
+                    const { summary, relevanceScore } = await withStageCtx(
+                      summarizeSource,
+                      sessionId,
+                      userId,
+                      () => summarizeSource.run({ hypothesis, query, hit }, ctx),
+                    );
+                    const status =
+                      relevanceScore >= 70 ? 'accepted' : relevanceScore < 40 ? 'rejected' : 'proposed';
+                    const source = await insertSource(userId, sessionId, {
+                      sectionId: hypothesis.sectionId,
+                      hypothesis: hypothesis.text,
+                      query: query.text,
+                      url: hit.url,
+                      title: hit.title,
+                      rawExcerpt: hit.snippet,
+                      summary,
+                      relevanceScore,
+                      status,
+                    });
+                    if (source) {
+                      await ctx.emit('artifact_updated', { kind: 'source', source });
+                    }
+                  } catch (err) {
+                    console.warn('[research] skipping hit due to error:', hit.url, err instanceof Error ? err.message : err);
+                  }
+                }
+              }
+            }),
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[research] failed:', err);
+          await ctx.emit('agent_message', { text: `Research failed: ${msg}`, error: true });
+          return;
+        }
+
+        await ctx.userInput('research_done', z.object({ action: z.literal('finish') }));
+
+        await updateSessionState(userId, sessionId, 'drafting');
+        await ctx.emit('state_changed', { state: 'drafting' });
+        await startRunner(sessionId, userId, true);
       }
-
-      await ctx.userInput('research_done', z.object({ action: z.literal('finish') }));
-
-      await updateSessionState(userId, sessionId, 'drafting');
-      await ctx.emit('state_changed', { state: 'drafting' });
-      await startRunner(sessionId, userId, true);
       break;
     }
     case 'drafting': {

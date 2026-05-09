@@ -110,6 +110,107 @@ const draftingSession = { id: 10, userId: 1, state: 'drafting', plan, brief, pro
 
 afterEach(() => vi.clearAllMocks());
 
+const lightProfile = { ...profile, lightResearchSources: 2, lightMaxWords: 800 };
+
+describe('startRunner — research state (light mode)', () => {
+  it('skips webSearch and advances to drafting when lightResearchSources=0', async () => {
+    const zeroSourceProfile = { ...profile, lightResearchSources: 0 };
+    const lightSession = { id: 30, userId: 1, state: 'research', plan, brief, profileId: 1, mode: 'light' };
+    mocks.getSessionFn
+      .mockResolvedValueOnce(lightSession)
+      .mockResolvedValue(null);
+    mocks.getProfileFn.mockResolvedValue(zeroSourceProfile);
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(30, 1);
+
+    expect(mocks.webSearchRunFn).not.toHaveBeenCalled();
+    expect(mocks.summarizeSourceRunFn).not.toHaveBeenCalled();
+    expect(mocks.planSearchHypothesesRunFn).not.toHaveBeenCalled();
+
+    const kinds = emittedEvents.map(([k]) => k);
+    expect(kinds).toContain('artifact_updated');
+    const skippedEvent = emittedEvents.find(([, p]) => (p as { kind: string }).kind === 'research_skipped');
+    expect(skippedEvent).toBeDefined();
+
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 30, 'drafting');
+    expect(emittedEvents.some(([k]) => k === 'awaiting_user')).toBe(false);
+  });
+
+  it('calls webSearch once and summarizeSource for top lightResearchSources hits only', async () => {
+    const hit1 = { url: 'https://a.example.com', title: 'Article A', snippet: 'Snippet A' };
+    const hit2 = { url: 'https://b.example.com', title: 'Article B', snippet: 'Snippet B' };
+    const hit3 = { url: 'https://c.example.com', title: 'Article C', snippet: 'Snippet C' };
+
+    const lightSession = { id: 31, userId: 1, state: 'research', plan, brief, profileId: 1, mode: 'light' };
+    mocks.getSessionFn
+      .mockResolvedValueOnce(lightSession)
+      .mockResolvedValue(null);
+    mocks.getProfileFn.mockResolvedValue(lightProfile);
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    mocks.webSearchRunFn.mockResolvedValue({ hits: [hit1, hit2, hit3], cached: false });
+    mocks.summarizeSourceRunFn
+      .mockResolvedValueOnce({ summary: 'Summary A', relevanceScore: 75 })
+      .mockResolvedValueOnce({ summary: 'Summary B', relevanceScore: 60 });
+    mocks.insertSourceFn
+      .mockResolvedValueOnce({ id: 1, url: hit1.url })
+      .mockResolvedValueOnce({ id: 2, url: hit2.url });
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(31, 1);
+
+    expect(mocks.webSearchRunFn).toHaveBeenCalledOnce();
+    expect(mocks.summarizeSourceRunFn).toHaveBeenCalledTimes(2);
+    expect(mocks.insertSourceFn).toHaveBeenCalledTimes(2);
+    expect(mocks.insertSourceFn).toHaveBeenCalledWith(1, 31, expect.objectContaining({ url: hit1.url, status: 'accepted' }));
+    expect(mocks.insertSourceFn).toHaveBeenCalledWith(1, 31, expect.objectContaining({ url: hit2.url, status: 'accepted' }));
+    expect(mocks.planSearchHypothesesRunFn).not.toHaveBeenCalled();
+    expect(mocks.formulateQueriesRunFn).not.toHaveBeenCalled();
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 31, 'drafting');
+    expect(emittedEvents.some(([k]) => k === 'awaiting_user')).toBe(false);
+  });
+
+  it('never requests research_done userInput in light mode', async () => {
+    const lightSession = { id: 32, userId: 1, state: 'research', plan, brief, profileId: 1, mode: 'light' };
+    mocks.getSessionFn
+      .mockResolvedValueOnce(lightSession)
+      .mockResolvedValue(null);
+    mocks.getProfileFn.mockResolvedValue({ ...lightProfile, lightResearchSources: 0 });
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(32, 1);
+
+    const researchDoneEvent = emittedEvents.find(
+      ([k, p]) => k === 'awaiting_user' && (p as { prompt: string }).prompt === 'research_done',
+    );
+    expect(researchDoneEvent).toBeUndefined();
+  });
+});
+
 describe('startRunner — research state', () => {
   it('aborts with agent_message when session.plan is invalid', async () => {
     mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'research', plan: null, profileId: 1 });
