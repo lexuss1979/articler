@@ -9,6 +9,8 @@ import { planSchema } from '../sessions/plan';
 import { getSession, updateSessionDraft, updateSessionPlan, updateSessionState } from '../sessions/repo';
 import { insertSource, listSessionSources } from '../sessions/sources-repo';
 import { upsertSectionDraft, listSectionDrafts } from '../sessions/section-drafts-repo';
+import { listAssertions } from '../profiles/profile-assertions-repo';
+import { runClassifyAnswers } from './run-classify-answers';
 import { clarifyBrief } from './stages/clarify-brief';
 import { proposeAngles } from './stages/propose-angles';
 import { buildPlan } from './stages/build-plan';
@@ -102,8 +104,9 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       }
 
       // Step 1: clarify brief
+      const knownAssertions = await listAssertions(session.profileId);
       const { questions } = await withStageCtx(clarifyBrief, sessionId, userId, () =>
-        clarifyBrief.run({ brief, profile }, ctx),
+        clarifyBrief.run({ brief, profile, knownAssertions }, ctx),
       );
 
       let clarifications: Array<{ question: string; answer: string }> = [];
@@ -114,6 +117,14 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
           z.object({ answers: z.array(z.string().min(1)).length(questions.length) }),
         );
         clarifications = questions.map((q, i) => ({ question: q.question, answer: answers[i]! }));
+      }
+
+      if (clarifications.length > 0) {
+        try {
+          await runClassifyAnswers({ userId, sessionId, profileId: session.profileId, qa: clarifications });
+        } catch (err) {
+          console.warn('[planning] classify-answers enrichment failed:', err instanceof Error ? err.message : err);
+        }
       }
 
       // Step 2: propose angles

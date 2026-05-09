@@ -43,6 +43,14 @@ vi.mock('../../../src/server/pipeline/stages/build-plan', () => ({
   buildPlan: { name: 'build_plan', run: vi.fn() },
 }));
 
+vi.mock('../../../src/server/profiles/profile-assertions-repo', () => ({
+  listAssertions: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../../../src/server/pipeline/run-classify-answers', () => ({
+  runClassifyAnswers: vi.fn().mockResolvedValue({ applied: 0, skipped: 0 }),
+}));
+
 afterEach(() => vi.clearAllMocks());
 
 describe('startRunner', () => {

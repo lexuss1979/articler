@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getSessionFn: vi.fn(),
@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   clarifyBriefRun: vi.fn(),
   proposeAnglesRun: vi.fn(),
   buildPlanRun: vi.fn(),
+  listAssertionsFn: vi.fn(),
+  runClassifyAnswersFn: vi.fn(),
 }));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
@@ -47,6 +49,19 @@ vi.mock('../../../src/server/pipeline/stages/propose-angles', () => ({
 vi.mock('../../../src/server/pipeline/stages/build-plan', () => ({
   buildPlan: { run: mocks.buildPlanRun },
 }));
+
+vi.mock('../../../src/server/profiles/profile-assertions-repo', () => ({
+  listAssertions: mocks.listAssertionsFn,
+}));
+
+vi.mock('../../../src/server/pipeline/run-classify-answers', () => ({
+  runClassifyAnswers: mocks.runClassifyAnswersFn,
+}));
+
+beforeEach(() => {
+  mocks.listAssertionsFn.mockResolvedValue([]);
+  mocks.runClassifyAnswersFn.mockResolvedValue({ applied: 0, skipped: 0 });
+});
 
 afterEach(() => vi.clearAllMocks());
 
@@ -187,6 +202,138 @@ describe('startRunner — planning state', () => {
     const emitCalls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
     expect(emitCalls.some(([, k]) => k === 'agent_message')).toBe(true);
     expect(mocks.clarifyBriefRun).not.toHaveBeenCalled();
+  });
+
+  it('passes knownAssertions from listAssertions to clarifyBrief.run', async () => {
+    const assertion = { key: 'tone_formal', category: 'tone', assertion: 'Uses formal tone.', confidence: 0.9, evidenceCount: 5 };
+    mocks.listAssertionsFn.mockResolvedValue([assertion]);
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 13, userId: 1, state: 'planning', brief: validBrief, profileId: 1 })
+      .mockResolvedValue({ id: 13, userId: 1, state: 'research', plan: null, profileId: 1 });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [] });
+    mocks.proposeAnglesRun.mockResolvedValue({ angles });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner, resolveUserInput } = await import('../../../src/server/pipeline/runner');
+    const runnerPromise = startRunner(13, 1);
+
+    await waitForEvent(emittedEvents, 'awaiting_user');
+    expect(resolveUserInput(13, { index: 0 })).toBe(true);
+    await waitForEvent(emittedEvents, 'awaiting_user', 1);
+    expect(resolveUserInput(13, { action: 'lock' })).toBe(true);
+    await runnerPromise;
+
+    const callInput = mocks.clarifyBriefRun.mock.calls[0][0] as { knownAssertions: unknown[] };
+    expect(callInput.knownAssertions).toContainEqual(expect.objectContaining({ key: 'tone_formal', confidence: 0.9 }));
+  });
+
+  it('calls runClassifyAnswers with collected qa when clarifications exist', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 14, userId: 1, state: 'planning', brief: validBrief, profileId: 1 })
+      .mockResolvedValue({ id: 14, userId: 1, state: 'research', plan: null, profileId: 1 });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [{ question: 'Who is the audience?' }] });
+    mocks.proposeAnglesRun.mockResolvedValue({ angles });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner, resolveUserInput } = await import('../../../src/server/pipeline/runner');
+    const runnerPromise = startRunner(14, 1);
+
+    await waitForEvent(emittedEvents, 'awaiting_user');
+    expect(resolveUserInput(14, { answers: ['Senior engineers'] })).toBe(true);
+    await waitForEvent(emittedEvents, 'awaiting_user', 1);
+    expect(resolveUserInput(14, { index: 0 })).toBe(true);
+    await waitForEvent(emittedEvents, 'awaiting_user', 2);
+    expect(resolveUserInput(14, { action: 'lock' })).toBe(true);
+    await runnerPromise;
+
+    expect(mocks.runClassifyAnswersFn).toHaveBeenCalledOnce();
+    expect(mocks.runClassifyAnswersFn.mock.calls[0][0]).toMatchObject({
+      qa: [{ question: 'Who is the audience?', answer: 'Senior engineers' }],
+    });
+  });
+
+  it('does not call runClassifyAnswers when questions array is empty', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 15, userId: 1, state: 'planning', brief: validBrief, profileId: 1 })
+      .mockResolvedValue({ id: 15, userId: 1, state: 'research', plan: null, profileId: 1 });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [] });
+    mocks.proposeAnglesRun.mockResolvedValue({ angles });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner, resolveUserInput } = await import('../../../src/server/pipeline/runner');
+    const runnerPromise = startRunner(15, 1);
+
+    await waitForEvent(emittedEvents, 'awaiting_user');
+    expect(resolveUserInput(15, { index: 0 })).toBe(true);
+    await waitForEvent(emittedEvents, 'awaiting_user', 1);
+    expect(resolveUserInput(15, { action: 'lock' })).toBe(true);
+    await runnerPromise;
+
+    expect(mocks.runClassifyAnswersFn).not.toHaveBeenCalled();
+    expect(mocks.proposeAnglesRun).toHaveBeenCalled();
+  });
+
+  it('does not rethrow when runClassifyAnswers rejects and still calls proposeAngles', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 16, userId: 1, state: 'planning', brief: validBrief, profileId: 1 })
+      .mockResolvedValue({ id: 16, userId: 1, state: 'research', plan: null, profileId: 1 });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [{ question: 'What tone?' }] });
+    mocks.runClassifyAnswersFn.mockRejectedValue(new Error('enrichment boom'));
+    mocks.proposeAnglesRun.mockResolvedValue({ angles });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner, resolveUserInput } = await import('../../../src/server/pipeline/runner');
+    const runnerPromise = startRunner(16, 1);
+
+    await waitForEvent(emittedEvents, 'awaiting_user');
+    expect(resolveUserInput(16, { answers: ['Casual'] })).toBe(true);
+    await waitForEvent(emittedEvents, 'awaiting_user', 1);
+    expect(resolveUserInput(16, { index: 0 })).toBe(true);
+    await waitForEvent(emittedEvents, 'awaiting_user', 2);
+    expect(resolveUserInput(16, { action: 'lock' })).toBe(true);
+
+    await expect(runnerPromise).resolves.toBeUndefined();
+    expect(mocks.proposeAnglesRun).toHaveBeenCalled();
   });
 });
 
