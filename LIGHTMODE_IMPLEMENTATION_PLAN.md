@@ -449,7 +449,7 @@ confidence as a small bar, and offers a delete button per row.
       the embedding similarity check itself is *not* part of this
       task.
 
-- [ ] T-L1-7: Assertions panel on profile edit page (server action + UI)
+- [x] T-L1-7: Assertions panel on profile edit page (server action + UI)
       Goal: Render an "Assertions" section on
       `/profiles/[id]/edit` listing the profile's assertions grouped
       by `category`, each row showing `assertion`, a horizontal

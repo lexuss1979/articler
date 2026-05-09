@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireUser } from '../../../server/auth/require-user';
-import { createProfile, deleteProfile, updateProfile } from '../../../server/profiles/repo';
+import { deleteAssertion } from '../../../server/profiles/profile-assertions-repo';
+import { createProfile, deleteProfile, getProfile, updateProfile } from '../../../server/profiles/repo';
 import { profileInputSchema } from '../../../server/profiles/schema';
 
 export type ProfileActionState = {
@@ -103,4 +104,15 @@ export async function deleteProfileAction(formData: FormData): Promise<void> {
   if (!Number.isInteger(id) || id <= 0) return;
   await deleteProfile(user.id, id);
   revalidatePath('/profiles');
+}
+
+export async function deleteAssertionAction(
+  profileId: number,
+  assertionId: number,
+): Promise<void> {
+  const user = await requireUser();
+  const profile = await getProfile(user.id, profileId);
+  if (!profile) return;
+  await deleteAssertion(profileId, assertionId);
+  revalidatePath(`/profiles/${profileId}/edit`, 'page');
 }
