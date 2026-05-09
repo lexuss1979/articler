@@ -831,7 +831,7 @@ embedding class is added.
       Alternative (real embeddings) is deferred until an embedding
       model class is wired into `src/server/llm/models.ts`.
 
-- [ ] T-L3-3: `classify-answers` stage (fast model)
+- [x] T-L3-3: `classify-answers` stage (fast model)
       Goal: New `Stage<ClassifyAnswersInput, ClassifyAnswersOutput>`
       in `src/server/pipeline/stages/classify-answers.ts` with
       `modelClass: 'fast'`. Input shape (zod-validated):
