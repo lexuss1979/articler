@@ -614,7 +614,7 @@ Assertions panel. Session-level example upload is deferred.
           the profile and leaves other-source rows intact.
         - `pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L2-4: Orchestrator + server action `analyzeExamplesAction`
+- [x] T-L2-4: Orchestrator + server action `analyzeExamplesAction`
       Goal: Add a profile-scoped orchestrator
       `src/server/pipeline/run-analyze-examples.ts` exporting
       `runAnalyzeExamples({ userId, profileId, inputs }): Promise<

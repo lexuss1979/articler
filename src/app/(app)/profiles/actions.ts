@@ -6,6 +6,7 @@ import { requireUser } from '../../../server/auth/require-user';
 import { deleteAssertion } from '../../../server/profiles/profile-assertions-repo';
 import { createProfile, deleteProfile, getProfile, updateProfile } from '../../../server/profiles/repo';
 import { profileInputSchema } from '../../../server/profiles/schema';
+import { runAnalyzeExamples } from '../../../server/pipeline/run-analyze-examples';
 
 export type ProfileActionState = {
   ok: false;
@@ -115,4 +116,40 @@ export async function deleteAssertionAction(
   if (!profile) return;
   await deleteAssertion(profileId, assertionId);
   revalidatePath(`/profiles/${profileId}/edit`, 'page');
+}
+
+export type AnalyzeExamplesActionState =
+  | { ok: true; summary: string; urlErrors: Array<{ index: number; error: string }> }
+  | { ok: false; error: string }
+  | null;
+
+export async function analyzeExamplesAction(
+  _prevState: AnalyzeExamplesActionState,
+  formData: FormData,
+): Promise<AnalyzeExamplesActionState> {
+  const user = await requireUser();
+
+  const profileId = Number(formData.get('profileId'));
+  if (!Number.isInteger(profileId) || profileId <= 0) {
+    return { ok: false, error: 'validation' };
+  }
+
+  let inputs: Array<{ kind: 'url' | 'text'; value: string }>;
+  try {
+    const raw = formData.get('inputs');
+    if (typeof raw !== 'string') return { ok: false, error: 'validation' };
+    inputs = JSON.parse(raw) as Array<{ kind: 'url' | 'text'; value: string }>;
+  } catch {
+    return { ok: false, error: 'validation' };
+  }
+
+  const result = await runAnalyzeExamples({ userId: user.id, profileId, inputs });
+
+  if (!result.ok) {
+    return { ok: false, error: result.error };
+  }
+
+  revalidatePath(`/profiles/${profileId}/edit`, 'page');
+
+  return { ok: true, summary: result.summary, urlErrors: result.urlErrors };
 }
