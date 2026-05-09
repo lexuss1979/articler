@@ -6,16 +6,18 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     },
     "plan": {
-      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
-      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost \u2014 but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60\u201390% cost reductions look like in practice.",
       "sections": [
         {
           "id": "intro",
@@ -66,7 +68,7 @@
   "expected": {
     "schemaRef": "draftSection.outputSchema",
     "snapshot": {
-      "contentMd": "## Why Your LLM Costs Are Higher Than They Need to Be\n\nYou've built a RAG pipeline. Every query sends a 10 000-token system prompt — schema definitions, retrieval instructions, examples — to the model before a single word of user content. At $0.003 per 1K input tokens that's $0.03 per call. At a million calls a month you're paying $30 000 just to re-transmit context the model has already seen a million times.\n\nPrompt caching changes this calculus. Cache a prefix once, and every subsequent call that shares that prefix pays only 10% of the normal input price for those tokens. The same million calls now cost $3 000 in context fees — a 90% reduction without changing a single line of your business logic.\n\nThis article walks through how caching works mechanically, when it actually pays off, and how to wire it into an existing Anthropic API integration in under an hour."
+      "contentMd": "## Why Your LLM Costs Are Higher Than They Need to Be\n\nYou've built a RAG pipeline. Every query sends a 10 000-token system prompt \u2014 schema definitions, retrieval instructions, examples \u2014 to the model before a single word of user content. At $0.003 per 1K input tokens that's $0.03 per call. At a million calls a month you're paying $30 000 just to re-transmit context the model has already seen a million times.\n\nPrompt caching changes this calculus. Cache a prefix once, and every subsequent call that shares that prefix pays only 10% of the normal input price for those tokens. The same million calls now cost $3 000 in context fees \u2014 a 90% reduction without changing a single line of your business logic.\n\nThis article walks through how caching works mechanically, when it actually pays off, and how to wire it into an existing Anthropic API integration in under an hour."
     }
   }
 }

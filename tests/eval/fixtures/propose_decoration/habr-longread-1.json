@@ -1,8 +1,8 @@
 {
   "input": {
     "plan": {
-      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
-      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost \u2014 but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60\u201390% cost reductions look like in practice.",
       "sections": [
         {
           "id": "intro",
@@ -35,11 +35,13 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     },
     "sectionDrafts": [
@@ -49,7 +51,7 @@
       },
       {
         "sectionId": "mechanics",
-        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nPrompt caching works by storing the KV (key-value) computation for a prefix of your messages array on Anthropic's servers. The cache is keyed on the exact byte sequence of that prefix — any change invalidates it. By default the TTL is 5 minutes, extended each time the entry is read.\n\nTo mark a breakpoint you add `\"cache_control\": {\"type\": \"ephemeral\"}` to the last message in the prefix you want cached. The API response then includes `cache_creation_input_tokens` and `cache_read_input_tokens` counters so you can track hit rate."
+        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nPrompt caching works by storing the KV (key-value) computation for a prefix of your messages array on Anthropic's servers. The cache is keyed on the exact byte sequence of that prefix \u2014 any change invalidates it. By default the TTL is 5 minutes, extended each time the entry is read.\n\nTo mark a breakpoint you add `\"cache_control\": {\"type\": \"ephemeral\"}` to the last message in the prefix you want cached. The API response then includes `cache_creation_input_tokens` and `cache_read_input_tokens` counters so you can track hit rate."
       }
     ]
   },
@@ -68,7 +70,7 @@
           "kind": "callout",
           "sectionId": "intro",
           "paragraphIndex": 3,
-          "contentMd": "> **Tip:** the 10% cache-hit price applies only to input tokens — output tokens are billed at the normal rate.",
+          "contentMd": "> **Tip:** the 10% cache-hit price applies only to input tokens \u2014 output tokens are billed at the normal rate.",
           "rationale": "Pre-empts the most common misreading of the pricing claim made in the previous paragraph."
         },
         {

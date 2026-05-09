@@ -1,8 +1,8 @@
 {
   "input": {
     "plan": {
-      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
-      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost \u2014 but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60\u201390% cost reductions look like in practice.",
       "sections": [
         {
           "id": "intro",
@@ -59,7 +59,7 @@
           "keyPoints": [
             "OpenAI uses automatic prompt caching with no explicit markers",
             "Anthropic requires explicit cache_control breakpoints",
-            "TTL and pricing tiers differ — show a side-by-side table"
+            "TTL and pricing tiers differ \u2014 show a side-by-side table"
           ]
         },
         {
@@ -81,11 +81,13 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     }
   },
@@ -120,7 +122,7 @@
         {
           "id": "h-impl-1",
           "sectionId": "implementation",
-          "text": "Adding cache_control markers to a real API call reduces costs by 60–90% for high-frequency workloads",
+          "text": "Adding cache_control markers to a real API call reduces costs by 60\u201390% for high-frequency workloads",
           "evidenceKind": "case_study"
         },
         {

@@ -1,9 +1,13 @@
 {
   "input": {
-    "enabledCriticIds": ["editorial", "style", "structure"],
+    "enabledCriticIds": [
+      "editorial",
+      "style",
+      "structure"
+    ],
     "plan": {
-      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
-      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost \u2014 but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60\u201390% cost reductions look like in practice.",
       "sections": [
         {
           "id": "intro",
@@ -36,11 +40,13 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     },
     "sectionDrafts": [
@@ -50,7 +56,7 @@
       },
       {
         "sectionId": "mechanics",
-        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nPrompt caching works by storing the KV (key-value) computation for a prefix of your messages array on Anthropic's servers. The cache is keyed on the exact byte sequence of that prefix — any change invalidates it. By default the TTL is 5 minutes, extended each time the entry is read.\n\nTo mark a breakpoint you add `\"cache_control\": {\"type\": \"ephemeral\"}` to the last message in the prefix you want cached. The API response then includes `cache_creation_input_tokens` and `cache_read_input_tokens` counters so you can track hit rate."
+        "contentMd": "## How Prompt Caching Works: Tokens, TTL, and Cache Keys\n\nPrompt caching works by storing the KV (key-value) computation for a prefix of your messages array on Anthropic's servers. The cache is keyed on the exact byte sequence of that prefix \u2014 any change invalidates it. By default the TTL is 5 minutes, extended each time the entry is read.\n\nTo mark a breakpoint you add `\"cache_control\": {\"type\": \"ephemeral\"}` to the last message in the prefix you want cached. The API response then includes `cache_creation_input_tokens` and `cache_read_input_tokens` counters so you can track hit rate."
       }
     ]
   },
@@ -62,19 +68,31 @@
           "severity": "medium",
           "problem": "The cost figure '$0.003 per 1K tokens' is presented without a citation, weakening the editorial credibility.",
           "suggestedChange": "Add an inline link or footnote pointing to Anthropic's pricing page so the reader can verify the number.",
-          "span": { "sectionId": "intro", "charStart": 220, "charEnd": 260 }
+          "span": {
+            "sectionId": "intro",
+            "charStart": 220,
+            "charEnd": 260
+          }
         },
         {
           "severity": "minor",
           "problem": "Phrase 'changes this calculus' is mild jargon that may not land for the stated engineering audience.",
           "suggestedChange": "Replace with a concrete framing such as 'cuts the per-call cost by an order of magnitude'.",
-          "span": { "sectionId": "intro", "charStart": 380, "charEnd": 410 }
+          "span": {
+            "sectionId": "intro",
+            "charStart": 380,
+            "charEnd": 410
+          }
         },
         {
           "severity": "medium",
           "problem": "The mechanics section ends abruptly without telling the reader how to verify cache hit-rate in production.",
           "suggestedChange": "Add a closing paragraph showing how to read `cache_read_input_tokens` from the API response and what a healthy hit rate looks like.",
-          "span": { "sectionId": "mechanics", "charStart": 500, "charEnd": 540 }
+          "span": {
+            "sectionId": "mechanics",
+            "charStart": 500,
+            "charEnd": 540
+          }
         }
       ]
     }

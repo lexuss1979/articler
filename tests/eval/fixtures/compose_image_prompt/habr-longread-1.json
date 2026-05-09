@@ -1,8 +1,8 @@
 {
   "input": {
     "plan": {
-      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost — but only when applied to the right workloads.",
-      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60–90% cost reductions look like in practice.",
+      "thesis": "Prompt caching lets you pay once to store a large context and reuse it at a fraction of the cost \u2014 but only when applied to the right workloads.",
+      "targetTakeaway": "Readers will leave knowing exactly which of their LLM calls are cacheable, how to configure caching in the Anthropic API, and what 60\u201390% cost reductions look like in practice.",
       "sections": [
         {
           "id": "intro",
@@ -35,11 +35,13 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     },
     "slot": {
@@ -54,7 +56,12 @@
       "subject": "An open laptop on a clean wooden desk, viewed from a slight overhead angle. A semi-transparent overlay shows duplicated lines of code being collapsed into a single highlighted cached block above the keyboard.",
       "style": "editorial photo with subtle digital overlay",
       "composition": "centered, slight overhead three-quarter angle, shallow depth of field with the laptop screen sharp and the desk surface softened",
-      "palette": ["warm walnut", "cool slate", "muted indigo", "amber accent"],
+      "palette": [
+        "warm walnut",
+        "cool slate",
+        "muted indigo",
+        "amber accent"
+      ],
       "lighting": "soft window light from the upper left, warm ambient fill",
       "camera": "35mm prime, f/2.8",
       "mood": "focused, premium, slightly studious",

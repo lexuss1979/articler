@@ -12,11 +12,13 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     }
   },
@@ -25,7 +27,7 @@
     "snapshot": {
       "questions": [
         {
-          "question": "Which LLM providers should the article cover — Anthropic, OpenAI, Google, or all three?",
+          "question": "Which LLM providers should the article cover \u2014 Anthropic, OpenAI, Google, or all three?",
           "suggestions": [
             "All three major providers",
             "Focus on Anthropic Claude only",

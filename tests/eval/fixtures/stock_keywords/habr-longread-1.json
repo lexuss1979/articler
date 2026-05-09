@@ -6,11 +6,13 @@
       "name": "Habr",
       "format": "long_read",
       "style": "Technical, precise, example-driven",
-      "audience": "Russian-speaking backend engineers with 3–10 years of experience",
+      "audience": "Russian-speaking backend engineers with 3\u201310 years of experience",
       "targetVolumeMin": 3000,
       "targetVolumeMax": 6000,
       "markupRules": {},
       "extraPrompt": "",
+      "lightResearchSources": 1,
+      "lightMaxWords": 800,
       "createdAt": "2024-01-01T00:00:00.000Z"
     },
     "slot": {
@@ -21,7 +23,12 @@
   "expected": {
     "schemaRef": "stockKeywords.outputSchema",
     "snapshot": {
-      "keywords": ["laptop desk", "code on screen", "developer workspace", "wooden desk"]
+      "keywords": [
+        "laptop desk",
+        "code on screen",
+        "developer workspace",
+        "wooden desk"
+      ]
     }
   }
 }
