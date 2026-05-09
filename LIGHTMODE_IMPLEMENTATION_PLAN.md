@@ -491,11 +491,9 @@ confidence as a small bar, and offers a delete button per row.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic L-2 — "Add examples" style analyzer
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** A user can provide 3-4 example articles (plain text or URLs)
 on the profile settings page and receive an auto-generated summary of
@@ -514,7 +512,213 @@ per-input fetch status and lets the user paste raw text when fetch
 fails. Assertions created here can be individually deleted from the
 Assertions panel. Session-level example upload is deferred.
 
+### Tasks
+
+- [x] T-L2-1: `analyze-examples` stage (smart model)
+      Goal: New stage `analyzeExamples: Stage<AnalyzeExamplesInput,
+       AnalyzeExamplesOutput>` in
+      `src/server/pipeline/stages/analyze-examples.ts` with
+      `modelClass: 'smart'`. Input shape:
+      `{ profile: ProfileRow, examples: Array<{ content: string }> }`
+      (caller filters out failed URL fetches before invoking — the
+      stage assumes all `examples[].content` is plain text). Output
+      shape (zod-validated):
+      `{ summary: string, items: Array<{ key: string, category: 'scope'
+       | 'tone' | 'format' | 'structure' | 'audience' | 'custom',
+       assertion: string }> }`.
+      System prompt: instruct the model to read the example articles
+      and emit (a) one short paragraph summarising detected style
+      characteristics and (b) up to ~12 `{ key, category, assertion }`
+      items. The prompt MUST list the seed key-vocabulary prefixes
+      (`scope_*`, `tone_*`, `format_*`, `structure_*`, `audience_*`,
+      `custom_*`) and instruct the model to reuse those prefixes when
+      assigning new keys, per the "Key vocabulary stability" section.
+      Use `routeJsonChat({ class: 'smart', ... })` exactly like
+      `extract-claims.ts`. Emit `task_started` and `task_completed`
+      events with `stage: 'analyze_examples'` and the item count.
+      Touches: `src/server/pipeline/stages/analyze-examples.ts` (new),
+      `tests/unit/pipeline/analyze-examples.test.ts` (new).
+      Acceptance:
+        - Unit test mocks `routeJsonChat` (mirroring the pattern in
+          `tests/unit/pipeline/extract-claims.test.ts`) and asserts
+          the stage forwards the model's `{ summary, items }` verbatim
+          when valid.
+        - Unit test asserts the stage emits exactly
+          `['task_started', 'task_completed']` with
+          `stage: 'analyze_examples'` and `count = items.length` on
+          the completion event.
+        - Unit test asserts the stage's system prompt string contains
+          all five seed prefixes (`scope_`, `tone_`, `format_`,
+          `structure_`, `audience_`) so the vocabulary contract is
+          honoured.
+        - Unit test asserts `routeJsonChat` is called with
+          `class: 'smart'`.
+        - `pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L2-2: Best-effort URL fetcher for example articles
+      Goal: New helper `fetchExampleUrl(url: string):
+       Promise<{ ok: true; content: string } | { ok: false; error: string }>`
+      in `src/server/profiles/fetch-example-url.ts`. Implementation:
+      `fetch(url)` with a 10s `AbortSignal.timeout`, accept response
+      only if status is 200 and `content-type` starts with `text/html`
+      or `text/plain`; cap response body at 2 MB (read as text, slice
+      after read for simplicity); strip `<script>` and `<style>`
+      blocks, then strip remaining HTML tags, collapse whitespace, cap
+      final text at 50_000 chars. On any failure (non-200, network
+      error, timeout, oversize) return
+      `{ ok: false, error: <short reason> }` — never throw.
+      Touches: `src/server/profiles/fetch-example-url.ts` (new),
+      `tests/unit/profiles/fetch-example-url.test.ts` (new).
+      Acceptance:
+        - Unit test stubs `globalThis.fetch` with a 200 `text/html`
+          response containing `<script>bad()</script><p>hi</p>` and
+          asserts the result is `{ ok: true, content: 'hi' }` (script
+          stripped, tags removed).
+        - Unit test stubs a 404 response and asserts
+          `{ ok: false }` with a non-empty error string.
+        - Unit test stubs `fetch` to throw and asserts the helper
+          returns `{ ok: false, ... }` rather than rethrowing.
+        - Unit test stubs a 200 response with `content-type:
+           application/pdf` and asserts `{ ok: false, ... }`.
+        - `pnpm test` passes.
+      Notes: deliberately no readability/cheerio dep — see "URL
+      ingestion caveat". The user can always paste raw text on
+      failure.
+      Decision needed: timeout duration. Default: 10 s.
+
+- [ ] T-L2-3: Repo: `replaceAssertionsBySource`
+      Goal: Add `replaceAssertionsBySource(profileId: number, source:
+       string, items: Array<{ key: string; category: string;
+       assertion: string }>): Promise<void>` to
+      `src/server/profiles/profile-assertions-repo.ts`. Single
+      transaction: `DELETE FROM profile_assertions WHERE profile_id =
+      ? AND source = ?`, then insert each item with the same `source`,
+      `confidence = INITIAL_CONFIDENCE`, `evidence_count = 1`. Rows of
+      other sources (e.g. `'session'`) are untouched. This is the
+      scoped variant L-2 needs so re-running the analyzer doesn't wipe
+      assertions learned from past sessions.
+      Touches: `src/server/profiles/profile-assertions-repo.ts`
+      (extend), `tests/integration/profiles/assertions-repo.test.ts`
+      (extend).
+      Acceptance:
+        - Integration test (gated on `DATABASE_URL` like sibling
+          repo tests): seed three rows on a profile —
+          two with `source='session'` and one with `source='examples'`.
+          Call `replaceAssertionsBySource(profileId, 'examples',
+          [<two new items>])`. Assert the two `'session'` rows still
+          exist unchanged AND the profile now has exactly two rows
+          with `source='examples'` matching the new items at the
+          default `0.5/1`.
+        - Integration test: `replaceAssertionsBySource(profileId,
+           'examples', [])` deletes all `'examples'`-source rows for
+          the profile and leaves other-source rows intact.
+        - `pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L2-4: Orchestrator + server action `analyzeExamplesAction`
+      Goal: Add a profile-scoped orchestrator
+      `src/server/pipeline/run-analyze-examples.ts` exporting
+      `runAnalyzeExamples({ userId, profileId, inputs }): Promise<
+       | { ok: true; summary: string; count: number; urlErrors:
+       Array<{ index: number; error: string }> }
+       | { ok: false; error: 'profile_not_found' |
+       'too_few_examples' | 'analyze_failed' }>`. `inputs` is
+      `Array<{ kind: 'url' | 'text', value: string }>`. Behaviour:
+      load profile via `getProfile(userId, profileId)` → return
+      `profile_not_found` if missing; for each `kind: 'url'` call
+      `fetchExampleUrl` (sequentially is fine — 4 inputs max);
+      collect successful contents and `urlErrors` for failures;
+      reject with `too_few_examples` when fewer than 3 contents
+      survive (per "URL ingestion caveat"); call the stage inside
+      `runWithLLMContext({ userId, stage: 'analyze_examples', task:
+       'analyze_examples' }, () => analyzeExamples.run(...))` (NOT
+      `withStageCtx` — that requires a sessionId which doesn't apply
+      here); on success persist via
+      `replaceAssertionsBySource(profileId, 'examples', items)` and
+      return the summary + count + collected `urlErrors`.
+      Then add a thin server action `analyzeExamplesAction(prevState,
+      formData)` in `src/app/(app)/profiles/actions.ts` that
+      `requireUser`s, parses the form (`profileId` + JSON-encoded
+      `inputs`), dispatches the orchestrator, calls
+      `revalidatePath('/profiles/[id]/edit', 'page')` on success, and
+      returns a typed result the form can render
+      (`{ ok: true; summary; urlErrors } | { ok: false; error }`).
+      Touches: `src/server/pipeline/run-analyze-examples.ts` (new),
+      `src/app/(app)/profiles/actions.ts` (extend),
+      `tests/unit/profiles/analyze-examples-action.test.ts` (new),
+      `tests/unit/pipeline/run-analyze-examples.test.ts` (new).
+      Acceptance:
+        - Unit test (orchestrator): mocks `getProfile` → null;
+          asserts result is `{ ok: false, error: 'profile_not_found' }`.
+        - Unit test (orchestrator): three text inputs + one URL input
+          whose fetch fails; asserts the stage runs over the 3 text
+          contents and `urlErrors` contains the one failure.
+        - Unit test (orchestrator): two text inputs + two URL inputs
+          that both fail (only 2 successes); asserts result is
+          `{ ok: false, error: 'too_few_examples' }` and the stage is
+          not called.
+        - Unit test (orchestrator): on success, asserts
+          `replaceAssertionsBySource` is called once with `'examples'`
+          and the items the stage returned.
+        - Unit test (action): asserts the action returns
+          `{ ok: false, error: 'profile_not_found' }` when
+          `getProfile` returns null and does not call the orchestrator.
+        - `pnpm test` passes.
+      Notes: keep the URL fetch sequential — input cap is small (≤4)
+      and parallelism adds no meaningful win against the 10-s
+      per-fetch timeout.
+
+- [ ] T-L2-5: "Add examples" form on profile edit page
+      Goal: Add a new client component
+      `src/app/(app)/profiles/[id]/edit/examples-form.tsx` rendering
+      under the Assertions panel on `/profiles/[id]/edit`. The form
+      offers exactly four entry slots; each slot has a radio toggle
+      between "URL" and "Pasted text" and one input (`<input
+      type="url">` or `<textarea>` accordingly). Submit invokes
+      `analyzeExamplesAction` via `useActionState`. While pending,
+      show a spinner + "Analysing examples…". On result:
+      - `ok: true` — show the `summary` paragraph in a bordered card
+        above the form, plus a one-line note `"Saved N assertions"`.
+        If `urlErrors` is non-empty, show an inline list under the
+        offending URL slots (`Slot N: <error>`) and instruct the user
+        to paste the article body manually and resubmit.
+      - `ok: false, error: 'too_few_examples'` — render an inline
+        warning "Provide at least 3 readable examples" without
+        clearing user input.
+      - `ok: false, error: 'profile_not_found'` — render a generic
+        error notice.
+      Wire the form into `page.tsx` so it appears below the
+      `AssertionsPanel`. The page already revalidates after the
+      action's `revalidatePath`, so the assertions list refreshes on
+      success.
+      Touches: `src/app/(app)/profiles/[id]/edit/examples-form.tsx`
+      (new), `src/app/(app)/profiles/[id]/edit/page.tsx` (extend to
+      render the form).
+      Acceptance:
+        - Manual via `pnpm dev`: visiting `/profiles/<id>/edit`
+          renders four example slots under the Assertions section
+          with URL/text toggles and a submit button.
+        - Manual: submit with three pasted texts (and one empty slot)
+          triggers the action; pending state shows the spinner; on
+          success the summary card and the new examples-source
+          assertions appear in the Assertions panel without a manual
+          reload.
+        - Manual: submit with a clearly-failing URL (e.g.
+          `https://this-domain-does-not-exist.invalid/foo`) plus
+          three valid pasted texts; the URL slot displays the
+          per-slot error from `urlErrors` while analysis still
+          completes against the three successful inputs.
+        - Manual: submit with only two pasted texts; the inline
+          "Provide at least 3 readable examples" warning renders and
+          no LLM call is made (verify by absence of new assertions).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: no new API route — server action pattern matches
+      `EditForm`. The summary is intentionally ephemeral (not
+      persisted); a reload clears it. Assertions persist via the
+      existing panel.
+
 ---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic L-3 — Assertion-aware clarification + hidden answer classifier
 
