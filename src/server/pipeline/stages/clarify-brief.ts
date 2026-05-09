@@ -7,6 +7,16 @@ import type { InferSelectModel } from 'drizzle-orm';
 
 type ProfileRow = InferSelectModel<typeof profiles>;
 
+const knownAssertionSchema = z.object({
+  key: z.string(),
+  category: z.string(),
+  assertion: z.string(),
+  confidence: z.number(),
+  evidenceCount: z.number(),
+});
+
+type KnownAssertion = z.infer<typeof knownAssertionSchema>;
+
 const inputSchema = z.object({
   brief: z.object({
     topic: z.string(),
@@ -27,6 +37,7 @@ const inputSchema = z.object({
     extraPrompt: z.string(),
     createdAt: z.date(),
   }),
+  knownAssertions: z.array(knownAssertionSchema).optional(),
 });
 
 const clarifyQuestionSchema = z.object({
@@ -41,7 +52,7 @@ const outputSchema = z.object({
 export type ClarifyQuestion = z.infer<typeof clarifyQuestionSchema>;
 
 export const clarifyBrief: Stage<
-  { brief: BriefInput; profile: ProfileRow },
+  { brief: BriefInput; profile: ProfileRow; knownAssertions?: KnownAssertion[] },
   { questions: ClarifyQuestion[] }
 > = {
   name: 'clarify_brief',
@@ -51,12 +62,28 @@ export const clarifyBrief: Stage<
   async run(input, ctx) {
     await ctx.emit('task_started', { stage: 'clarify_brief' });
 
+    const assertions = input.knownAssertions ?? [];
+
+    const assertionsBlock =
+      assertions.length > 0
+        ? [
+            'Known assertions about this user:',
+            ...assertions.map(
+              (a) =>
+                `  ${a.key} (${a.category}) — "${a.assertion}" [confidence ${a.confidence.toFixed(2)} × evidence ${a.evidenceCount}]`,
+            ),
+            'Skip a question entirely if its answer is already implied by an assertion with confidence ≥ 0.85 AND evidenceCount ≥ 3.',
+            'For matching assertions below that threshold, bias the question wording toward confirming or contradicting the assertion.',
+          ].join('\n')
+        : '';
+
     const systemPrompt = [
       `You are a writing coach helping an author produce a ${input.profile.format} article.`,
       `Target audience: ${input.profile.audience}.`,
       `Tone: ${input.profile.style}.`,
       `Target length: ${input.profile.targetVolumeMin}–${input.profile.targetVolumeMax} words.`,
       input.profile.extraPrompt ? `Additional constraints: ${input.profile.extraPrompt}` : '',
+      assertionsBlock,
       'If the brief is clear and specific enough to begin planning, return an empty questions array.',
       'Otherwise return up to 8 concise clarifying questions.',
       'For each question also provide 2–3 short, concrete answer suggestions that cover the most likely choices.',

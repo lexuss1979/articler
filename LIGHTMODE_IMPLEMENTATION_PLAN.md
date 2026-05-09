@@ -718,11 +718,9 @@ Assertions panel. Session-level example upload is deferred.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic L-3 — Assertion-aware clarification + hidden answer classifier
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** The existing `clarify-brief` stage reads the profile's current
 assertions and uses them to suppress questions whose answers are already
@@ -749,18 +747,235 @@ The runner calls this stage immediately after receiving user answers
 or event for this call.
 
 After the LLM delta arrives, a deterministic post-pass:
-1. For each `new` item, computes embedding similarity against existing
-   keys; if `cosine ≥ 0.85` for any existing key, demote it to an
-   `agree` against that key (calling `mergeDuplicateKey`).
+1. For each `new` item, computes a key-similarity score against existing
+   keys; if the score ≥ 0.85 for any existing key, demote it to an
+   `agree` against that key (no row is inserted; the existing key is
+   reinforced via `recordAgreement`).
 2. Applies `agree` / `contradict` / `new` via the L-1 repo helpers.
 
-**Tests:** Unit tests for `classify-answers` use a fake `ctx.llm` and
-assert the output shape. Integration tests verify the upsert / merge /
-contradict paths against the test DB. A test also covers the skip-
-threshold logic: an assertion at confidence 0.9 / evidence 3 must
-suppress a matching question; at 0.9 / evidence 2 it must not.
+The repository has no embedding-class router today (see
+`src/server/llm/models.ts` — only `smart` / `fast` / `search` /
+`image`), so the dedup post-pass uses a deterministic character-bigram
+cosine over the descriptive suffixes of keys instead. This is enough to
+catch `tone_clickbait` ↔ `clickbait_tone` reorderings without standing
+up new infra. Future work can swap in real embeddings once an
+embedding class is added.
+
+### Tasks
+
+- [x] T-L3-1: Extend `clarify-brief` to consume `knownAssertions`
+      Goal: Widen `clarifyBrief.inputSchema` with an optional
+      `knownAssertions: Array<{ key: string; category: string;
+       assertion: string; confidence: number; evidenceCount: number }>`
+      field. When the array is non-empty, append a "Known assertions
+      about this user" block to the system prompt that lists each row
+      (`key (category) — "assertion" [confidence × evidence]`). Embed
+      the explicit thresholds in the prompt body: instruct the model
+      to (a) **skip** any question whose answer is already implied by
+      an assertion with `confidence ≥ 0.85` AND `evidenceCount ≥ 3`,
+      and (b) for matching assertions below that threshold, **bias the
+      wording** toward confirmation/contradiction (still ask). The
+      runner is NOT changed in this task — only the stage signature
+      and prompt.
+      Touches: `src/server/pipeline/stages/clarify-brief.ts`,
+      `tests/unit/pipeline/clarify-brief.test.ts`.
+      Acceptance:
+        - Unit test (extending existing file): captures the `system`
+          string passed to `routeJsonChat` and asserts it does NOT
+          contain the substring "Known assertions" when
+          `knownAssertions` is omitted.
+        - Unit test: when called with `knownAssertions =
+           [{ key: 'tone_clickbait', category: 'tone', assertion:
+           'avoids clickbait', confidence: 0.9, evidenceCount: 5 }]`,
+          the captured system prompt contains the assertion text, the
+          key `tone_clickbait`, and the literal threshold strings
+          `0.85` and `3`.
+        - Unit test: pre-existing tests in
+          `clarify-brief.test.ts` still pass (no breaking schema
+          change — `knownAssertions` is optional, default `[]`).
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: this task is purely the stage signature + prompt. The
+      runner-side wiring (loading assertions and feeding them in)
+      lands in T-L3-5.
+
+- [ ] T-L3-2: Key-similarity helper for assertion dedup
+      Goal: New pure module
+      `src/server/profiles/key-similarity.ts` exposing two functions:
+        - `keySimilarity(a: string, b: string): number` — lowercase
+          both keys, strip the leading category prefix
+          (`scope_|tone_|format_|structure_|audience_|custom_`) before
+          comparing so that `tone_clickbait` and `clickbait_tone` are
+          compared on `clickbait` vs `clickbait_tone`. Compute cosine
+          similarity over character-bigram bags. Identical inputs
+          return `1.0`; inputs that share no bigram return `0.0`.
+        - `findSimilarKey(target: string, candidates: string[],
+           threshold = 0.85): { key: string; similarity: number } |
+           null` — returns the highest-scoring candidate at or above
+          `threshold`, or `null` if none.
+      Touches: `src/server/profiles/key-similarity.ts` (new),
+      `tests/unit/profiles/key-similarity.test.ts` (new).
+      Acceptance:
+        - Unit test: `keySimilarity('tone_clickbait',
+           'tone_clickbait')` is `1.0`.
+        - Unit test: `keySimilarity('tone_clickbait',
+           'clickbait_tone')` is `≥ 0.85`.
+        - Unit test: `keySimilarity('tone_formal', 'tone_casual')` is
+          `< 0.85` (shared prefix is not enough).
+        - Unit test: `findSimilarKey('tone_clickbait', ['tone_formal',
+           'clickbait_tone', 'scope_news'])` returns
+          `{ key: 'clickbait_tone', similarity: ≥ 0.85 }`.
+        - Unit test: `findSimilarKey('foo', [])` returns `null`.
+        - `pnpm test` passes.
+      Decision needed: similarity strategy. Default chosen:
+      deterministic character-bigram cosine (no model dependency).
+      Alternative (real embeddings) is deferred until an embedding
+      model class is wired into `src/server/llm/models.ts`.
+
+- [ ] T-L3-3: `classify-answers` stage (fast model)
+      Goal: New `Stage<ClassifyAnswersInput, ClassifyAnswersOutput>`
+      in `src/server/pipeline/stages/classify-answers.ts` with
+      `modelClass: 'fast'`. Input shape (zod-validated):
+      `{ profile: ProfileRow, qa: Array<{ question: string; answer:
+       string }>, existingAssertions: Array<{ key: string; category:
+       string; assertion: string; confidence: number; evidenceCount:
+       number }> }`. Output shape:
+      `{ delta: Array<{ kind: 'agree' | 'contradict' | 'new', key:
+       string, category?: 'scope'|'tone'|'format'|'structure'|
+       'audience'|'custom', assertion?: string }> }`. Output schema
+      MUST require `category` and `assertion` when `kind === 'new'`
+      and reject those fields being empty (use a zod
+      `superRefine`/discriminated union).
+      System prompt: list the seed key prefixes (`scope_`, `tone_`,
+      `format_`, `structure_`, `audience_`, `custom_`) verbatim from
+      `analyze-examples.ts`'s "Key vocabulary stability" section,
+      list the existing assertions, and instruct the model to emit
+      `agree` against an existing key when an answer reaffirms it,
+      `contradict` when it negates it, and `new` only for genuinely
+      novel traits. Use `routeJsonChat({ class: 'fast', ... })`.
+      Emit `task_started` then `task_completed` with `stage:
+       'classify_answers'` and `count = delta.length`.
+      Touches: `src/server/pipeline/stages/classify-answers.ts`
+      (new), `tests/unit/pipeline/classify-answers.test.ts` (new).
+      Acceptance:
+        - Unit test mocks `routeJsonChat` and asserts the stage
+          forwards the model's `{ delta }` verbatim when valid.
+        - Unit test asserts the stage emits exactly
+          `['task_started', 'task_completed']` with
+          `stage: 'classify_answers'` and the completion event's
+          `count` equals `delta.length`.
+        - Unit test asserts the stage's system prompt string contains
+          all five seed prefixes (`scope_`, `tone_`, `format_`,
+          `structure_`, `audience_`).
+        - Unit test asserts `routeJsonChat` is called with
+          `class: 'fast'`.
+        - Unit test: `outputSchema.safeParse(...)` rejects a `new`
+          item missing `assertion`, and accepts an `agree` item with
+          only `kind` + `key`.
+        - `pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L3-4: Orchestrator `runClassifyAnswers` with dedup post-pass
+      Goal: New module
+      `src/server/pipeline/run-classify-answers.ts` exporting
+      `runClassifyAnswers({ userId, sessionId, profileId, qa }):
+       Promise<{ applied: number; skipped: number }>`. Behaviour:
+      1. Load `profile = await getProfile(userId, profileId)`. If
+         null, throw `Error('profile_not_found')`.
+      2. Load `existingAssertions = await listAssertions(profileId)`.
+      3. Build a runner-style `ctx` (emit forwards to `emitEvent`,
+         `userInput`/`log`/`llm` are no-ops) and call
+         `withStageCtx(classifyAnswers, sessionId, userId, () =>
+          classifyAnswers.run({ profile, qa, existingAssertions },
+          ctx))`.
+      4. Apply each delta item via L-1 repo helpers and the L-3-2
+         similarity helper:
+         - `agree { key }` → `recordAgreement(profileId, key)`. If it
+           returns `null` (key not in DB), increment `skipped`.
+         - `contradict { key }` → `recordContradiction(profileId,
+           key)`; null → `skipped++`.
+         - `new { key, category, assertion }` → call
+           `findSimilarKey(key, existingAssertions.map(a => a.key))`.
+           If a match is returned, call
+           `recordAgreement(profileId, match.key)` instead (treat as
+           reinforcement of the existing key) and DO NOT insert.
+           Otherwise call `upsertAssertion({ profileId, key,
+            category, assertion, source: 'session' })`.
+         - For successfully applied items, increment `applied`.
+      5. Return `{ applied, skipped }`.
+      Touches: `src/server/pipeline/run-classify-answers.ts` (new),
+      `tests/unit/pipeline/run-classify-answers.test.ts` (new).
+      Acceptance:
+        - Unit test mocks `getProfile` returning `null` and asserts
+          the orchestrator throws `Error('profile_not_found')`.
+        - Unit test mocks the stage to return a single `agree` item
+          and asserts `recordAgreement(profileId, key)` is called
+          exactly once.
+        - Unit test: a single `contradict` item triggers exactly one
+          `recordContradiction` call.
+        - Unit test: a `new` item whose key has no near-match in
+          `existingAssertions` invokes `upsertAssertion` once with
+          `source: 'session'` and does NOT call `recordAgreement`.
+        - Unit test: a `new` item whose key collides with an existing
+          key via `findSimilarKey` (similarity ≥ 0.85) invokes
+          `recordAgreement(profileId, similarKey)` exactly once and
+          does NOT call `upsertAssertion`.
+        - Unit test: an `agree` for a key not present in DB
+          (`recordAgreement` returns null) increments `skipped` and
+          leaves `applied` at the count of other-applied items.
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: emit events are produced by the stage itself; the
+      orchestrator does not emit additional ones. The user-facing
+      "silent" behaviour from the epic intent is achieved by the UI
+      filtering on `stage: 'classify_answers'` if/when desired —
+      that's out of scope for L-3.
+
+- [ ] T-L3-5: Wire enrichment into runner planning case
+      Goal: Update the `planning` case in
+      `src/server/pipeline/runner.ts`:
+      1. Before invoking `clarifyBrief.run`, load
+         `knownAssertions = await listAssertions(session.profileId)`
+         and pass it through the stage input. The existing
+         `withStageCtx(clarifyBrief, ...)` wrapper is preserved.
+      2. After `clarifications` is collected (existing array of
+         `{ question, answer }`), if `clarifications.length > 0` call
+         `await runClassifyAnswers({ userId, sessionId, profileId:
+          session.profileId, qa: clarifications })`. Wrap the call in
+         a `try { ... } catch (err) { console.warn(...); }` block so
+         that an enrichment failure does not block planning.
+      3. If `clarifications.length === 0` (no questions were asked),
+         skip the orchestrator call entirely — there are no answers
+         to classify.
+      4. No other behaviour change. `proposeAngles`, plan locking,
+         and the state advance to `research` run as before.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-planning.test.ts`.
+      Acceptance:
+        - Unit test (extending existing): mock `listAssertions` to
+          return one assertion at `confidence = 0.9`,
+          `evidenceCount = 5`. Assert the mocked `clarifyBrief.run`
+          receives an input whose `knownAssertions` array contains
+          that row.
+        - Unit test: mock `clarifyBrief.run` to return one question;
+          mock `userInput` to feed an answer; mock
+          `runClassifyAnswers` and assert it is called exactly once
+          with `qa = [{ question: <q>, answer: <a> }]`.
+        - Unit test: when `clarifyBrief.run` returns
+          `{ questions: [] }`, `runClassifyAnswers` is NOT called
+          (assert mock call count is 0) and the runner still advances
+          to `proposeAngles`.
+        - Unit test: when `runClassifyAnswers` rejects with a thrown
+          error, the runner does NOT rethrow and still calls
+          `proposeAngles.run` afterwards (assert via mock call
+          ordering and a non-thrown awaited promise).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: light mode does not yet exist in the runner (introduced
+      by L-4). The wiring placed here is mode-agnostic, so when L-4
+      adds the `'light'` branch inside the `planning` case the
+      assertion-aware clarification + classification carries over
+      automatically.
 
 ---
+
+<!-- PLANING_CHECKPOINT -->
 
 ## Epic L-4 — Light mode session: profile setting, runner, draft-full
 

@@ -98,6 +98,45 @@ describe('clarifyBrief stage', () => {
   });
 });
 
+describe('clarifyBrief stage — knownAssertions', () => {
+  const mockResult = {
+    result: { questions: [] },
+    modelUsed: 'claude',
+    modelClass: 'smart',
+    promptTokens: 8,
+    completionTokens: 3,
+    latencyMs: 80,
+  };
+
+  it('does not include "Known assertions" block when knownAssertions is omitted', async () => {
+    mockRouteJsonChat.mockResolvedValue(mockResult);
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    await clarifyBrief.run({ brief, profile }, ctx);
+    const system: string = mockRouteJsonChat.mock.calls[0][0].system;
+    expect(system).not.toContain('Known assertions');
+  });
+
+  it('includes assertion text, key, and thresholds when knownAssertions is provided', async () => {
+    mockRouteJsonChat.mockResolvedValue(mockResult);
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    await clarifyBrief.run({
+      brief,
+      profile,
+      knownAssertions: [
+        { key: 'tone_clickbait', category: 'tone', assertion: 'avoids clickbait', confidence: 0.9, evidenceCount: 5 },
+      ],
+    }, ctx);
+    const system: string = mockRouteJsonChat.mock.calls[0][0].system;
+    expect(system).toContain('Known assertions');
+    expect(system).toContain('tone_clickbait');
+    expect(system).toContain('avoids clickbait');
+    expect(system).toContain('0.85');
+    expect(system).toContain('3');
+  });
+});
+
 describe('clarifyBrief stage — fixture: habr-longread-1', () => {
   it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
     type Fixture = {
