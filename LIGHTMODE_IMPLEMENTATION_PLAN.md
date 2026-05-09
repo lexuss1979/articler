@@ -1247,7 +1247,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       in place, a light session will progress automatically the moment
       the user submits a topic.
 
-- [ ] T-L4-6: `draft-full` stage with length-cap postprocessor
+- [x] T-L4-6: `draft-full` stage with length-cap postprocessor
       Goal: New stage `draftFull: Stage<DraftFullInput,
        DraftFullOutput>` in
       `src/server/pipeline/stages/draft-full.ts` with `modelClass:
