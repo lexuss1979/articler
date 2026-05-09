@@ -38,6 +38,7 @@ export function NewSessionForm({ profiles }: { profiles: { id: number; name: str
           <select name="mode" required className="border rounded px-3 py-1.5 text-sm">
             <option value="new">New article</option>
             <option value="rewrite">Rewrite</option>
+            <option value="light">Light mode (auto-pilot)</option>
           </select>
         </label>
         <button

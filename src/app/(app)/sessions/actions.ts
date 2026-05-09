@@ -20,13 +20,13 @@ export async function createSessionAction(
     return { ok: false, error: 'validation' };
   }
 
-  const mode = formData.get('mode');
-  if (mode !== 'new' && mode !== 'rewrite') {
+  const mode = formData.get('mode') as string | null;
+  if (!['new', 'rewrite', 'light'].includes(mode ?? '')) {
     return { ok: false, error: 'validation' };
   }
 
   try {
-    const session = await createSession(user.id, { profileId, mode });
+    const session = await createSession(user.id, { profileId, mode: mode as 'new' | 'rewrite' | 'light' });
     redirect(`/sessions/${session.id}`);
   } catch (err) {
     if (err instanceof ProfileNotOwnedError) {

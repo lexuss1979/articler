@@ -1211,7 +1211,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       defaults for `goal`, `notes`, `sourceArticles` mean a light
       brief `{ topic }` parses cleanly through `submitBriefAction`.
 
-- [ ] T-L4-5: New-session form & action accept `mode='light'`
+- [x] T-L4-5: New-session form & action accept `mode='light'`
       Goal: Add `'light'` as a third option to the `<select
        name="mode">` in
       `src/app/(app)/sessions/new/new-session-form.tsx` (label e.g.
