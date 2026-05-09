@@ -555,7 +555,7 @@ Assertions panel. Session-level example upload is deferred.
           `class: 'smart'`.
         - `pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L2-2: Best-effort URL fetcher for example articles
+- [x] T-L2-2: Best-effort URL fetcher for example articles
       Goal: New helper `fetchExampleUrl(url: string):
        Promise<{ ok: true; content: string } | { ok: false; error: string }>`
       in `src/server/profiles/fetch-example-url.ts`. Implementation:
