@@ -1,0 +1,109 @@
+import { eq, inArray, sql } from 'drizzle-orm';
+import { db } from '../db/client';
+import { profileAssertions } from '../db/schema';
+import {
+  applyDecay,
+  AUTO_DELETE_BELOW,
+  INITIAL_CONFIDENCE,
+} from './assertion-policy';
+
+export type Assertion = {
+  id: number;
+  profileId: number;
+  category: string;
+  key: string;
+  assertion: string;
+  confidence: number;
+  evidenceCount: number;
+  source: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export async function upsertAssertion(input: {
+  profileId: number;
+  key: string;
+  category: string;
+  assertion: string;
+  source?: string;
+}): Promise<Assertion> {
+  const { profileId, key, category, assertion, source = 'session' } = input;
+  const [row] = await db
+    .insert(profileAssertions)
+    .values({
+      profileId,
+      key,
+      category,
+      assertion,
+      source,
+      confidence: String(INITIAL_CONFIDENCE),
+      evidenceCount: 1,
+    })
+    .onConflictDoUpdate({
+      target: [profileAssertions.profileId, profileAssertions.key],
+      set: {
+        assertion,
+        category,
+        source,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning();
+  return mapRow(row!);
+}
+
+export async function listAssertions(profileId: number): Promise<Assertion[]> {
+  const rows = await db
+    .select()
+    .from(profileAssertions)
+    .where(eq(profileAssertions.profileId, profileId));
+
+  const now = new Date();
+  const toDelete: number[] = [];
+  const toUpdate: { id: number; confidence: number }[] = [];
+  const result: Assertion[] = [];
+
+  for (const row of rows) {
+    const decayed = applyDecay(Number(row.confidence), row.updatedAt, now);
+    if (decayed < AUTO_DELETE_BELOW) {
+      toDelete.push(row.id);
+    } else {
+      toUpdate.push({ id: row.id, confidence: decayed });
+      result.push({ ...mapRow(row), confidence: decayed });
+    }
+  }
+
+  if (toDelete.length > 0) {
+    await db
+      .delete(profileAssertions)
+      .where(inArray(profileAssertions.id, toDelete));
+  }
+
+  if (toUpdate.length > 0) {
+    await Promise.all(
+      toUpdate.map(({ id, confidence }) =>
+        db
+          .update(profileAssertions)
+          .set({ confidence: String(confidence) })
+          .where(eq(profileAssertions.id, id)),
+      ),
+    );
+  }
+
+  return result;
+}
+
+function mapRow(row: typeof profileAssertions.$inferSelect): Assertion {
+  return {
+    id: row.id,
+    profileId: row.profileId,
+    category: row.category,
+    key: row.key,
+    assertion: row.assertion,
+    confidence: Number(row.confidence),
+    evidenceCount: row.evidenceCount,
+    source: row.source,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}

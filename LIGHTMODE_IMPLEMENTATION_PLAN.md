@@ -336,7 +336,7 @@ confidence as a small bar, and offers a delete button per row.
           0.84/3 → false, 1.0/10 → true.
         - `pnpm test` passes.
 
-- [ ] T-L1-3: Repo: `upsertAssertion` + `listAssertions` with decay & auto-delete
+- [x] T-L1-3: Repo: `upsertAssertion` + `listAssertions` with decay & auto-delete
       Goal: New repo module `profile-assertions-repo.ts` with two
       methods:
         - `upsertAssertion({ profileId, key, category, assertion, source }):
