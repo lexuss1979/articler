@@ -798,7 +798,7 @@ embedding class is added.
       runner-side wiring (loading assertions and feeding them in)
       lands in T-L3-5.
 
-- [ ] T-L3-2: Key-similarity helper for assertion dedup
+- [x] T-L3-2: Key-similarity helper for assertion dedup
       Goal: New pure module
       `src/server/profiles/key-similarity.ts` exposing two functions:
         - `keySimilarity(a: string, b: string): number` — lowercase
