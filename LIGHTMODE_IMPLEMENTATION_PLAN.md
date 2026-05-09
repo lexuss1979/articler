@@ -422,7 +422,7 @@ confidence as a small bar, and offers a delete button per row.
         - Integration test: `replaceAssertions` of an empty array
           clears the profile.
 
-- [ ] T-L1-6: Repo: `mergeDuplicateKey`
+- [x] T-L1-6: Repo: `mergeDuplicateKey`
       Goal: Add `mergeDuplicateKey(profileId, fromKey, toKey):
        Promise<Assertion | null>` to `profile-assertions-repo.ts`.
       Semantics: in one transaction, look up rows for `fromKey` and

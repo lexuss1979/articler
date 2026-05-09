@@ -182,6 +182,53 @@ export async function replaceAssertions(
   });
 }
 
+export async function mergeDuplicateKey(
+  profileId: number,
+  fromKey: string,
+  toKey: string,
+): Promise<Assertion | null> {
+  return db.transaction(async (tx) => {
+    const [fromRow] = await tx
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, fromKey)));
+
+    const [toRow] = await tx
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, toKey)));
+
+    if (!fromRow) {
+      return toRow ? mapRow(toRow) : null;
+    }
+
+    if (!toRow) {
+      const [renamed] = await tx
+        .update(profileAssertions)
+        .set({ key: toKey, updatedAt: sql`now()` })
+        .where(eq(profileAssertions.id, fromRow.id))
+        .returning();
+      return mapRow(renamed!);
+    }
+
+    const mergedConfidence = Math.max(Number(fromRow.confidence), Number(toRow.confidence));
+    const mergedEvidence = fromRow.evidenceCount + toRow.evidenceCount;
+
+    await tx.delete(profileAssertions).where(eq(profileAssertions.id, fromRow.id));
+
+    const [merged] = await tx
+      .update(profileAssertions)
+      .set({
+        confidence: String(mergedConfidence),
+        evidenceCount: mergedEvidence,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(profileAssertions.id, toRow.id))
+      .returning();
+    return mapRow(merged!);
+  });
+}
+
 function mapRow(row: typeof profileAssertions.$inferSelect): Assertion {
   return {
     id: row.id,

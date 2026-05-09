@@ -9,6 +9,7 @@ import { profileAssertions, profiles, users } from '../../../src/server/db/schem
 import {
   deleteAssertion,
   listAssertions,
+  mergeDuplicateKey,
   recordAgreement,
   recordContradiction,
   replaceAssertions,
@@ -248,6 +249,64 @@ describe.skipIf(!runIntegration)('profile-assertions-repo', () => {
       .from(profileAssertions)
       .where(eq(profileAssertions.profileId, profileId));
     expect(rows).toHaveLength(0);
+  });
+
+  it('mergeDuplicateKey: both present → toKey gets max confidence + summed evidenceCount, fromKey deleted', async () => {
+    await upsertAssertion({ profileId, key: 'merge_from', category: 'tone', assertion: 'from' });
+    await upsertAssertion({ profileId, key: 'merge_to', category: 'tone', assertion: 'to' });
+    await db.execute(
+      sql`UPDATE profile_assertions SET confidence = 0.6, evidence_count = 2
+          WHERE profile_id = ${profileId} AND key = 'merge_from'`,
+    );
+    await db.execute(
+      sql`UPDATE profile_assertions SET confidence = 0.7, evidence_count = 4
+          WHERE profile_id = ${profileId} AND key = 'merge_to'`,
+    );
+
+    const result = await mergeDuplicateKey(profileId, 'merge_from', 'merge_to');
+    expect(result).not.toBeNull();
+    expect(result!.key).toBe('merge_to');
+    expect(result!.confidence).toBeCloseTo(0.7);
+    expect(result!.evidenceCount).toBe(6);
+
+    const fromRows = await db
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, 'merge_from')));
+    expect(fromRows).toHaveLength(0);
+  });
+
+  it('mergeDuplicateKey: only fromKey present → renamed to toKey', async () => {
+    await upsertAssertion({ profileId, key: 'rename_from', category: 'scope', assertion: 'rename me' });
+
+    const result = await mergeDuplicateKey(profileId, 'rename_from', 'rename_to');
+    expect(result).not.toBeNull();
+    expect(result!.key).toBe('rename_to');
+    expect(result!.assertion).toBe('rename me');
+
+    const fromRows = await db
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, 'rename_from')));
+    expect(fromRows).toHaveLength(0);
+  });
+
+  it('mergeDuplicateKey: only toKey present → no-op, returns existing toKey', async () => {
+    await upsertAssertion({ profileId, key: 'noop_to', category: 'scope', assertion: 'stay put' });
+    const before = await db
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, 'noop_to')));
+
+    const result = await mergeDuplicateKey(profileId, 'nonexistent_from', 'noop_to');
+    expect(result).not.toBeNull();
+    expect(result!.key).toBe('noop_to');
+    expect(result!.id).toBe(before[0]!.id);
+  });
+
+  it('mergeDuplicateKey: neither present → returns null', async () => {
+    const result = await mergeDuplicateKey(profileId, 'ghost_from', 'ghost_to');
+    expect(result).toBeNull();
   });
 
   it('listAssertions deletes rows that decay below AUTO_DELETE_BELOW', async () => {
