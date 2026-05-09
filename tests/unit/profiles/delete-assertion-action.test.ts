@@ -47,6 +47,8 @@ describe('deleteAssertionAction', () => {
       targetVolumeMax: 800,
       markupRules: {},
       extraPrompt: '',
+      lightResearchSources: 1,
+      lightMaxWords: 800,
       createdAt: new Date(),
     });
 

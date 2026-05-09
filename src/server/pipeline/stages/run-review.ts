@@ -26,6 +26,8 @@ const inputSchema = z.object({
     targetVolumeMax: z.number(),
     markupRules: z.unknown(),
     extraPrompt: z.string(),
+    lightResearchSources: z.number(),
+    lightMaxWords: z.number(),
     createdAt: z.date(),
   }),
   sectionDrafts: z.array(z.object({ sectionId: z.string(), contentMd: z.string() })),

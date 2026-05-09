@@ -35,6 +35,8 @@ const inputSchema = z.object({
     targetVolumeMax: z.number(),
     markupRules: z.unknown(),
     extraPrompt: z.string(),
+    lightResearchSources: z.number(),
+    lightMaxWords: z.number(),
     createdAt: z.date(),
   }),
   knownAssertions: z.array(knownAssertionSchema).optional(),

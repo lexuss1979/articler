@@ -40,6 +40,8 @@ export const profiles = pgTable('profiles', {
   targetVolumeMax: integer('target_volume_max').notNull(),
   markupRules: jsonb('markup_rules').notNull().default({}),
   extraPrompt: text('extra_prompt').notNull().default(''),
+  lightResearchSources: integer('light_research_sources').notNull().default(1),
+  lightMaxWords: integer('light_max_words').notNull().default(800),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -56,6 +58,7 @@ export const sessions = pgTable('sessions', {
   brief: jsonb('brief'),
   plan: jsonb('plan'),
   draftMd: text('draft_md'),
+  draftMdPreReview: text('draft_md_pre_review'),
   revisedDraftMd: text('revised_draft_md'),
   revisionStatus: text('revision_status'),
   activeCritics: jsonb('active_critics'),

@@ -97,7 +97,7 @@ const brief = { topic: 'Prompt caching', goal: '', notes: '', sourceArticles: []
 
 const profile = {
   id: 1, userId: 1, name: 'Blog', format: 'long_read', style: 'Technical', audience: 'Engineers',
-  targetVolumeMin: 1000, targetVolumeMax: 2000, markupRules: {}, extraPrompt: '', createdAt: new Date(),
+  targetVolumeMin: 1000, targetVolumeMax: 2000, markupRules: {}, extraPrompt: '', lightResearchSources: 1, lightMaxWords: 800, createdAt: new Date(),
 };
 
 const hypothesis = { id: 'h-1', sectionId: 'intro', text: 'Caching cuts costs 50%', evidenceKind: 'statistic' };

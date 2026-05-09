@@ -99,6 +99,13 @@
       "when": 1778329583508,
       "tag": "0013_hard_sersi",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1778348142802,
+      "tag": "0014_nosy_hercules",
+      "breakpoints": true
     }
   ]
 }

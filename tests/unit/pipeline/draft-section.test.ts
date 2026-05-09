@@ -35,6 +35,8 @@ const profile = {
   targetVolumeMax: 5000,
   markupRules: {},
   extraPrompt: '',
+  lightResearchSources: 1,
+  lightMaxWords: 800,
   createdAt: new Date(),
 };
 

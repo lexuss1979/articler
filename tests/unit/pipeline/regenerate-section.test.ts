@@ -51,7 +51,7 @@ const brief = { topic: 'Rust', goal: '', notes: '', sourceArticles: [] };
 
 const profile = {
   id: 1, userId: 1, name: 'Blog', format: 'long_read', style: 'technical', audience: 'engineers',
-  targetVolumeMin: 1000, targetVolumeMax: 3000, markupRules: {}, extraPrompt: '', createdAt: new Date(),
+  targetVolumeMin: 1000, targetVolumeMax: 3000, markupRules: {}, extraPrompt: '', lightResearchSources: 1, lightMaxWords: 800, createdAt: new Date(),
 };
 
 const existingDrafts = [

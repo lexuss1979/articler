@@ -873,7 +873,7 @@ embedding class is added.
           only `kind` + `key`.
         - `pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L3-4: Orchestrator `runClassifyAnswers` with dedup post-pass
+- [x] T-L3-4: Orchestrator `runClassifyAnswers` with dedup post-pass
       Goal: New module
       `src/server/pipeline/run-classify-answers.ts` exporting
       `runClassifyAnswers({ userId, sessionId, profileId, qa }):
@@ -928,7 +928,7 @@ embedding class is added.
       filtering on `stage: 'classify_answers'` if/when desired —
       that's out of scope for L-3.
 
-- [ ] T-L3-5: Wire enrichment into runner planning case
+- [x] T-L3-5: Wire enrichment into runner planning case
       Goal: Update the `planning` case in
       `src/server/pipeline/runner.ts`:
       1. Before invoking `clarifyBrief.run`, load
@@ -975,18 +975,18 @@ embedding class is added.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ## Epic L-4 — Light mode session: profile setting, runner, draft-full
 
-**Status: TBD**
+**Status: planned**
 
-**Goal:** A user can create a `mode = 'light'` session, answer a short
-clarification (enriched by L-3), and watch the pipeline run fully
-automatically up to the `review` state — angle auto-picked via
-`recommendedIndex`, plan auto-locked, research limited to 0–2 sources,
-full article drafted in a single LLM call with a length cap. The UI is
-built in L-5; this epic is testable via API + SSE only.
+**Goal:** A user can create a `mode = 'light'` session, submit a
+single-topic brief, answer a short clarification (enriched by L-3), and
+watch the pipeline run fully automatically up to the `review` state —
+angle auto-picked via `recommendedIndex`, plan auto-locked, research
+limited to 0–2 sources, full article drafted in a single LLM call with
+a length cap. The session-page UI built in L-5 will sit on top of this;
+L-4 is testable via the existing brief / SSE / userInput-respond
+endpoints alone.
 
 **Intent:**
 
@@ -996,18 +996,21 @@ built in L-5; this epic is testable via API + SSE only.
 - `sessions.draft_md_pre_review text NULL` (used by L-6, declared here
   to keep migrations grouped)
 
-Expose both light-mode profile settings in the profile edit form.
+Expose both light-mode profile settings in the profile create/edit
+forms.
 
 *`propose-angles` extension:* output schema gains
 `recommendedIndex: number` and `recommendationReason: string`. Full mode
 uses these only for highlighting; light mode auto-selects.
 
-*Session creation API/server action:* extend the existing `mode` value
-space from `'new' | 'rewrite'` to `'new' | 'rewrite' | 'light'` in
-`sessions/repo.ts`, `sessions/schema.ts`, and any zod parsers on the
-create-session path. Existing values are NOT renamed. Light sessions
-accept a simplified brief: a single `topic` field. The brief stored in
-the DB is `{ topic }`.
+*Session creation:* extend the existing `mode` value space from
+`'new' | 'rewrite'` to `'new' | 'rewrite' | 'light'` in
+`sessions/repo.ts` and the new-session form/action. Existing values are
+not renamed. The brief schema (`briefSchema`) needs no change — its
+non-`topic` fields already default to empty strings / empty arrays, so
+a light brief `{ topic }` parses cleanly. The existing
+`submitBriefAction` is reused for light mode (it already advances state
+to `planning` and kicks the runner).
 
 *Runner:* extend each existing `case` in `runner.ts` with a
 `session.mode === 'light'` branch (do NOT fork the runner into a
@@ -1015,23 +1018,25 @@ separate state machine — same states, divergent behaviour). All stage
 calls in this branch MUST go through `withStageCtx(...)` per the
 repository invariant. Light-mode behaviour:
 
-1. `planning` — run `clarify-brief` (assertion-aware), present questions
-   to user, collect answers, run `classify-answers` silently, then run
-   `propose-angles`, auto-select `angles[recommendedIndex]`, run
-   `build-plan`, immediately call `updateSessionPlan` + advance state.
-   No `userInput` gates.
-2. `research` — if `lightResearchSources === 0`, skip entirely; else
-   issue a single web search with a query derived directly from the
-   session topic (no hypothesis planning, no `formulateQueries`), keep
-   the top `lightResearchSources` hits by relevance, summarize each.
+1. `planning` — run `clarify-brief` (assertion-aware, already wired by
+   L-3), present any returned questions, collect answers, run
+   `classify-answers` silently (already wired by L-3), then run
+   `propose-angles`, auto-select `angles[recommendedIndex]` (no
+   `angle_choice` userInput), run `build-plan`, persist via
+   `updateSessionPlan`, advance state directly to `research` (no
+   `plan_lock` userInput).
+2. `research` — if `profile.lightResearchSources === 0`, skip entirely;
+   else issue a single web search with a query derived directly from
+   the session topic (no hypothesis planning, no `formulateQueries`),
+   keep the top `lightResearchSources` hits by relevance, summarize
+   each. No `research_done` userInput; advance state to `drafting`
+   immediately.
 3. `drafting` — call `draft-full` once; persist `draft_md`; advance to
-   `review`.
-4. `review` — handled by L-6 + L-7 below: snapshot →
-   `auto-review` (via `withStageCtx`) → create synthetic
-   `critique_round { kind: 'auto_review' }` → `extract-claims` over the
-   revised draft → persist into existing `claims` table →
-   **advance directly to `done`**, bypassing `decoration`,
-   `illustration`, and `export` state cases.
+   `review` immediately (no `draft_done` userInput).
+4. `review` — left as a no-op `return` in this epic. L-6 + L-7 fill in
+   snapshot → `auto-review` → synthetic `critique_round` →
+   `extract-claims` → advance to `done`. L-4's job is just to make sure
+   the runner does NOT call `userInput('review_done')` for light mode.
 5. `decoration` / `illustration` / `export` — light branch must be
    `return` (no-op) in every one of these state cases. The light runner
    never transitions through them. The hero image (L-8) is dispatched
@@ -1047,7 +1052,425 @@ outline and any accepted sources for grounding, respecting the profile's
 style/tone/audience and the `lightMaxWords` target. A postprocessing
 step truncates the markdown to `lightMaxWords × 1.15` words if
 exceeded (cut at the nearest paragraph boundary, append a logging
-warning to the runner event log — *not* visible to the user).
+warning via `ctx.log.append` — *not* visible to the user).
+
+### Tasks
+
+- [x] T-L4-1: Migration — light profile settings + pre-review snapshot column
+      Goal: One Drizzle migration adding three columns:
+        - `profiles.light_research_sources integer NOT NULL DEFAULT 1`,
+        - `profiles.light_max_words integer NOT NULL DEFAULT 800`,
+        - `sessions.draft_md_pre_review text NULL`.
+      Update `src/server/db/schema.ts` with the matching column
+      definitions: `lightResearchSources: integer(...).notNull().default(1)`,
+      `lightMaxWords: integer(...).notNull().default(800)`,
+      `draftMdPreReview: text('draft_md_pre_review')` (nullable).
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/0014_<generated>.sql` (new),
+      `drizzle/meta/_journal.json`,
+      `drizzle/meta/0014_snapshot.json`.
+      Acceptance:
+        - `pnpm db:generate` produces a migration whose SQL contains
+          three `ALTER TABLE ... ADD COLUMN` statements (two on
+          `profiles`, one on `sessions`) with the stated types and
+          defaults.
+        - `pnpm db:migrate` against the compose DB applies the
+          migration; re-running is a no-op.
+        - `pnpm typecheck` passes with the three new column exports
+          (`profiles.lightResearchSources`, `profiles.lightMaxWords`,
+          `sessions.draftMdPreReview`).
+        - Integration test (gated on `DATABASE_URL` like sibling tests):
+          insert a profile via raw SQL with no light_* values supplied,
+          read it back, assert `light_research_sources = 1` and
+          `light_max_words = 800`.
+      Notes: numeric range validation (0–2 for `lightResearchSources`,
+      200–2500 for `lightMaxWords`) lives in the zod schema, not in
+      SQL — see T-L4-2.
+
+- [ ] T-L4-2: Profile zod + create/edit form & actions for light settings
+      Goal: Extend `profileInputSchema`
+      (`src/server/profiles/schema.ts`) with two new fields (both with
+      defaults so existing callers and tests continue to compile):
+        - `lightResearchSources: z.number().int().min(0).max(2).default(1)`,
+        - `lightMaxWords: z.number().int().min(200).max(2500).default(800)`.
+      Update the existing create / update profile actions
+      (`src/app/(app)/profiles/actions.ts`) to read the two new
+      `FormData` fields and feed them through
+      `profileInputSchema.safeParse`. Add two corresponding inputs to
+      the new-profile form
+      (`src/app/(app)/profiles/new/...` — wherever the existing "new"
+      form lives) and the edit form
+      (`src/app/(app)/profiles/[id]/edit/edit-form.tsx`): a
+      `<select name="lightResearchSources">` with options `0 | 1 | 2`
+      and a `<input type="number" name="lightMaxWords" min="200"
+       max="2500" step="50">`, both grouped under a clearly labelled
+      "Light mode" subsection at the bottom of the form, prefilled
+      from `profile.lightResearchSources` / `profile.lightMaxWords`
+      respectively.
+      Touches: `src/server/profiles/schema.ts`,
+      `src/app/(app)/profiles/actions.ts`,
+      `src/app/(app)/profiles/[id]/edit/edit-form.tsx`,
+      `src/app/(app)/profiles/new/profile-form.tsx`
+      (or whichever filename the existing new-profile form uses — file
+      to be verified by reading
+      `src/app/(app)/profiles/new/page.tsx`),
+      `tests/unit/profiles/schema.test.ts` (extend if exists, create
+      otherwise).
+      Acceptance:
+        - Unit test: `profileInputSchema.safeParse({ ... ,
+           lightResearchSources: 3 })` fails; same with `-1`.
+        - Unit test: `profileInputSchema.safeParse({ ... ,
+           lightMaxWords: 199 })` fails; same with `2501`.
+        - Unit test: omitting both fields parses successfully and
+          returns the documented defaults (`lightResearchSources: 1`,
+          `lightMaxWords: 800`).
+        - Manual via `pnpm dev`: open `/profiles/<id>/edit`, change
+          both fields to e.g. `2` and `1200`, submit, reopen the page,
+          observe values persist.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: do not add validation logic to `markup-rules` or other
+      existing fields. Range bounds are intentionally enforced at the
+      zod boundary (matching how `targetVolume` is currently handled)
+      so that DB inserts done outside the action layer (tests, scripts)
+      can still use values `0`/`800` without bypassing checks.
+
+- [ ] T-L4-3: Extend `propose-angles` with `recommendedIndex` + `recommendationReason`
+      Goal: Widen `propose-angles.outputSchema` to
+      `{ angles: ..., recommendedIndex: number, recommendationReason:
+       string }`. The schema must use a `z.number().int()` constrained
+      to `[0, angles.length - 1]` via `superRefine`
+      (cross-field check) so an out-of-range model output is rejected.
+      Update the system prompt to instruct the model to return
+      `recommendedIndex` (best angle for the given brief & profile)
+      plus a one-sentence `recommendationReason`. Update existing
+      tests in `tests/unit/pipeline/propose-angles.test.ts` to assert
+      both new fields are returned and validate the cross-field
+      bound. The runner full-mode call site keeps destructuring
+      `{ angles }` only (no behaviour change for full mode); update
+      the eval fixture
+      `tests/eval/fixtures/propose_angles/habr-longread-1.json` to
+      include `recommendedIndex` + `recommendationReason` so it still
+      passes schema validation.
+      Touches: `src/server/pipeline/stages/propose-angles.ts`,
+      `tests/unit/pipeline/propose-angles.test.ts`,
+      `tests/eval/fixtures/propose_angles/habr-longread-1.json`.
+      Acceptance:
+        - Unit test: `outputSchema.safeParse({ angles: [a,b],
+           recommendedIndex: 0, recommendationReason: 'because' })`
+          succeeds; `recommendedIndex: 5` against a 2-element angles
+          array fails.
+        - Unit test: when `routeJsonChat` is mocked to return a valid
+          shape, the stage returns the structure unchanged including
+          `recommendedIndex` and `recommendationReason`.
+        - Unit test: the captured system prompt contains the literal
+          strings `recommendedIndex` and `recommendationReason` so the
+          contract is communicated to the model.
+        - Existing runner tests
+          (`tests/unit/pipeline/runner-planning.test.ts`,
+          `runner.test.ts`, `runner-research.test.ts`,
+          `runner-drafting.test.ts`,
+          `runner-decoration.test.ts`, `runner-illustration.test.ts`,
+          `runner-export.test.ts`) still pass without modification —
+          they use mocked `proposeAngles.run` results that may omit
+          the new fields, which is fine since the runner doesn't
+          re-validate stage outputs.
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: do NOT change the runner's full-mode call site in this
+      task — auto-selection lives in T-L4-6. Only the stage and its
+      schema move here.
+
+- [ ] T-L4-4: Extend session `mode` value space to include `'light'`
+      Goal: Update `createSession` in
+      `src/server/sessions/repo.ts` so its input parameter type is
+      `{ profileId: number; mode: 'new' | 'rewrite' | 'light' }`.
+      Add (or update) a corresponding zod literal union schema, e.g.
+      `sessionModeSchema = z.union([z.literal('new'), z.literal('rewrite'),
+       z.literal('light')])`, exported from
+      `src/server/sessions/repo.ts` (no separate file needed). Search
+      the codebase for any other `'new' | 'rewrite'` / explicit mode
+      checks that need broadening (`grep -rn "'new' | 'rewrite'"
+       src/`); update each so a `'light'` session is not rejected by
+      type guards. **Do NOT** change behaviour anywhere except where
+      the type was previously narrower than the actual data — runner
+      branches land in later tasks.
+      Touches: `src/server/sessions/repo.ts`,
+      any other files surfaced by the grep above (likely
+      `src/app/(app)/sessions/actions.ts`,
+      `src/app/(app)/sessions/[id]/...` parsers),
+      `tests/unit/sessions/create-session.test.ts` (extend if exists,
+      create otherwise).
+      Acceptance:
+        - Unit test: `createSession(userId, { profileId, mode:
+           'light' })` (with mocked DB layer) does not throw a type
+          or runtime error and inserts a row with `mode = 'light'`.
+        - `pnpm typecheck` passes after the change — i.e. all
+          previously-narrowed call sites compile against the widened
+          union.
+        - Existing tests for `mode: 'new' | 'rewrite'` still pass.
+      Notes: brief schema is intentionally NOT touched — its existing
+      defaults for `goal`, `notes`, `sourceArticles` mean a light
+      brief `{ topic }` parses cleanly through `submitBriefAction`.
+
+- [ ] T-L4-5: New-session form & action accept `mode='light'`
+      Goal: Add `'light'` as a third option to the `<select
+       name="mode">` in
+      `src/app/(app)/sessions/new/new-session-form.tsx` (label e.g.
+      "Light mode (auto-pilot)"). Update
+      `src/app/(app)/sessions/actions.ts` `createSessionAction` to
+      accept `mode === 'light'` in its validation guard (the
+      `mode !== 'new' && mode !== 'rewrite'` rejection becomes a
+      whitelist `!['new','rewrite','light'].includes(mode)`). The
+      action continues to redirect to `/sessions/<id>` after creation;
+      the session lands in `briefing` state by default — light-mode UX
+      then expects the existing `/sessions/[id]` page (briefing form)
+      to accept a topic. Per the L-5 epic, the topic-only briefing
+      view is L-5's concern; for L-4 the existing
+      `submitBriefAction` already handles `{ topic }` correctly.
+      Touches: `src/app/(app)/sessions/new/new-session-form.tsx`,
+      `src/app/(app)/sessions/actions.ts`,
+      `tests/unit/sessions/create-session-action.test.ts`
+      (new or extend if a sibling exists).
+      Acceptance:
+        - Unit test: `createSessionAction` with FormData containing
+          `mode='light'` and a valid `profileId` resolves through
+          (mock `createSession` to capture the call) and the
+          underlying `createSession` is called with `mode: 'light'`.
+        - Unit test: `createSessionAction` with `mode='other'`
+          returns `{ ok: false, error: 'validation' }`.
+        - Manual via `pnpm dev`: from `/sessions/new` the dropdown
+          shows three options; selecting "Light mode" + a profile and
+          submitting redirects to `/sessions/<id>` and the row in DB
+          has `mode = 'light'`, `state = 'briefing'`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `submitBriefAction` already kicks the runner via
+      `startRunner`; once the new runner branches from T-L4-6/7/8 are
+      in place, a light session will progress automatically the moment
+      the user submits a topic.
+
+- [ ] T-L4-6: `draft-full` stage with length-cap postprocessor
+      Goal: New stage `draftFull: Stage<DraftFullInput,
+       DraftFullOutput>` in
+      `src/server/pipeline/stages/draft-full.ts` with `modelClass:
+       'smart'`. Input shape (zod-validated):
+      `{ profile: ProfileRow, brief: BriefInput, plan: Plan, sources:
+       Array<{ url: string, title: string, summary: string,
+       rawExcerpt: string }>, lightMaxWords: number }`. Output shape:
+      `{ contentMd: string, wordCount: number }`. System prompt:
+      describe the assignment (full article in one shot using the
+      plan's `sections` as an outline; respect profile style/tone/
+      audience + `extraPrompt`; cite sources by URL inline only if
+      relevant; target `lightMaxWords` words ±10%; emit clean Markdown
+      headings). Use `routeJsonChat({ class: 'smart', ... })` with an
+      output schema that's just `{ contentMd: string }` — `wordCount`
+      is computed deterministically from the post-processed markdown
+      after truncation.
+      Postprocessor (called inside `run`, after the LLM response):
+      split on `/\s+/` to count words; if `count > lightMaxWords *
+       1.15`, walk paragraph boundaries (`\n\n`) from the start and
+      cut at the largest prefix whose word count is `≤ lightMaxWords`
+      then append `ctx.log.append({ event: 'draft_full_truncated',
+       originalWords: count, finalWords: <new>, cap:
+       lightMaxWords })`. `wordCount` returned to the caller is the
+      post-truncation count.
+      Emit `task_started` and `task_completed` (with `stage:
+       'draft_full'` and `wordCount`) per the existing stage
+      convention.
+      Touches: `src/server/pipeline/stages/draft-full.ts` (new),
+      `tests/unit/pipeline/draft-full.test.ts` (new).
+      Acceptance:
+        - Unit test mocks `routeJsonChat` to return a 300-word
+          markdown string with `lightMaxWords = 800`; asserts the
+          stage returns the markdown unchanged and `wordCount = 300`,
+          and that no truncation log was emitted.
+        - Unit test mocks `routeJsonChat` to return 1200 words with
+          `lightMaxWords = 800` (cap = 920); asserts the returned
+          `contentMd` has `≤ 920` words AND ends at a paragraph
+          boundary (i.e. `contentMd` contains no trailing partial
+          paragraph), and that exactly one
+          `ctx.log.append({ event: 'draft_full_truncated', ... })`
+          call was made with `originalWords = 1200`.
+        - Unit test asserts the stage emits exactly
+          `['task_started', 'task_completed']` with
+          `stage: 'draft_full'` on completion and a
+          numeric `wordCount` field.
+        - Unit test asserts `routeJsonChat` is called with
+          `class: 'smart'`.
+        - Unit test: `inputSchema.safeParse({ ... ,
+           lightMaxWords: 100 })` fails (below the 200 floor) — the
+          stage's input schema should mirror the profile zod range.
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: this stage is NOT yet called by the runner. T-L4-9 wires
+      it in. Sources are passed through as a flat list rather than
+      per-section because light mode does not split by section.
+
+- [ ] T-L4-7: Runner — `planning` light-mode branch
+      Goal: Inside `case 'planning':` in
+      `src/server/pipeline/runner.ts`, fork on `session.mode === 'light'`
+      after parsing `brief` / `profile` (i.e. share the existing
+      `briefParsed` / `profile` setup). The light branch:
+      1. Calls `clarifyBrief.run` exactly the same way the existing
+         code does (assertion-aware: `knownAssertions = await
+          listAssertions(session.profileId)` is already wired).
+      2. If `questions.length > 0`, emits the existing
+         `artifact_updated { kind: 'questions', ... }` event, awaits
+         `userInput('clarify', ...)` exactly as full mode does, builds
+         `clarifications`, then runs `runClassifyAnswers` inside the
+         existing try/catch (same wiring as full mode).
+      3. Calls `proposeAngles.run` (wrapped in `withStageCtx`),
+         **picks `angles[result.recommendedIndex]` automatically** —
+         no `userInput('angle_choice', ...)`. Emit
+         `artifact_updated { kind: 'angles', angles, recommendedIndex,
+          recommendationReason }` so the L-5 UI can show the choice.
+      4. Calls `buildPlan.run` (wrapped in `withStageCtx`),
+         persists via `updateSessionPlan`, emits
+         `artifact_updated { kind: 'plan', plan }`.
+      5. Calls `updateSessionState(userId, sessionId, 'research')` and
+         emits `state_changed { state: 'research' }`. Then
+         `await startRunner(sessionId, userId, true)` — same
+         self-recursion full mode uses.
+      The full-mode branch is otherwise unchanged.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-planning.test.ts` (extend with
+      light-mode cases).
+      Acceptance:
+        - Unit test: `session.mode = 'light'` with
+          `clarifyBrief.run → { questions: [] }`,
+          `proposeAngles.run → { angles: [a,b,c], recommendedIndex: 1,
+           recommendationReason: 'r' }`, `buildPlan.run → plan`.
+          Assert: NO `userInput('angle_choice', ...)` is requested
+          (the test's `pendingInputs` map remains empty after
+          planning), `buildPlan.run` is called with `angle = a[1]`
+          (the recommended one), `updateSessionPlan` is called with
+          the plan, `updateSessionState(..., 'research')` is called,
+          and `startRunner(...)` is called recursively (mock
+          `startRunner` to count invocations).
+        - Unit test: `session.mode = 'light'` with one question
+          returned; assert `userInput('clarify', ...)` IS requested
+          (light mode keeps the clarification gate), but
+          `userInput('plan_lock', ...)` is NEVER requested.
+        - Unit test: `session.mode = 'light'`, all stages succeed,
+          `pendingInputs` for `'plan_lock'` is empty after the test
+          (light mode never gates on plan lock).
+        - Existing full-mode runner-planning tests still pass
+          unchanged (verify by running `pnpm test
+           runner-planning.test`).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: do NOT introduce `lightMaxWords` / `lightResearchSources`
+      reads here — those land in the `research` and `drafting`
+      branches.
+
+- [ ] T-L4-8: Runner — `research` light-mode branch
+      Goal: Inside `case 'research':` in
+      `src/server/pipeline/runner.ts`, fork on `session.mode ===
+       'light'` after parsing `plan` / `profile`. The light branch:
+      1. If `profile.lightResearchSources === 0` — emit
+         `artifact_updated { kind: 'research_skipped' }`, advance
+         state to `'drafting'`, recurse into `startRunner`. No LLM
+         calls.
+      2. Else — derive a single search query directly from
+         `briefParsed.data.topic` (use the topic verbatim as the
+         query string) and call `webSearch.run` once (wrapped in
+         `withStageCtx`). Take the top `profile.lightResearchSources`
+         hits sorted by their position in the result list. For each
+         retained hit, call `summarizeSource.run` (wrapped in
+         `withStageCtx`); persist via `insertSource` with `status =
+          'accepted'` (light mode auto-accepts — no review gate); emit
+         `artifact_updated { kind: 'source', source }` per hit.
+         **Skip `planSearchHypotheses` and `formulateQueries`
+         entirely.**
+      3. Advance state to `'drafting'`, emit `state_changed`, recurse
+         into `startRunner`. No `userInput('research_done', ...)`.
+      The full-mode branch is otherwise unchanged.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-research.test.ts` (extend).
+      Acceptance:
+        - Unit test: `session.mode = 'light'`,
+          `profile.lightResearchSources = 0`. Assert no
+          `webSearch.run` call, no `summarizeSource.run` call, state
+          transitions to `'drafting'`, and a `research_skipped` event
+          is emitted.
+        - Unit test: `session.mode = 'light'`,
+          `profile.lightResearchSources = 2`,
+          `webSearch.run → { hits: [h1,h2,h3] }`. Assert
+          `summarizeSource.run` is called exactly twice (top 2 hits),
+          `insertSource` is called twice with `status: 'accepted'`,
+          `planSearchHypotheses.run` and `formulateQueries.run` are
+          NOT called.
+        - Unit test: light branch never requests
+          `userInput('research_done', ...)` (assert
+          `pendingInputs.has(sessionId)` is false after the runner
+          finishes).
+        - Existing full-mode research tests still pass.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: deliberately ignore the relevance threshold used in
+      full mode (`relevanceScore >= 70 → 'accepted'`). Light mode
+      auto-accepts the top-N hits because the user has no review UI
+      to act on per-source decisions in this flow.
+
+- [ ] T-L4-9: Runner — `drafting` light branch + post-review no-op branches
+      Goal: Two changes in `src/server/pipeline/runner.ts`:
+      1. **`case 'drafting':` light branch.** After parsing `plan` /
+         `brief` / `profile`, if `session.mode === 'light'`:
+         - Load `acceptedSources` via `listSessionSources` (filter
+           `status === 'accepted'`) and pass them to `draftFull.run`
+           (wrapped in `withStageCtx`) along with `profile`, `brief`,
+           `plan`, and `lightMaxWords: profile.lightMaxWords`.
+         - Persist the returned `contentMd` via `updateSessionDraft`
+           and emit `artifact_updated { kind: 'full_draft', contentMd,
+            wordCount }`.
+         - Advance state to `'review'`, emit `state_changed`, recurse
+           into `startRunner`. **No `userInput('draft_done', ...)`**.
+         - Do NOT use the section-by-section loop or
+           `upsertSectionDraft` for light mode.
+      2. **Post-review no-op branches.** In each of `case 'review':`,
+         `case 'decoration':`, `case 'illustration':`, `case
+          'export':` — at the very top of the case body, add
+         `if (session.mode === 'light') { return; }`. This makes the
+         light runner stop at `review` after T-L4-9 (until L-6/L-7
+         fill in the auto-review path). The decoration / illustration
+         / export cases must never run for light mode — full-mode
+         behaviour is unchanged.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-drafting.test.ts` (extend),
+      `tests/unit/pipeline/runner-review.test.ts` (extend),
+      `tests/unit/pipeline/runner-decoration.test.ts`,
+      `tests/unit/pipeline/runner-illustration.test.ts`,
+      `tests/unit/pipeline/runner-export.test.ts` (extend each with
+      one light-mode no-op case).
+      Acceptance:
+        - Unit test (drafting): `session.mode = 'light'`,
+          `profile.lightMaxWords = 800`, `draftFull.run → { contentMd:
+           '...', wordCount: 700 }`. Assert `draftFull.run` is called
+          exactly once with `lightMaxWords: 800`,
+          `draftSection.run` is NOT called, `updateSessionDraft` is
+          called with the returned `contentMd`,
+          `updateSessionState(..., 'review')` is called,
+          `startRunner` recurses.
+        - Unit test (drafting): light branch never requests
+          `userInput('draft_done', ...)`.
+        - Unit test (review): `session.mode = 'light'`, `state =
+           'review'`. Assert NO `userInput` is requested, NO state
+          advance happens, the function returns cleanly.
+        - Unit tests (decoration / illustration / export, one each):
+          `session.mode = 'light'` — assert immediate return with no
+          `userInput`, no state advance, no events emitted.
+        - Existing full-mode tests for all five cases still pass.
+        - End-to-end manual smoke (optional but recommended): with
+          `pnpm dev` running, create a light session, submit a topic,
+          answer any questions, observe that the SSE stream emits
+          `state_changed: research → drafting → review` automatically
+          and the runner halts at `review` (no exception, no further
+          events). The final `sessions.draft_md` column contains the
+          generated article.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: the L-4 epic ends with the runner halted at `review`
+      state for light mode. L-6 will then add the auto-review +
+      snapshot logic inside the light branch of `case 'review':`,
+      replacing the early `return` from this task.
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ---
 

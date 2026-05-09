@@ -104,6 +104,8 @@ describe('startRunner', () => {
       targetVolumeMax: 200,
       markupRules: {},
       extraPrompt: '',
+      lightResearchSources: 1,
+      lightMaxWords: 800,
       createdAt: new Date(),
     });
 
