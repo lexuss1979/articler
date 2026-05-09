@@ -35,13 +35,25 @@ const inputSchema = z.object({
     .optional(),
 });
 
-const outputSchema = z.object({
-  angles: z.array(angleSchema).min(2).max(6).describe('2-4 distinct angles'),
-});
+const outputSchema = z
+  .object({
+    angles: z.array(angleSchema).min(2).max(6).describe('2-4 distinct angles'),
+    recommendedIndex: z.number().int(),
+    recommendationReason: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.recommendedIndex < 0 || data.recommendedIndex >= data.angles.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `recommendedIndex must be in [0, ${data.angles.length - 1}]`,
+        path: ['recommendedIndex'],
+      });
+    }
+  });
 
 export const proposeAngles: Stage<
   { brief: BriefInput; profile: ProfileRow; clarifications?: Array<{ question: string; answer: string }> },
-  { angles: Angle[] }
+  { angles: Angle[]; recommendedIndex: number; recommendationReason: string }
 > = {
   name: 'propose_angles',
   modelClass: 'smart',
@@ -58,7 +70,8 @@ export const proposeAngles: Stage<
       `Target length: ${input.profile.targetVolumeMin}–${input.profile.targetVolumeMax} words.`,
       input.profile.extraPrompt ? `Constraints: ${input.profile.extraPrompt}` : '',
       'Each angle must have a distinct methodology (e.g. aida, pas, how_to, deep_dive, listicle, case_study, inverted_pyramid).',
-      'Respond ONLY with valid JSON: { "angles": [ { "title": "...", "methodology": "...", "rationale": "..." } ] }',
+      'Also pick the single best angle for this brief and profile: return its 0-based index as `recommendedIndex` and a one-sentence reason as `recommendationReason`.',
+      'Respond ONLY with valid JSON: { "angles": [ { "title": "...", "methodology": "...", "rationale": "..." } ], "recommendedIndex": 0, "recommendationReason": "..." }',
     ]
       .filter(Boolean)
       .join('\n');

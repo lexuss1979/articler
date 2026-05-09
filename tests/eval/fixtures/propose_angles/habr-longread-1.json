@@ -51,7 +51,9 @@
           "methodology": "case_study",
           "rationale": "A concrete before/after case study with real numbers resonates strongly with engineers who evaluate ideas by seeing them in practice."
         }
-      ]
+      ],
+      "recommendedIndex": 0,
+      "recommendationReason": "The technical deep-dive angle best matches the target audience's desire to understand the mechanism before adopting it in production."
     }
   }
 }

@@ -1134,7 +1134,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       so that DB inserts done outside the action layer (tests, scripts)
       can still use values `0`/`800` without bypassing checks.
 
-- [ ] T-L4-3: Extend `propose-angles` with `recommendedIndex` + `recommendationReason`
+- [x] T-L4-3: Extend `propose-angles` with `recommendedIndex` + `recommendationReason`
       Goal: Widen `propose-angles.outputSchema` to
       `{ angles: ..., recommendedIndex: number, recommendationReason:
        string }`. The schema must use a `z.number().int()` constrained

@@ -52,6 +52,8 @@ const threeAngles = {
     { title: 'Cache Deep-Dive', methodology: 'deep_dive', rationale: 'Technical audience wants depth.' },
     { title: 'How-To Guide', methodology: 'how_to', rationale: 'Actionable steps.' },
   ],
+  recommendedIndex: 0,
+  recommendationReason: 'Cost-focused angle resonates most with the engineering audience.',
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -74,6 +76,8 @@ describe('proposeAngles stage', () => {
     const result = await proposeAngles.run({ brief, profile }, ctx);
 
     expect(result.angles).toHaveLength(3);
+    expect(result.recommendedIndex).toBe(0);
+    expect(result.recommendationReason).toBe('Cost-focused angle resonates most with the engineering audience.');
     expect(ctx._emitted.map(([k]) => k)).toEqual(['task_started', 'task_completed']);
     expect(ctx._emitted[1][1]).toMatchObject({ count: 3 });
   });
@@ -108,6 +112,55 @@ describe('proposeAngles stage', () => {
   });
 });
 
+describe('proposeAngles outputSchema', () => {
+  it('accepts valid output with in-range recommendedIndex', async () => {
+    const { proposeAngles } = await import('../../../src/server/pipeline/stages/propose-angles');
+    const valid = {
+      angles: [
+        { title: 'A', methodology: 'pas', rationale: 'r' },
+        { title: 'B', methodology: 'how_to', rationale: 'r' },
+      ],
+      recommendedIndex: 0,
+      recommendationReason: 'because',
+    };
+    const result = proposeAngles.outputSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects out-of-range recommendedIndex', async () => {
+    const { proposeAngles } = await import('../../../src/server/pipeline/stages/propose-angles');
+    const invalid = {
+      angles: [
+        { title: 'A', methodology: 'pas', rationale: 'r' },
+        { title: 'B', methodology: 'how_to', rationale: 'r' },
+      ],
+      recommendedIndex: 5,
+      recommendationReason: 'because',
+    };
+    const result = proposeAngles.outputSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it('system prompt contains recommendedIndex and recommendationReason', async () => {
+    mockRouteJsonChat.mockResolvedValue({
+      result: threeAngles,
+      modelUsed: 'claude',
+      modelClass: 'smart',
+      promptTokens: 10,
+      completionTokens: 50,
+      latencyMs: 100,
+    });
+
+    const { proposeAngles } = await import('../../../src/server/pipeline/stages/propose-angles');
+    const ctx = makeCtx();
+    await proposeAngles.run({ brief, profile }, ctx);
+
+    const callArg = mockRouteJsonChat.mock.calls[0][0] as { system: string };
+    expect(callArg.system).toContain('recommendedIndex');
+    expect(callArg.system).toContain('recommendationReason');
+  });
+});
+
 describe('proposeAngles stage — fixture: habr-longread-1', () => {
   it('returns expected.snapshot unchanged when routeJsonChat returns it', async () => {
     type Fixture = {
@@ -116,7 +169,7 @@ describe('proposeAngles stage — fixture: habr-longread-1', () => {
         profile: typeof profile & { createdAt: string };
         clarifications: Array<{ question: string; answer: string }>;
       };
-      expected: { snapshot: { angles: typeof threeAngles.angles } };
+      expected: { snapshot: { angles: typeof threeAngles.angles; recommendedIndex: number; recommendationReason: string } };
     };
     const fixture = JSON.parse(
       readFileSync(
