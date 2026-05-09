@@ -339,6 +339,105 @@ describe('startRunner — planning state', () => {
   });
 });
 
+describe('startRunner — planning state (light mode)', () => {
+  it('auto-picks recommendedIndex without angle_choice or plan_lock gates', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 20, userId: 1, state: 'planning', brief: validBrief, profileId: 1, mode: 'light' })
+      .mockResolvedValue({ id: 20, userId: 1, state: 'research', plan: null, profileId: 1, mode: 'light' });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [] });
+    mocks.proposeAnglesRun.mockResolvedValue({ angles, recommendedIndex: 1, recommendationReason: 'More actionable.' });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(20, 1);
+
+    expect(emittedEvents.some(([k]) => k === 'awaiting_user')).toBe(false);
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 20, 'research');
+    const buildPlanCall = mocks.buildPlanRun.mock.calls[0][0] as { angle: (typeof angles)[number] };
+    expect(buildPlanCall.angle).toEqual(angles[1]);
+  });
+
+  it('emits artifact_updated for angles with recommendedIndex and recommendationReason', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 21, userId: 1, state: 'planning', brief: validBrief, profileId: 1, mode: 'light' })
+      .mockResolvedValue({ id: 21, userId: 1, state: 'research', plan: null, profileId: 1, mode: 'light' });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [] });
+    mocks.proposeAnglesRun.mockResolvedValue({ angles, recommendedIndex: 0, recommendationReason: 'Best choice.' });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(21, 1);
+
+    const anglesEvent = emittedEvents.find(
+      ([k, p]) => k === 'artifact_updated' && (p as { kind: string }).kind === 'angles',
+    );
+    expect(anglesEvent).toBeDefined();
+    expect(anglesEvent![1]).toMatchObject({
+      kind: 'angles',
+      angles,
+      recommendedIndex: 0,
+      recommendationReason: 'Best choice.',
+    });
+  });
+
+  it('still gates on clarify userInput when questions exist, then auto-completes without further gates', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce({ id: 22, userId: 1, state: 'planning', brief: validBrief, profileId: 1, mode: 'light' })
+      .mockResolvedValue({ id: 22, userId: 1, state: 'research', plan: null, profileId: 1, mode: 'light' });
+    mocks.getProfileFn.mockResolvedValue(profile);
+    mocks.updateSessionPlanFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue({});
+    mocks.appendRunLogFn.mockResolvedValue({ path: '/tmp/test.jsonl' });
+
+    mocks.clarifyBriefRun.mockResolvedValue({ questions: [{ question: 'Who is this for?' }] });
+    mocks.proposeAnglesRun.mockResolvedValue({ angles, recommendedIndex: 0, recommendationReason: 'Broad.' });
+    mocks.buildPlanRun.mockResolvedValue(plan);
+
+    const emittedEvents: Array<[string, unknown]> = [];
+    mocks.emitEventFn.mockImplementation(async (_sid: number, kind: string, payload: unknown) => {
+      emittedEvents.push([kind, payload]);
+      return { id: emittedEvents.length, sessionId: _sid, kind, payload, ts: new Date() };
+    });
+
+    const { startRunner, resolveUserInput } = await import('../../../src/server/pipeline/runner');
+    const runnerPromise = startRunner(22, 1);
+
+    // Only one awaiting_user: clarify
+    await waitForEvent(emittedEvents, 'awaiting_user');
+    const clarifyEvent = emittedEvents.find(([k]) => k === 'awaiting_user');
+    expect((clarifyEvent![1] as { prompt: string }).prompt).toBe('clarify');
+    expect(resolveUserInput(22, { answers: ['Developers'] })).toBe(true);
+
+    await runnerPromise;
+
+    const awaitingCount = emittedEvents.filter(([k]) => k === 'awaiting_user').length;
+    expect(awaitingCount).toBe(1);
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 22, 'research');
+  });
+});
+
 function waitForEvent(
   events: Array<[string, unknown]>,
   kind: string,

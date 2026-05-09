@@ -127,31 +127,51 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
         }
       }
 
-      // Step 2: propose angles
-      const { angles } = await withStageCtx(proposeAngles, sessionId, userId, () =>
-        proposeAngles.run({ brief, profile, clarifications }, ctx),
-      );
-      await ctx.emit('artifact_updated', { kind: 'angles', angles });
+      if (session.mode === 'light') {
+        // Light mode: auto-pick the model's recommended angle, no user gates
+        const lightResult = await withStageCtx(proposeAngles, sessionId, userId, () =>
+          proposeAngles.run({ brief, profile, clarifications }, ctx),
+        );
+        const { angles, recommendedIndex, recommendationReason } = lightResult;
+        await ctx.emit('artifact_updated', { kind: 'angles', angles, recommendedIndex, recommendationReason });
+        const chosenAngle = angles[recommendedIndex]!;
 
-      const { index } = await ctx.userInput(
-        'angle_choice',
-        z.object({ index: z.number().int().min(0).max(angles.length - 1) }),
-      );
-      const chosenAngle = angles[index]!;
+        const plan = await withStageCtx(buildPlan, sessionId, userId, () =>
+          buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx),
+        );
+        await updateSessionPlan(userId, sessionId, plan);
+        await ctx.emit('artifact_updated', { kind: 'plan', plan });
 
-      // Step 3: build plan
-      const plan = await withStageCtx(buildPlan, sessionId, userId, () =>
-        buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx),
-      );
-      await updateSessionPlan(userId, sessionId, plan);
-      await ctx.emit('artifact_updated', { kind: 'plan', plan });
+        await updateSessionState(userId, sessionId, 'research');
+        await ctx.emit('state_changed', { state: 'research' });
+        await startRunner(sessionId, userId, true);
+      } else {
+        // Step 2: propose angles (full mode — user picks)
+        const { angles } = await withStageCtx(proposeAngles, sessionId, userId, () =>
+          proposeAngles.run({ brief, profile, clarifications }, ctx),
+        );
+        await ctx.emit('artifact_updated', { kind: 'angles', angles });
 
-      // Step 4: await plan lock
-      await ctx.userInput('plan_lock', z.object({ action: z.literal('lock') }));
+        const { index } = await ctx.userInput(
+          'angle_choice',
+          z.object({ index: z.number().int().min(0).max(angles.length - 1) }),
+        );
+        const chosenAngle = angles[index]!;
 
-      await updateSessionState(userId, sessionId, 'research');
-      await ctx.emit('state_changed', { state: 'research' });
-      await startRunner(sessionId, userId, true);
+        // Step 3: build plan
+        const plan = await withStageCtx(buildPlan, sessionId, userId, () =>
+          buildPlan.run({ brief, profile, angle: chosenAngle, clarifications }, ctx),
+        );
+        await updateSessionPlan(userId, sessionId, plan);
+        await ctx.emit('artifact_updated', { kind: 'plan', plan });
+
+        // Step 4: await plan lock
+        await ctx.userInput('plan_lock', z.object({ action: z.literal('lock') }));
+
+        await updateSessionState(userId, sessionId, 'research');
+        await ctx.emit('state_changed', { state: 'research' });
+        await startRunner(sessionId, userId, true);
+      }
       break;
     }
     case 'research': {
