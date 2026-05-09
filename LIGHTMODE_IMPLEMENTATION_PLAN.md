@@ -60,6 +60,59 @@ fully automatically and delivers a finished article.
 Full mode (existing) is optimised for quality and editorial control.
 Light mode is optimised for throughput and automation.
 
+### Repository state at planning time
+
+This plan was reconciled against the codebase at commit `c459668`
+(post-Epic 22). Hard constraints inherited from the existing system:
+
+- **Sessions `mode` value space.** Currently `'new' | 'rewrite'` in
+  `sessions/repo.ts` and related zod schemas. Light mode adds a third
+  value: the resulting space is `'new' | 'rewrite' | 'light'`. Existing
+  values are not renamed.
+- **Claims subsystem already exists relationally.** Tables: `claims`
+  (FK `round_id NOT NULL → critique_rounds.id`, columns `span`,
+  `span_hash`, `claim_text`, `claim_type` ∈ {statistic | named_entity |
+  event | attribution | definition | other}, `check_worthiness` ∈
+  {low | medium | high}, `status`), `claim_verdicts` (`verdict` ∈
+  {verified | contradicted | unverifiable | needs_caveat},
+  `justification`), `claim_evidence` (`url`, `snippet`, `supports`).
+  Stages `extract-claims` (`modelClass: 'smart'`, input
+  `{plan, sectionDrafts}`), `verify-claim` (`'search'`),
+  `adjudicate-claim` (`'smart'`) are implemented and wrapped by
+  `run-fact-check.ts`. **Light mode reuses all of this** instead of
+  introducing a parallel jsonb store. To keep `claims.round_id` valid
+  without a migration, light mode creates a synthetic `critique_round`
+  of `kind = 'auto_review'` per session at review time.
+- **Budget enforcement is live (Epic 13/18/19/20).**
+  `user_settings.monthly_cap_usd` and `session_cap_usd` are enforced
+  via `assertBudget` in the LLM router; `BudgetExceededError`
+  short-circuits stage calls. Batch creation (L-9) must respect this
+  *in addition to* count-based caps — not replace it.
+- **Stage invariant: `withStageCtx`.** Every stage call must be wrapped
+  in `withStageCtx(stage, sessionId, userId, () => stage.run(input,
+  ctx))` (from `pipeline/with-stage-ctx.ts`) so the AsyncLocalStorage
+  `LLMContext` is available to the router. Skipping this silently
+  bypasses logging + budget enforcement — a pre-existing bug fixed in
+  Epic 19/20. Every new orchestrator added by this plan (light runner
+  branch, `run-auto-review`, on-demand verify, batch dispatcher) MUST
+  follow this.
+- **Snapshot column distinct from existing revision columns.**
+  `sessions.revisedDraftMd` and `sessions.revisionStatus` already exist
+  but hold the full-mode *pending revision* (proposed by
+  `apply-revisions`, awaiting accept/reject). Light mode wants the
+  inverse semantic: preserve the *original* for revert. Therefore the
+  plan adds a separate column `sessions.draft_md_pre_review text NULL`
+  rather than overload existing semantics.
+- **State machine.** Existing flow:
+  `briefing → planning → research → drafting → review → decoration →
+  illustration → export → done`. Light mode short-circuits this:
+  inside the `review` case the runner runs auto-review + claims
+  extraction, then advances **directly to `done`**, skipping
+  `decoration`, `illustration`, and `export` states. Hero image
+  generation is a fire-and-forget post-`done` task that streams via
+  SSE; export buttons on the `done` page reuse the same export
+  endpoints full mode uses from its `export` state.
+
 ### Pipeline comparison
 
 | Step | Full mode | Light mode |
@@ -71,10 +124,10 @@ Light mode is optimised for throughput and automation.
 | Plan lock | User reviews + locks | Auto-locked |
 | Research | Deep: N hypotheses × M queries | Shallow: 1 query, 0–2 sources (profile setting) |
 | Drafting | Section by section | Single-shot full article (`draft-full`), capped by `profiles.lightMaxWords` (default 800) |
-| Review | Interactive critics + fact-check | Auto-review (humanity + coherence) over a **snapshot** of the pre-review draft |
-| Claims & fact-check | Mandatory critic-driven | Auto-extracted claims list shown to user; fact-check is **opt-in per claim** |
-| Image | Candidate selection UI | 1 hero image, auto-attached |
-| Export | Same | Same |
+| Review | Interactive critics, user-triggered ("Run review" button) | Auto-review (humanity + coherence) over a snapshot of the pre-review draft, runner-triggered |
+| Claims & fact-check | User-triggered batch via "Run fact-check" button (existing `extract-claims` + `verify-claim` + `adjudicate-claim`) | Auto-extracted claims at end of `review`, **per-claim opt-in** verify (reuses the same three stages) |
+| Image | Candidate selection UI; multiple slots | 1 hero image, auto-attached, dispatched async after `done` |
+| Export | User-triggered from `export` state | User-triggered from `done` state (light mode skips `decoration` / `illustration` / `export` states) |
 
 ### Profile assertions
 
@@ -161,16 +214,21 @@ doesn't re-derive them:
   blindly. Full mode shows all angles unchanged; the recommended one is
   highlighted but not auto-selected.
 - **Pre-review draft snapshot.** Before `auto-review` writes its
-  revision, the runner copies current `draft_md` into a new column
-  `sessions.draft_md_pre_review text NULL`. The result UI exposes a
-  "revert to pre-review" action and the fact-check epic uses the
-  snapshot to cross-reference claims against the original wording.
-- **Batch concurrency & budget.** No more than `BATCH_CONCURRENCY = 6`
-  light sessions run their LLM-bound stages concurrently per user;
-  surplus sessions sit in a `queued` substate. Per-user daily caps
-  `BATCH_DAILY_SESSION_CAP = 100` and `BATCH_DAILY_IMAGE_CAP = 100`
-  (env-overridable). Cap breach → batch creation is rejected with a
-  clear error.
+  revision, the runner copies current `draft_md` into a **new** column
+  `sessions.draft_md_pre_review text NULL`. This is **distinct from**
+  the pre-existing `revisedDraftMd` / `revisionStatus` columns (those
+  hold *pending* revisions in the full-mode flow — opposite semantic).
+  The result UI exposes a "revert to pre-review" action.
+- **Batch caps stack on top of USD budget.** Existing per-user
+  `monthly_cap_usd` / `session_cap_usd` enforcement (Epic 13) stays in
+  force. L-9 adds **count-based** daily caps on top:
+  `BATCH_CONCURRENCY = 6` (max simultaneous light sessions per user),
+  `BATCH_DAILY_SESSION_CAP = 100`, `BATCH_DAILY_IMAGE_CAP = 100`
+  (env-overridable). Batch creation rejects when *either* USD or count
+  cap would be breached. Mid-batch, individual sessions still
+  short-circuit with `BudgetExceededError` if USD cap is hit, which the
+  batch dispatcher must surface in the batch list page UI rather than
+  silently failing.
 
 ### User intervention points in light mode
 
@@ -319,13 +377,18 @@ Expose both light-mode profile settings in the profile edit form.
 `recommendedIndex: number` and `recommendationReason: string`. Full mode
 uses these only for highlighting; light mode auto-selects.
 
-*Session creation API/server action:* add a `mode` parameter
-(`standard` / `light`) to the create-session path. Light sessions
+*Session creation API/server action:* extend the existing `mode` value
+space from `'new' | 'rewrite'` to `'new' | 'rewrite' | 'light'` in
+`sessions/repo.ts`, `sessions/schema.ts`, and any zod parsers on the
+create-session path. Existing values are NOT renamed. Light sessions
 accept a simplified brief: a single `topic` field. The brief stored in
 the DB is `{ topic }`.
 
-*Runner:* add a `'light'` branch covering `planning`, `research`, and
-`drafting` states:
+*Runner:* extend each existing `case` in `runner.ts` with a
+`session.mode === 'light'` branch (do NOT fork the runner into a
+separate state machine — same states, divergent behaviour). All stage
+calls in this branch MUST go through `withStageCtx(...)` per the
+repository invariant. Light-mode behaviour:
 
 1. `planning` — run `clarify-brief` (assertion-aware), present questions
    to user, collect answers, run `classify-answers` silently, then run
@@ -338,6 +401,18 @@ the DB is `{ topic }`.
    the top `lightResearchSources` hits by relevance, summarize each.
 3. `drafting` — call `draft-full` once; persist `draft_md`; advance to
    `review`.
+4. `review` — handled by L-6 + L-7 below: snapshot →
+   `auto-review` (via `withStageCtx`) → create synthetic
+   `critique_round { kind: 'auto_review' }` → `extract-claims` over the
+   revised draft → persist into existing `claims` table →
+   **advance directly to `done`**, bypassing `decoration`,
+   `illustration`, and `export` state cases.
+5. `decoration` / `illustration` / `export` — light branch must be
+   `return` (no-op) in every one of these state cases. The light runner
+   never transitions through them. The hero image (L-8) is dispatched
+   asynchronously *after* the session reaches `done` (see L-8). Export
+   reuses the same handlers full mode uses, but invoked from the
+   `done`-state UI rather than the `export` state.
 
 *`draft-full` stage:* new `Stage<DraftFullInput, DraftFullOutput>` with
 `modelClass: 'smart'`. Input: `{ profile, brief, plan, sources, lightMaxWords }`.
@@ -391,84 +466,131 @@ logical coherence, (c) overwrites `draft_md` with the revised version,
 The result UI's revert button becomes active.
 
 **Intent:** Implement `auto-review` as
-`Stage<AutoReviewInput, AutoReviewOutput>` with `modelClass: 'smart'`.
-Input: `{ profile, draftMd }`. The LLM acts as a final editor:
-identify passages that read as AI-generated or logically unclear, and
-output a revised full draft. Output:
+`Stage<AutoReviewInput, AutoReviewOutput>` with `modelClass: 'smart'`
+in `pipeline/stages/auto-review.ts`. Input: `{ profile, draftMd }`.
+The LLM acts as a final editor: identify passages that read as
+AI-generated or logically unclear, and output a revised full draft.
+Output:
 `{ revisedMd: string, changes: Array<{ kind: 'humanize' | 'clarify' | 'cut', before: string, after: string, note?: string }> }`.
 
-`changeCount` (used in events) = `changes.length`. Definition is now
+`changeCount` (used in events) = `changes.length`. Definition is
 mechanical, not "diff lines".
 
-Runner sequence in `review` state for light mode:
-1. Copy `session.draft_md` into `session.draft_md_pre_review` (UPDATE
-   column, no separate table).
-2. Call `auto-review`.
-3. `updateSessionDraft(sessionId, revisedMd)`.
-4. Emit `artifact_updated` with
-   `{ kind: 'auto_review_applied', changeCount, changes }` for the chat
-   pane.
-5. Advance state.
+A new orchestrator `pipeline/run-auto-review.ts` (parallels
+`run-fact-check.ts`) wraps the call. Stage invocation uses
+`withStageCtx(autoReview, sessionId, userId, () => ...)` per the
+repository invariant.
 
-No `critiqueRounds` or `critiqueFindings` rows are created — this is a
-direct rewrite, not a structured finding flow.
+*Schema migration:* add `sessions.draft_md_pre_review text NULL`. This
+column is **distinct** from existing `revisedDraftMd` /
+`revisionStatus` (those store *pending* full-mode revisions awaiting
+accept/reject). `draft_md_pre_review` stores the *original* draft so
+the user can revert auto-review's rewrite.
+
+Runner sequence in `review` state for `mode === 'light'`:
+1. `UPDATE sessions SET draft_md_pre_review = draft_md WHERE id = ?`
+   (only if `draft_md_pre_review IS NULL` to preserve the very first
+   pre-review version on re-runs).
+2. Call `runAutoReview(session)` — wraps `auto-review` in
+   `withStageCtx`.
+3. `UPDATE sessions SET draft_md = ?` with `revisedMd`.
+4. Emit `artifact_updated` `{ kind: 'auto_review_applied',
+   changeCount, changes }`.
+5. Advance to L-7 substeps (still in `review` state) — claims
+   extraction + synthetic round creation; only after L-7 the runner
+   advances state to `done`.
+
+No `critique_findings` rows are created by L-6 itself — auto-review is
+a direct rewrite, not a structured finding flow. (L-7 *does* create one
+synthetic `critique_round` row to host the extracted claims; see L-7.)
 
 ---
 
-## Epic L-7 — Claims extraction + on-demand fact-check
+## Epic L-7 — Claims extraction + on-demand per-claim verification
 
 **Status: TBD**
 
-**Goal:** After auto-review, the runner automatically extracts a list
-of factual claims from the revised article and presents them in the
-result UI alongside the article. Each claim has a "verify" button that
-the user can press to trigger a per-claim fact-check (web search +
-LLM verdict). The user is free to ignore the list entirely; nothing
-blocks the session from being exported.
+**Goal:** After auto-review, the runner automatically extracts factual
+claims from the revised article using the **existing** `extract-claims`
+stage and persists them into the **existing** `claims` table. The
+result UI shows the claim list with a "verify" button per claim; a
+press triggers the existing `verify-claim` + `adjudicate-claim` stages
+on that single claim. The user is free to ignore the list entirely;
+nothing blocks the session from being exported.
+
+**Reuse posture:** this epic introduces **no new stages** and **no new
+claim/verdict storage**. It adds (a) one new orchestrator entry-point
+for single-claim verification, (b) one server action, (c) UI surface,
+and (d) wiring inside the light-mode `review` runner branch.
 
 **Intent:**
 
-*Stage `extract-claims`* (`modelClass: 'fast'`). Input:
-`{ draftMd }`. Output:
-`{ claims: Array<{ id: string, text: string, location: { sectionIdx?: number, charStart?: number, charEnd?: number }, type: 'fact' | 'stat' | 'quote' | 'date' | 'name' | 'causal' }> }`.
-The prompt instructs the model to surface only assertions that *could
-be objectively wrong* (numbers, dated events, named entities, quoted
-statements, causal claims) — not opinions or definitions.
+*Storage:* the existing relational claims subsystem is reused as-is —
+`claims (round_id NOT NULL → critique_rounds.id, ...)`,
+`claim_verdicts`, `claim_evidence`. To satisfy the FK without making
+`round_id` nullable, the light runner creates **one synthetic
+`critique_round`** per session with
+`{ kind: 'auto_review', draft_hash: sha256(revisedMd) }` and uses its
+`id` as `round_id` for all extracted claims. Re-runs of `review`
+(triggered by user "regenerate") produce a new round on a different
+`draft_hash` — same idempotency guarantees as full mode.
 
-*Storage:* extend `sessions` table with
-`claims jsonb NOT NULL DEFAULT '[]'`. Each entry:
-```ts
-{
-  id, text, location, type,
-  status: 'pending' | 'supported' | 'contradicted' | 'unclear',
-  verdict?: { confidence: number, note: string,
-              sources: Array<{ url, title, excerpt }> },
-  checkedAt?: string
-}
-```
+*Stage reuse — `extract-claims`.* The existing stage signature is
+`{ plan, sectionDrafts: Array<{ sectionId, contentMd }> }` →
+`ClaimsResponse` (smart model). For light mode we feed it a
+single-section synthetic `sectionDrafts`:
+`[{ sectionId: 'full', contentMd: revisedMd }]`. The session's `plan`
+already exists from `build-plan`; we either inject a section with
+`id='full'` into a copy of the plan for this call, or pre-pend the
+plan's first section id — implementer choice, default: synthetic
+`'full'` section appended to a *copy* of the plan passed to the stage,
+not persisted. Resulting claim spans use `section_id='full'`; the UI
+treats this case as "no section anchor, scroll to top".
 
 *Runner sequence in `review` state, appended after L-6:*
-1. (L-6 steps as defined.)
-2. Call `extract-claims` on the revised draft.
-3. Persist `claims` with all entries `status: 'pending'`.
-4. Emit `artifact_updated { kind: 'claims_extracted', count }`.
-5. Advance state to `done`.
+1. (L-6 steps 1–4 as defined.)
+2. `INSERT INTO critique_rounds (session_id, kind, draft_hash)
+    VALUES (?, 'auto_review', sha256(revisedMd)) RETURNING id`.
+3. Call `extract-claims` (wrapped in `withStageCtx`) over the
+   single-section synthetic input.
+4. `INSERT` extracted claims into `claims` with that `round_id`,
+   `status='open'`, `span_hash = sha256(span_text)`.
+5. Emit `artifact_updated { kind: 'claims_extracted', count, roundId }`.
+6. Advance state to `done`.
 
-*Stage `fact-check-claim`* (`modelClass: 'fast'` with web-search tool).
-Input: `{ claim, draftMd, sources }` (where `sources` are the
-research stage's already-fetched results, plus a fresh per-claim web
-search). Output: `{ status, confidence, sources, note }`.
+*On-demand verification — new orchestrator `run-fact-check.ts`
+extension or sibling `run-fact-check-claim.ts`:* exports
+`verifyClaim(sessionId, claimId, userId)`. Internally:
+- Loads the claim row + session sources.
+- Calls existing `verify-claim` stage (search) with the claim and
+  accepted sources to produce evidence (wrapped in `withStageCtx`).
+- Calls existing `adjudicate-claim` stage (smart) with claim +
+  evidence to produce a verdict (wrapped in `withStageCtx`).
+- Persists `claim_verdicts` row + `claim_evidence` rows.
+- Sets `claims.status = 'verified' | 'contradicted' | 'unverifiable' |
+   'needs_caveat'` (matches the verdict enum).
+- Emits `artifact_updated { kind: 'claim_verified', claimId, verdict }`.
 
-*User action:* a server action `verifyClaim(sessionId, claimId)` runs
-`fact-check-claim`, updates the claim entry in `sessions.claims`,
-emits `artifact_updated { kind: 'claim_verified', claimId, status }`.
-Optional bulk action `verifyAllClaims(sessionId)` runs them with
-concurrency 3 and the same per-user budget caps as L-9.
+This is exactly what existing `run-fact-check.ts` does in batch — we
+extract the per-claim path so it can be invoked one claim at a time.
+**Decision needed:** extend the existing orchestrator with an optional
+`claimIds?: number[]` filter vs. add a sibling file. Default: extend
+existing — less duplication, single test surface.
+
+*Server action `verifyClaimAction(sessionId, claimId)`:* thin wrapper
+in the sessions actions file; auth-checks ownership, dispatches the
+orchestrator, returns void (UI listens to SSE for the verdict event).
+Bulk variant `verifyAllClaimsAction(sessionId)` iterates with
+concurrency 3, respecting the existing USD budget enforcement (calls
+will throw `BudgetExceededError` if cap hit — surface as a toast).
 
 *UI in `LightResultPane`:* a "Claims to verify" panel listing each
-claim with type-icon, claim text, status badge, verify button. After
-verification, expand to show verdict note + source links. Cross-out
-styling for `contradicted` to draw attention.
+claim with type-icon, claim text, status badge ("Pending verify",
+"Verified ✓", "Contradicted ✗", "Unverifiable", "Needs caveat"), and a
+"Verify" button (disabled while in flight). On verdict, expand to show
+the `justification` text and the `claim_evidence` URLs. Verdict pill
+styling matches the existing full-mode `<ClaimCard>` colour scheme so
+the two views stay consistent.
 
 This epic depends on L-5 (UI shell) and L-6 (auto-review must run
 first so claims are extracted from the final text, not the pre-review
@@ -484,15 +606,20 @@ draft).
 generates exactly one hero image and attaches it to the session
 without any user selection UI.
 
-**Intent:** In the light runner, after `extract-claims` persists the
-claims list, run the existing `compose-image-prompt` stage and then
-`prerender-images` requesting exactly 1 candidate. Persist to
-`session.images` as `{ hero: { url, prompt } }`. Emit
-`artifact_updated { kind: 'hero_image', url }`. The session has
-already advanced to `done` after L-7; the hero image arriving later is
-streamed via SSE and the UI placeholder swaps in. The existing image
-subsystem stages are reused as-is — only orchestration (quantity = 1,
-auto-attach, post-`done` arrival) changes.
+**Intent:** A new orchestrator `pipeline/run-light-hero-image.ts`
+runs *after* the runner has already advanced the session to `done` —
+fired from the same code path that emits the `state_changed → done`
+event for light sessions. It uses the existing image stages
+(`compose-image-prompt`, `prerender-images`), wrapped in
+`withStageCtx`, requesting exactly 1 candidate. Result is persisted to
+`sessions.images` as `{ hero: { url, prompt, localPath } }` (matching
+the existing image shape). Emits
+`artifact_updated { kind: 'hero_image', url }`. The UI placeholder
+slot in `LightResultPane` swaps in via SSE. Failures (budget cap, API
+error) are logged + emitted as
+`artifact_updated { kind: 'hero_image_failed', reason }` and leave the
+placeholder in place — they do **not** prevent the user from
+exporting, since the article itself is already finalized.
 
 ---
 
@@ -511,8 +638,13 @@ progress per session.
 *Schema:* `batches` (`id`, `user_id`, `profile_id`, `created_at`) and
 `batch_sessions` join (`batch_id`, `session_id`).
 
-*Server action `createBatchAction`:* parses topics, checks daily caps
-(reject with explicit error if breached), creates N sessions via
+*Server action `createBatchAction`:* parses topics, checks **both**
+the existing USD caps (`monthly_cap_usd`, `session_cap_usd` via the
+same accessor `assertBudget` uses internally — but as a pre-flight
+read, not as a guard wrapped around an LLM call) and the new
+count-based caps (`BATCH_DAILY_SESSION_CAP`,
+`BATCH_DAILY_IMAGE_CAP`). Reject with an explicit per-cap error
+message if breached. On success, creates N sessions via
 `createSession` (all `mode = 'light'`). Sessions enter a new `queued`
 substate of `briefing` rather than starting immediately.
 
@@ -531,4 +663,9 @@ Each completed card shows a 200-char preview of `draft_md`.
 *Caps enforcement:* `BATCH_DAILY_SESSION_CAP` and
 `BATCH_DAILY_IMAGE_CAP` are checked at batch creation time *and* before
 each session starts, so a long-running batch that crosses midnight
-keeps respecting the new day's cap.
+keeps respecting the new day's cap. Mid-batch USD-cap exhaustion
+manifests as `BudgetExceededError` from the LLM router (existing
+behaviour); the dispatcher catches it, marks the session
+`state='failed'` with a reason, emits an `artifact_updated` event on
+the batch endpoint, and continues with the next queued session rather
+than tearing down the whole batch.
