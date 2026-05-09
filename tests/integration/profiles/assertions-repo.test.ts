@@ -8,6 +8,8 @@ import { db } from '../../../src/server/db/client';
 import { profileAssertions, profiles, users } from '../../../src/server/db/schema';
 import {
   listAssertions,
+  recordAgreement,
+  recordContradiction,
   upsertAssertion,
 } from '../../../src/server/profiles/profile-assertions-repo';
 
@@ -100,6 +102,58 @@ describe.skipIf(!runIntegration)('profile-assertions-repo', () => {
       .from(profileAssertions)
       .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, key)));
     expect(Number(dbRow!.confidence)).toBeCloseTo(0.44, 5);
+  });
+
+  it('recordAgreement increments confidence and evidenceCount', async () => {
+    const key = 'audience_tech';
+    await upsertAssertion({ profileId, key, category: 'audience', assertion: 'tech audience' });
+    // 3 calls: 0.5 → 0.6 → 0.7 → 0.8, evidenceCount 1 → 2 → 3 → 4
+    await recordAgreement(profileId, key);
+    await recordAgreement(profileId, key);
+    const result = await recordAgreement(profileId, key);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBeCloseTo(0.8);
+    expect(result!.evidenceCount).toBe(4);
+  });
+
+  it('recordAgreement on missing key returns null and inserts nothing', async () => {
+    const result = await recordAgreement(profileId, 'unknown_key_xyz');
+    expect(result).toBeNull();
+    const rows = await db
+      .select()
+      .from(profileAssertions)
+      .where(
+        and(
+          eq(profileAssertions.profileId, profileId),
+          eq(profileAssertions.key, 'unknown_key_xyz'),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('recordContradiction leaves row present when confidence stays above AUTO_DELETE_BELOW', async () => {
+    const key = 'tone_casual';
+    await upsertAssertion({ profileId, key, category: 'tone', assertion: 'casual tone' });
+    // 0.5 - 0.25 = 0.25 ≥ 0.20
+    const result = await recordContradiction(profileId, key);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBeCloseTo(0.25);
+    expect(result!.evidenceCount).toBe(2);
+  });
+
+  it('recordContradiction deletes row when confidence drops below AUTO_DELETE_BELOW', async () => {
+    const key = 'tone_verbose';
+    await upsertAssertion({ profileId, key, category: 'tone', assertion: 'verbose tone' });
+    // first: 0.5 → 0.25 (still present)
+    await recordContradiction(profileId, key);
+    // second: 0.25 → 0.0 < 0.20 → deleted
+    const result = await recordContradiction(profileId, key);
+    expect(result).toBeNull();
+    const rows = await db
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, key)));
+    expect(rows).toHaveLength(0);
   });
 
   it('listAssertions deletes rows that decay below AUTO_DELETE_BELOW', async () => {

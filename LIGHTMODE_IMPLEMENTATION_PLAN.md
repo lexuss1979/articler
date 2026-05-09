@@ -375,7 +375,7 @@ confidence as a small bar, and offers a delete button per row.
           DB.
         - `pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L1-4: Repo: `recordAgreement` and `recordContradiction`
+- [x] T-L1-4: Repo: `recordAgreement` and `recordContradiction`
       Goal: Add two methods to `profile-assertions-repo.ts` that look
       up the row by `(profileId, key)`, apply `applyAgreement` /
       `applyContradiction` from T-L1-2, increment `evidence_count`, set

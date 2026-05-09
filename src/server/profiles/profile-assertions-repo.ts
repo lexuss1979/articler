@@ -1,7 +1,9 @@
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db/client';
 import { profileAssertions } from '../db/schema';
 import {
+  applyAgreement,
+  applyContradiction,
   applyDecay,
   AUTO_DELETE_BELOW,
   INITIAL_CONFIDENCE,
@@ -91,6 +93,61 @@ export async function listAssertions(profileId: number): Promise<Assertion[]> {
   }
 
   return result;
+}
+
+export async function recordAgreement(
+  profileId: number,
+  key: string,
+): Promise<Assertion | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, key)));
+    if (!row) return null;
+
+    const newConfidence = applyAgreement(Number(row.confidence));
+    const [updated] = await tx
+      .update(profileAssertions)
+      .set({
+        confidence: String(newConfidence),
+        evidenceCount: row.evidenceCount + 1,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(profileAssertions.id, row.id))
+      .returning();
+    return mapRow(updated!);
+  });
+}
+
+export async function recordContradiction(
+  profileId: number,
+  key: string,
+): Promise<Assertion | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(profileAssertions)
+      .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, key)));
+    if (!row) return null;
+
+    const newConfidence = applyContradiction(Number(row.confidence));
+    if (newConfidence < AUTO_DELETE_BELOW) {
+      await tx.delete(profileAssertions).where(eq(profileAssertions.id, row.id));
+      return null;
+    }
+
+    const [updated] = await tx
+      .update(profileAssertions)
+      .set({
+        confidence: String(newConfidence),
+        evidenceCount: row.evidenceCount + 1,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(profileAssertions.id, row.id))
+      .returning();
+    return mapRow(updated!);
+  });
 }
 
 function mapRow(row: typeof profileAssertions.$inferSelect): Assertion {
