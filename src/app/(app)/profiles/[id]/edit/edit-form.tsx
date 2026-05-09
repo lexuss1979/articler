@@ -14,6 +14,8 @@ type Profile = {
   targetVolumeMax: number;
   markupRules: unknown;
   extraPrompt: string;
+  lightResearchSources: number;
+  lightMaxWords: number;
 };
 
 export function EditForm({ profile }: { profile: Profile }) {
@@ -115,6 +117,33 @@ export function EditForm({ profile }: { profile: Profile }) {
             className="border rounded px-3 py-1.5 text-sm"
           />
         </label>
+        <fieldset className="flex flex-col gap-4 border rounded p-3">
+          <legend className="text-sm font-medium px-1">Light mode</legend>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Research sources</span>
+            <select
+              name="lightResearchSources"
+              defaultValue={String(profile.lightResearchSources)}
+              className="border rounded px-3 py-1.5 text-sm"
+            >
+              <option value="0">0</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Max words</span>
+            <input
+              name="lightMaxWords"
+              type="number"
+              min={200}
+              max={2500}
+              step={50}
+              defaultValue={profile.lightMaxWords}
+              className="border rounded px-3 py-1.5 text-sm"
+            />
+          </label>
+        </fieldset>
         <button
           type="submit"
           className="self-start bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"

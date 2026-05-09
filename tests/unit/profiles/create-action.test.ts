@@ -32,6 +32,8 @@ const validFields = {
   targetVolumeMax: '1200',
   markupRules: '{}',
   extraPrompt: '',
+  lightResearchSources: '1',
+  lightMaxWords: '800',
 };
 
 describe('createProfileAction', () => {

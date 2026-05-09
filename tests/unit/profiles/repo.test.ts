@@ -57,6 +57,8 @@ const validInput = {
   targetVolumeMax: 1200,
   markupRules: { flavor: 'standard' as const, headingShift: 0 },
   extraPrompt: '',
+  lightResearchSources: 1,
+  lightMaxWords: 800,
 };
 
 describe('listProfiles', () => {

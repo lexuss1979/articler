@@ -52,4 +52,23 @@ describe('profileInputSchema', () => {
       expect(paths).toContain('format');
     }
   });
+
+  it('fails when lightResearchSources is out of range', () => {
+    expect(profileInputSchema.safeParse({ ...valid, lightResearchSources: 3 }).success).toBe(false);
+    expect(profileInputSchema.safeParse({ ...valid, lightResearchSources: -1 }).success).toBe(false);
+  });
+
+  it('fails when lightMaxWords is out of range', () => {
+    expect(profileInputSchema.safeParse({ ...valid, lightMaxWords: 199 }).success).toBe(false);
+    expect(profileInputSchema.safeParse({ ...valid, lightMaxWords: 2501 }).success).toBe(false);
+  });
+
+  it('defaults lightResearchSources=1 and lightMaxWords=800 when omitted', () => {
+    const result = profileInputSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lightResearchSources).toBe(1);
+      expect(result.data.lightMaxWords).toBe(800);
+    }
+  });
 });

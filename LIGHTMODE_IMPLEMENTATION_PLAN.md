@@ -1087,7 +1087,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       200–2500 for `lightMaxWords`) lives in the zod schema, not in
       SQL — see T-L4-2.
 
-- [ ] T-L4-2: Profile zod + create/edit form & actions for light settings
+- [x] T-L4-2: Profile zod + create/edit form & actions for light settings
       Goal: Extend `profileInputSchema`
       (`src/server/profiles/schema.ts`) with two new fields (both with
       defaults so existing callers and tests continue to compile):

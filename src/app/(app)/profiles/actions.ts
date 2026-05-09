@@ -39,6 +39,8 @@ export async function createProfileAction(
     targetVolumeMax: Number(formData.get('targetVolumeMax')),
     markupRules,
     extraPrompt: (formData.get('extraPrompt') as string) ?? '',
+    lightResearchSources: Number(formData.get('lightResearchSources')),
+    lightMaxWords: Number(formData.get('lightMaxWords')),
   });
 
   if (!parsed.success) {
@@ -84,6 +86,8 @@ export async function updateProfileAction(
     targetVolumeMax: Number(formData.get('targetVolumeMax')),
     markupRules,
     extraPrompt: (formData.get('extraPrompt') as string) ?? '',
+    lightResearchSources: Number(formData.get('lightResearchSources')),
+    lightMaxWords: Number(formData.get('lightMaxWords')),
   });
 
   if (!parsed.success) {

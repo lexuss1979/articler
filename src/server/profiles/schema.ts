@@ -14,6 +14,8 @@ export const profileInputSchema = z
     targetVolumeMax: z.number().int().positive(),
     markupRules: markupRulesSchema.default({ flavor: 'standard', headingShift: 0 }),
     extraPrompt: z.string().default(''),
+    lightResearchSources: z.number().int().min(0).max(2).default(1),
+    lightMaxWords: z.number().int().min(200).max(2500).default(800),
   })
   .superRefine((data, ctx) => {
     if (data.targetVolumeMax < data.targetVolumeMin) {
