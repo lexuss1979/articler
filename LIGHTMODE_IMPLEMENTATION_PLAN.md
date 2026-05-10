@@ -2784,7 +2784,7 @@ already provide.
           without runtime error.
         - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L8-4: `LightResultPane` — render hero image + SSE swap-in
+- [x] T-L8-4: `LightResultPane` — render hero image + SSE swap-in
       Goal: Replace the placeholder `<div data-slot="hero-image">`
       block in `src/app/(app)/sessions/[id]/light-result-pane.tsx`
       (currently lines 104–106) with a stateful hero panel:

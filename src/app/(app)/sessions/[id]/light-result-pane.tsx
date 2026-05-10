@@ -26,7 +26,7 @@ export function LightResultPane({
   previewHtml,
   draftMdPreReview,
   claimsWithVerdicts = [],
-  initialImageState: _initialImageState = { slots: [] },
+  initialImageState = { slots: [] },
 }: {
   sessionId: number;
   draftMd: string;
@@ -75,6 +75,27 @@ export function LightResultPane({
     processedCount.current = events.length;
   }, [events, sessionId]);
 
+  const initialHero = initialImageState.slots.find(
+    (s) => s.kind === 'hero' && s.chosenCandidateId,
+  );
+  const initialCandidate = initialHero
+    ? initialHero.candidates.find((c) => c.id === initialHero.chosenCandidateId) ?? null
+    : null;
+
+  let heroUrl: string | null = initialCandidate?.localPath ?? null;
+  let heroFailed: string | null = null;
+  for (const e of events) {
+    if (e.kind !== 'artifact_updated') continue;
+    const p = e.payload as { kind: string; url?: string; reason?: string };
+    if (p.kind === 'hero_image') {
+      heroUrl = p.url ?? null;
+      heroFailed = null;
+    } else if (p.kind === 'hero_image_failed') {
+      heroFailed = p.reason || 'unknown';
+      heroUrl = null;
+    }
+  }
+
   function handleCopy() {
     void navigator.clipboard.writeText(draftMd).then(() => {
       setCopied(true);
@@ -105,7 +126,13 @@ export function LightResultPane({
   return (
     <div className="flex flex-col gap-4">
       <div data-slot="hero-image" className="border rounded p-6 text-center bg-gray-50">
-        <p className="text-sm text-gray-400">Hero image generating…</p>
+        {heroUrl != null ? (
+          <img src={heroUrl} alt="Hero" className="w-full rounded" />
+        ) : heroFailed != null ? (
+          <p className="text-sm text-red-600">{`Hero image failed (${heroFailed}). You can still export.`}</p>
+        ) : (
+          <p className="text-sm text-gray-400">Hero image generating…</p>
+        )}
       </div>
 
       {previewHtml ? (
