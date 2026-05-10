@@ -6,7 +6,7 @@ import { listSectionDrafts } from '../../../../server/sessions/section-drafts-re
 import { planSchema } from '../../../../server/sessions/plan';
 import { parseActiveCritics } from '../../../../server/sessions/critics';
 import { parseDecorationState } from '../../../../server/sessions/decoration';
-import { parseImageState } from '../../../../server/sessions/images';
+import { parseImageState, type ImageState } from '../../../../server/sessions/images';
 import { listSessionRounds, listRoundFindings } from '../../../../server/sessions/critique-repo';
 import { listSessionClaimsWithVerdicts } from '../../../../server/sessions/claims-repo';
 import { getProfile } from '../../../../server/profiles/repo';
@@ -45,6 +45,7 @@ export default async function SessionPage({
   if (session.mode === 'light') {
     let lightPreviewHtml: string | null = null;
     let lightClaimsWithVerdicts: Awaited<ReturnType<typeof listSessionClaimsWithVerdicts>> = [];
+    let lightImageState: ImageState = { slots: [] };
     if (session.state === 'done') {
       const [profile, claims] = await Promise.all([
         getProfile(user.id, session.profileId),
@@ -55,6 +56,7 @@ export default async function SessionPage({
         lightPreviewHtml = await renderHtmlArticle(session.draftMd ?? '', rules);
       }
       lightClaimsWithVerdicts = claims;
+      lightImageState = parseImageState(session.images);
     }
     return (
       <div className="flex h-full gap-4">
@@ -72,6 +74,7 @@ export default async function SessionPage({
               draftMdPreReview={session.draftMdPreReview ?? null}
               isRewrite={false}
               claimsWithVerdicts={lightClaimsWithVerdicts}
+              initialImageState={lightImageState}
             />
           </div>
         </div>

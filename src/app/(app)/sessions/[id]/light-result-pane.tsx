@@ -8,6 +8,7 @@ import { revertToPreReviewAction, getClaimVerdictAction, verifyClaimAction, veri
 import { useSessionEvents } from './use-session-events';
 import { LightClaimCard } from './light-claim-card';
 import type { ClaimWithVerdict } from './factcheck-tab';
+import type { ImageState } from '../../../../server/sessions/images';
 
 type ClaimRow = InferSelectModel<typeof claims>;
 type VerdictRow = InferSelectModel<typeof claimVerdicts>;
@@ -25,12 +26,14 @@ export function LightResultPane({
   previewHtml,
   draftMdPreReview,
   claimsWithVerdicts = [],
+  initialImageState: _initialImageState = { slots: [] },
 }: {
   sessionId: number;
   draftMd: string;
   previewHtml: string | null;
   draftMdPreReview: string | null;
   claimsWithVerdicts?: ClaimWithVerdict[];
+  initialImageState?: ImageState;
 }) {
   const [copied, setCopied] = useState(false);
   const [reverting, setReverting] = useState(false);

@@ -2749,7 +2749,7 @@ already provide.
       visible to the user via the `hero_image_failed` event handled in
       T-L8-4.
 
-- [ ] T-L8-3: Page wiring — load image state for light `done` sessions
+- [x] T-L8-3: Page wiring — load image state for light `done` sessions
       Goal: In `src/app/(app)/sessions/[id]/page.tsx`, inside the
       `if (session.mode === 'light')` branch (around lines 45–58),
       when `session.state === 'done'`, also compute the parsed image

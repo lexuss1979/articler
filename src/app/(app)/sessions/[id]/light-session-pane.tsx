@@ -7,6 +7,7 @@ import { LightResultPane } from './light-result-pane';
 import { ClarificationForm } from './clarification-form';
 import type { ClarifyQuestion } from '../../../../server/pipeline/stages/clarify-brief';
 import type { ClaimWithVerdict } from './factcheck-tab';
+import type { ImageState } from '../../../../server/sessions/images';
 
 export function LightSessionPane({
   sessionId,
@@ -16,6 +17,7 @@ export function LightSessionPane({
   draftMdPreReview,
   isRewrite: _isRewrite,
   claimsWithVerdicts = [],
+  initialImageState = { slots: [] },
 }: {
   sessionId: number;
   state: string;
@@ -24,6 +26,7 @@ export function LightSessionPane({
   draftMdPreReview: string | null;
   isRewrite: false;
   claimsWithVerdicts?: ClaimWithVerdict[];
+  initialImageState?: ImageState;
 }) {
   const events = useSessionEvents(sessionId);
 
@@ -69,6 +72,7 @@ export function LightSessionPane({
         previewHtml={previewHtml}
         draftMdPreReview={draftMdPreReview}
         claimsWithVerdicts={claimsWithVerdicts}
+        initialImageState={initialImageState}
       />
     );
   }
