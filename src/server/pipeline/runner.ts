@@ -494,6 +494,8 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       await ctx.emit('state_changed', { state: 'done' });
       break;
     }
+    case 'queued':
+      return;
     default:
       break;
   }

@@ -3132,7 +3132,7 @@ even if a hero retry mechanism is added later.
       reference). `redirect` from `next/navigation` throws to abort
       the action — assert via mock.
 
-- [ ] T-L9-5: Runner + light-session-pane handle `queued` state
+- [x] T-L9-5: Runner + light-session-pane handle `queued` state
       Goal: Two coordinated changes:
       1. `src/server/pipeline/runner.ts` — inside the `runStage`
          switch, add a `case 'queued': return;` arm so the recovery

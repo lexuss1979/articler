@@ -23,6 +23,15 @@ const BASE_PROPS = {
 };
 
 describe('<LightSessionPane />', () => {
+  it('renders Queued message and no LightBriefForm or LightProgressBar when state is queued', () => {
+    const html = renderToString(
+      React.createElement(LightSessionPane, { ...BASE_PROPS, state: 'queued' }),
+    );
+    expect(html).toContain('Queued');
+    expect(html).not.toContain('name="topic"');
+    expect(html).not.toContain('LightProgressBar');
+  });
+
   it('renders LightBriefForm (topic input) when state is briefing', () => {
     const html = renderToString(
       React.createElement(LightSessionPane, { ...BASE_PROPS, state: 'briefing' }),

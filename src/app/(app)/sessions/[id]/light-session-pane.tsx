@@ -45,6 +45,14 @@ export function LightSessionPane({
     }
   }
 
+  if (state === 'queued') {
+    return (
+      <p className="text-sm text-gray-500">
+        Queued — waiting for a free slot to start.
+      </p>
+    );
+  }
+
   if (state === 'briefing') {
     return <LightBriefForm sessionId={sessionId} />;
   }

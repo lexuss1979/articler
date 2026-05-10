@@ -70,6 +70,15 @@ describe('startRunner', () => {
     expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
   });
 
+  it('resolves cleanly without emitting events or transitioning state for queued session', async () => {
+    mocks.getSessionFn.mockResolvedValue({ id: 20, userId: 1, state: 'queued', brief: null, profileId: 1 });
+    mocks.emitEventFn.mockResolvedValue({});
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(20, 1);
+    expect(mocks.emitEventFn).not.toHaveBeenCalled();
+    expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
+  });
+
   it('emits agent_message and returns early when planning session has null brief', async () => {
     mocks.getSessionFn.mockResolvedValue({ id: 10, userId: 1, state: 'planning', brief: null, profileId: 1 });
     mocks.emitEventFn.mockResolvedValue({});
