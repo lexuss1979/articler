@@ -1528,7 +1528,7 @@ serve both modes.
       `useActionState` boilerplate verbatim, just drop the extra
       fields. No new server-side code in this task.
 
-- [ ] T-L5-2: `LightProgressBar` — compact stage indicator for in-flight states
+- [x] T-L5-2: `LightProgressBar` — compact stage indicator for in-flight states
       Goal: New client component
       `src/app/(app)/sessions/[id]/light-progress-bar.tsx` exporting
       `LightProgressBar({ state }: { state: 'planning' | 'research'
