@@ -1616,7 +1616,7 @@ serve both modes.
       attributes are the integration seams for L-7/L-8; do not
       replace them with comments.
 
-- [ ] T-L5-4: `LightSessionPane` — top-level state→view orchestrator
+- [x] T-L5-4: `LightSessionPane` — top-level state→view orchestrator
       Goal: New client component
       `src/app/(app)/sessions/[id]/light-session-pane.tsx` exporting
       `LightSessionPane({ sessionId, state, draftMd, previewHtml,
