@@ -2055,13 +2055,11 @@ synthetic `critique_round` row to host the extracted claims; see L-7.)
       be a heavier dupe of the same effect). Intentionally simple —
       no optimistic state management, no SSE needed.
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic L-7 — Claims extraction + on-demand per-claim verification
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** After auto-review, the runner automatically extracts factual
 claims from the revised article using the **existing** `extract-claims`
@@ -2148,6 +2146,400 @@ the two views stay consistent.
 This epic depends on L-5 (UI shell) and L-6 (auto-review must run
 first so claims are extracted from the final text, not the pre-review
 draft).
+
+### Tasks
+
+- [ ] T-L7-1: Widen `critique-repo` round-kind union to include `'auto_review'`
+      Goal: Update `createCritiqueRound`'s `kind` parameter type from
+      `'critique' | 'factcheck'` to
+      `'critique' | 'factcheck' | 'auto_review'` in
+      `src/server/sessions/critique-repo.ts`. Update `listSessionRounds`'s
+      optional `kind` filter parameter to the same union. No DB schema
+      change is needed — `kind` is a `text` column already.
+      Touches: `src/server/sessions/critique-repo.ts`,
+      `tests/unit/sessions/critique-repo.test.ts` (extend if exists, else new).
+      Acceptance:
+        - Unit test: `createCritiqueRound(userId, sessionId, 'auto_review',
+           'h')` (with mocked DB) inserts a row whose `kind` value is
+          `'auto_review'`.
+        - Unit test: `listSessionRounds(userId, sessionId, 'auto_review')`
+          (with mocked DB) issues a query whose `where` clause filters
+          on `kind = 'auto_review'`.
+        - `pnpm typecheck` accepts a call site
+          `createCritiqueRound(uid, sid, 'auto_review', 'h')` where it
+          would have previously rejected the third argument.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: This is the only union widening L-7 needs; existing
+      `'critique'` / `'factcheck'` callers stay type-compatible. No
+      changes to `bulkSetFindingStatus` / `setFindingStatus` —
+      auto-review creates no findings.
+
+- [ ] T-L7-2: `runLightClaimsExtraction` orchestrator
+      Goal: New module
+      `src/server/pipeline/run-light-claims-extraction.ts` exporting
+      `runLightClaimsExtraction({ sessionId, userId, revisedMd }):
+        Promise<
+          | { ok: true; roundId: number; count: number }
+          | { ok: false; error: 'session_invalid' | 'no_plan' }>`.
+      Behaviour:
+      1. Load session via `getSession(userId, sessionId)`. If null,
+         return `{ ok: false, error: 'session_invalid' }`.
+      2. Parse `session.plan` with `planSchema`. If invalid, return
+         `{ ok: false, error: 'no_plan' }`.
+      3. Build a synthetic plan in memory (not persisted):
+         `{ ...plan, sections: [...plan.sections, { id: 'full',
+          title: 'Full article', intent: '', expectedLength:
+          revisedMd.length, keyPoints: [] }] }`.
+      4. Create the synthetic round:
+         `await createCritiqueRound(userId, sessionId, 'auto_review',
+          spanHash(revisedMd))`. If null, return
+         `{ ok: false, error: 'session_invalid' }`.
+      5. Build the same minimal `ctx` as `run-fact-check.ts` (emit
+         forwards to `emitEvent`, `userInput` rejects, `log` no-op,
+         `llm` cast to `never`).
+      6. Call `await withStageCtx(extractClaims, sessionId, userId,
+          () => extractClaims.run({ plan: syntheticPlan, sectionDrafts:
+          [{ sectionId: 'full', contentMd: revisedMd }] }, ctx))`.
+      7. For each claim returned, call `await insertClaim(userId,
+          sessionId, round.id, { span: claim.span, spanHash:
+          spanHash(claim.span.text), claimText: claim.span.text,
+          claimType: claim.claimType, checkWorthiness:
+          claim.checkWorthiness })`.
+      8. Emit `await emitEvent(sessionId, 'artifact_updated', { kind:
+          'claims_extracted', count, roundId: round.id })`.
+      9. Return `{ ok: true, roundId: round.id, count }`.
+      Touches: `src/server/pipeline/run-light-claims-extraction.ts`
+      (new), `tests/unit/pipeline/run-light-claims-extraction.test.ts`
+      (new).
+      Acceptance:
+        - Unit test: mock `getSession` → null; result is
+          `{ ok: false, error: 'session_invalid' }` and
+          `extractClaims.run` is not called.
+        - Unit test: `getSession` returning a session whose `plan`
+          fails `planSchema.safeParse` yields
+          `{ ok: false, error: 'no_plan' }`.
+        - Unit test: full success path — mock `getSession`,
+          `createCritiqueRound` → `{ id: 99, ... }`, `extractClaims.run`
+          → `{ claims: [{ span: { sectionId: 'full', charStart: 0,
+          charEnd: 5, text: 'hello' }, claimType: 'other',
+          checkWorthiness: 'low' }] }`, `insertClaim` → row.
+          Assert: `insertClaim` called once with `roundId: 99` and
+          `spanHash` derived from `'hello'`; an `artifact_updated`
+          event with `kind: 'claims_extracted', count: 1, roundId: 99`
+          is emitted; result is `{ ok: true, roundId: 99, count: 1 }`.
+        - Unit test: asserts `withStageCtx` is called with the
+          `extractClaims` stage, `sessionId`, and `userId` (mock
+          `withStageCtx` to invoke its callback directly).
+        - Unit test: asserts the `sectionDrafts` argument passed to
+          `extractClaims.run` is exactly
+          `[{ sectionId: 'full', contentMd: revisedMd }]`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `revisedMd` is passed in by the runner (already in memory
+      after auto-review) to avoid an extra DB round-trip. Per-claim
+      `span_hash` indexing on `claims_session_id_span_hash_idx` will
+      let later verification skip duplicates without an extra dedup
+      step here, mirroring full-mode `run-fact-check.ts`.
+
+- [ ] T-L7-3: Runner — invoke claims extraction inside light review branch
+      Goal: In `src/server/pipeline/runner.ts`'s `case 'review':`
+      branch, between the existing `artifact_updated { kind:
+      'auto_review_applied' }` emit (around lines 433–437) and the
+      existing `state_changed → done` transition (lines 439–440),
+      insert a call to `runLightClaimsExtraction`. Sequence:
+      1. After `updateSessionDraft(...)` and the `auto_review_applied`
+         emit, call
+         `const claimsResult = await runLightClaimsExtraction({
+           sessionId, userId, revisedMd: autoReviewResult.revisedMd });`.
+      2. If `claimsResult.ok === false`, emit
+         `agent_message { text: 'Claim extraction failed: <error>',
+          error: true }` — but **do NOT return**; continue to the
+         `state_changed → done` step. Claims are best-effort.
+      3. The existing `updateSessionState(..., 'done')` +
+         `state_changed { state: 'done' }` block runs unchanged.
+      Import `runLightClaimsExtraction` alongside `runAutoReview` at
+      the top of `runner.ts`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-review.test.ts` (extend).
+      Acceptance:
+        - Unit test: `session.mode = 'light'`. Mock `runAutoReview` →
+          `{ ok: true, revisedMd: 'r', changeCount: 1, changes: [] }`,
+          `runLightClaimsExtraction` →
+          `{ ok: true, roundId: 7, count: 3 }`. Assert (in order):
+          `runLightClaimsExtraction` is called with `revisedMd: 'r'`;
+          the `state_changed { state: 'done' }` event is emitted
+          *after* `runLightClaimsExtraction` resolved (record event +
+          call order in the mock collector); `updateSessionState(...,
+           'done')` is called.
+        - Unit test: `runLightClaimsExtraction` →
+          `{ ok: false, error: 'no_plan' }`. Assert: an `agent_message`
+          event with `error: true` is emitted; `updateSessionState(...,
+           'done')` is STILL called; `state_changed { state: 'done' }`
+          is STILL emitted.
+        - Unit test: T-L6-4 light-mode review cases (auto-review
+          success, snapshot guard, auto-review failure) still pass
+          unmodified.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: extraction failure is non-fatal — the user can still
+      export the article. The `'no_draft'` path is unreachable here
+      because L-6's auto-review step already enforced the precondition.
+
+- [ ] T-L7-4: `verifyExistingClaim` orchestrator (single-claim path)
+      Goal: Add a new exported function in
+      `src/server/pipeline/run-fact-check.ts`:
+      `verifyExistingClaim({ sessionId, userId, claimId, force = false }):
+        Promise<
+          | { ok: true; verdict: Verdict }
+          | { ok: false; error: 'claim_not_found' | 'session_invalid'
+              | 'already_verified' }>`.
+      Behaviour:
+      1. Call `getClaimWithLatestVerdict(userId, claimId)`. If null,
+         return `{ ok: false, error: 'claim_not_found' }`.
+      2. If `row.claim.sessionId !== sessionId`, return
+         `{ ok: false, error: 'claim_not_found' }`.
+      3. If `row.verdict != null && !force`, return
+         `{ ok: false, error: 'already_verified' }`.
+      4. `getSession(userId, sessionId)` for source lookup. If null,
+         `{ ok: false, error: 'session_invalid' }`.
+      5. `const acceptedSources = (await listSessionSources(userId,
+          sessionId)).filter(s => s.status === 'accepted')`.
+      6. Build the standard `ctx` (same shape as `runFactCheck`).
+      7. Reconstruct a `Claim` object from the stored row:
+         `{ span: row.claim.span as ClaimSpan, claimType:
+          row.claim.claimType as ClaimType, checkWorthiness:
+          row.claim.checkWorthiness as CheckWorthiness }`.
+      8. `const { evidence } = await withStageCtx(verifyClaim,
+          sessionId, userId, () => verifyClaim.run({ claim,
+          acceptedSources }, ctx))`.
+      9. `const adjudication = await withStageCtx(adjudicateClaim,
+          sessionId, userId, () => adjudicateClaim.run({ claim,
+          evidence }, ctx))`.
+      10. `const verdictRow = await insertClaimVerdict(userId,
+           claimId, { verdict: adjudication.verdict, justification:
+           adjudication.justification })`. If null,
+          `{ ok: false, error: 'session_invalid' }`.
+      11. `await insertClaimEvidence(userId, verdictRow.id, evidence)`.
+      12. `await emitEvent(sessionId, 'artifact_updated', { kind:
+           'claim_verdict', claimId, verdict: adjudication.verdict })`.
+      13. Return `{ ok: true, verdict: adjudication.verdict }`.
+      Touches: `src/server/pipeline/run-fact-check.ts` (extend),
+      `tests/unit/pipeline/verify-existing-claim.test.ts` (new).
+      Acceptance:
+        - Unit test: `getClaimWithLatestVerdict` → null; result is
+          `{ ok: false, error: 'claim_not_found' }`; no stages called.
+        - Unit test: `getClaimWithLatestVerdict` returns a claim whose
+          `sessionId` differs from the argument → `{ ok: false, error:
+          'claim_not_found' }`.
+        - Unit test: existing verdict + `force` falsey →
+          `{ ok: false, error: 'already_verified' }`; no stages called.
+        - Unit test: `force: true` with an existing verdict — re-runs
+          and returns `{ ok: true, verdict: ... }`.
+        - Unit test: full success — mock all repos and stages; assert
+          `insertClaimVerdict` and `insertClaimEvidence` called once
+          each, an `artifact_updated { kind: 'claim_verdict' }` event
+          is emitted with the adjudicated verdict, and the result
+          carries that verdict string.
+        - Unit test: asserts both `verifyClaim` and `adjudicateClaim`
+          are wrapped via `withStageCtx` (mock `withStageCtx` to
+          invoke its callback and assert call count == 2 with the
+          expected stage references).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: existing `runFactCheck` is left intact — this is a
+      sibling export reusing the same `ctx`-building pattern.
+      Decision needed: claim-status mutation on verdict in light mode.
+      Default (chosen): leave `claims.status = 'open'`; the verdict
+      pill on the row carries the outcome. Do NOT call
+      `setClaimStatus`. Extracting a shared
+      `runVerifyAdjudicateForClaim` helper between this function and
+      `runFactCheck` is **not** in scope; revisit only if duplication
+      exceeds ~30 lines after this task lands.
+
+- [ ] T-L7-5: Server actions `verifyClaimAction` and `verifyAllClaimsAction`
+      Goal: In `src/app/(app)/sessions/[id]/actions.ts`:
+      1. Add
+         `export async function verifyClaimAction(sessionId: number,
+           claimId: number, force?: boolean):
+           Promise<{ ok: true; verdict: string }
+                  | { ok: false; error: string }>`.
+         Implementation: `requireUser()`; call `verifyExistingClaim({
+          sessionId, userId: user.id, claimId, force: !!force })`;
+         on `ok` `revalidatePath('/sessions/' + sessionId)`; return
+         result.
+      2. Add
+         `export async function verifyAllClaimsAction(sessionId: number):
+           Promise<{ ok: true; verifiedCount: number; failedCount:
+                     number; budgetExceeded: boolean }>`.
+         Implementation: `requireUser()`;
+         `listSessionClaimsWithVerdicts(user.id, sessionId)`; filter
+         to claims with `verdict == null` AND `claim.checkWorthiness !==
+          'low'` AND `claim.status === 'open'`; iterate with
+         concurrency 3 (write a small inline `mapWithConcurrency<T,U>(
+          items, n, fn)` helper — do NOT add a dependency); for each
+         eligible claim call `verifyExistingClaim`; catch
+         `BudgetExceededError` (import from
+         `../../../../server/llm/budget-guard`) — set
+         `budgetExceeded = true` and stop scheduling further tasks
+         (drain any in-flight). Increment `verifiedCount` on success
+         result, `failedCount` on `{ ok: false }`. `revalidatePath`
+         once at end. Return aggregate counts.
+      Touches: `src/app/(app)/sessions/[id]/actions.ts` (extend),
+      `tests/unit/sessions/verify-claim-actions.test.ts` (new).
+      Acceptance:
+        - Unit test: `verifyClaimAction` calls `verifyExistingClaim`
+          with `requireUser()`'s id and the supplied `sessionId`,
+          `claimId`, `force`. On `ok`, `revalidatePath` is called.
+        - Unit test: `verifyAllClaimsAction` skips claims that already
+          have a verdict, and claims with `checkWorthiness === 'low'`,
+          and claims with `status !== 'open'` (verify by mocking
+          `listSessionClaimsWithVerdicts` with a mixed set and
+          asserting `verifyExistingClaim` call count equals only the
+          eligible subset).
+        - Unit test: `verifyAllClaimsAction` — when one in-flight
+          `verifyExistingClaim` throws `BudgetExceededError`, the
+          returned object has `budgetExceeded: true`, no further
+          `verifyExistingClaim` calls are scheduled past the failure,
+          and any in-flight calls are awaited (use a deferred-promise
+          scaffold).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: concurrency 3 is fixed — do NOT make it configurable in
+      v1. `BudgetExceededError` short-circuits scheduling but does NOT
+      throw out of the action; UI surfaces it via the `budgetExceeded`
+      flag. Decision needed: action returns counts vs. detailed
+      per-claim results. Default (chosen): aggregate counts only;
+      verdicts stream via SSE (`artifact_updated { kind:
+      'claim_verdict' }`), so the UI doesn't need them in the
+      response.
+
+- [ ] T-L7-6: Page wiring — load claims for light-mode `done` state
+      Goal: In `src/app/(app)/sessions/[id]/page.tsx`, inside the
+      `if (session.mode === 'light')` branch (around lines 45–77),
+      when `session.state === 'done'`, also call
+      `listSessionClaimsWithVerdicts(user.id, id)` and pass the
+      result down. Then thread a new prop through:
+      - `LightSessionPane` accepts `claimsWithVerdicts:
+        ClaimWithVerdict[]` (default `[]`).
+      - `LightResultPane` accepts `claimsWithVerdicts:
+        ClaimWithVerdict[]` (default `[]`).
+      Reuse the `ClaimWithVerdict` type already defined in
+      `factcheck-tab.tsx`; add an `export` keyword to its declaration
+      if it isn't already exported, and import it from
+      `./factcheck-tab`. Do NOT query for non-`done` light states;
+      pass `[]`.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/light-session-pane.tsx`,
+      `src/app/(app)/sessions/[id]/light-result-pane.tsx`,
+      `src/app/(app)/sessions/[id]/factcheck-tab.tsx` (only to add
+      the `export` keyword if missing; no other change).
+      Acceptance:
+        - `pnpm typecheck` accepts the new prop on both panes.
+        - Existing tests for `LightResultPane` / `LightSessionPane`
+          still pass (default `[]` keeps backward compatibility).
+        - Manual via `pnpm dev`: open a light session in `done` state
+          that has extracted claims; the page renders without runtime
+          error and `claimsWithVerdicts` is in scope on
+          `LightResultPane` (visual rendering lands in T-L7-8).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L7-7: `LightClaimCard` presentational component
+      Goal: New component
+      `src/app/(app)/sessions/[id]/light-claim-card.tsx` that renders
+      one claim row for the light-mode result panel.
+      Props:
+      `{ claim: ClaimRow; verdict: VerdictRow | null; verifying:
+        boolean; onVerify: () => void }`.
+      Layout (no accept/dismiss/opinion buttons — light mode only
+      offers "Verify"):
+      - Row 1: `claimType` + `checkWorthiness` badges (small gray
+        pills mirroring `<ClaimCard>`'s style).
+      - Row 2: claim text (`font-medium text-gray-800`).
+      - Row 3 when `verdict == null`: a "Pending verify" gray pill +
+        a right-aligned "Verify" button. Disabled while `verifying`
+        is true; label flips to "Verifying…".
+      - Row 3 when `verdict != null`: a verdict pill colored via
+        `verdictColors` (inline-duplicated from `claim-card.tsx`)
+        followed by `verdict.justification` text.
+      Touches: `src/app/(app)/sessions/[id]/light-claim-card.tsx`
+      (new), `tests/unit/sessions/light-claim-card.test.tsx` (new).
+      Acceptance:
+        - Component test (`renderToString`): with `verdict: null`,
+          output contains "Pending verify" and a button labelled
+          "Verify".
+        - Component test: `verdict: null` + `verifying: true` → the
+          button has `disabled` and label "Verifying…".
+        - Component test: `verdict: { verdict: 'verified',
+          justification: 'OK' }` → output contains the verified-pill
+          class `bg-green-100`; no "Verify" button rendered.
+        - Component test: `verdict: { verdict: 'contradicted',
+          justification: 'No' }` → output contains `bg-red-100`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: The `verdictColors` map is duplicated inline; do NOT
+      refactor it into a shared module yet (only two call sites).
+      Evidence rendering belongs to T-L7-8 / a follow-up — this card
+      never receives evidence rows.
+
+- [ ] T-L7-8: Wire claims panel into `LightResultPane`
+      Goal: Replace the placeholder
+      `<div data-slot="claims-panel">` block in
+      `src/app/(app)/sessions/[id]/light-result-pane.tsx` with a real
+      panel:
+      1. Receive `claimsWithVerdicts` prop (added in T-L7-6) and seed
+         a local `useState` map keyed by claim id:
+         `Map<number, { claim: ClaimRow; verdict: VerdictRow | null }>`.
+      2. Subscribe via `useSessionEvents(sessionId)` and react to
+         `artifact_updated` events with
+         `payload.kind === 'claim_verdict'`: when received, call a
+         new server action `getClaimVerdictAction(sessionId, claimId)`
+         (add to `actions.ts` — thin wrapper over
+         `getClaimWithLatestVerdict` that returns the latest verdict
+         row and `[]` for evidence; full evidence rendering is
+         out-of-scope) and merge into local state.
+      3. Render header "Claims to verify" + a "Verify all" button
+         (calls `verifyAllClaimsAction(sessionId)`; disabled while in
+         flight). Below: a flex-col list of `<LightClaimCard>` per
+         claim, sorted by claim id ascending. The card's `onVerify`
+         calls `verifyClaimAction(sessionId, claim.id)` and toggles a
+         per-claim `verifying` flag in local state until the SSE
+         verdict event resolves it.
+      4. When `claimsWithVerdicts` is empty render the existing
+         placeholder text ("Claims will appear here once extracted.").
+         When the prop is non-empty but every claim has
+         `checkWorthiness === 'low'` and no verdict, the "Verify all"
+         button still renders but is disabled with title "No
+         verifiable claims found." (mirrors the no-eligible-claims
+         filter from T-L7-5).
+      5. If `verifyAllClaimsAction` resolves with
+         `budgetExceeded: true`, render a single inline red `<p>`
+         under the button: "Budget cap reached — verification
+         stopped." No toast library.
+      Touches: `src/app/(app)/sessions/[id]/light-result-pane.tsx`
+      (extend), `src/app/(app)/sessions/[id]/actions.ts` (add
+      `getClaimVerdictAction`),
+      `tests/unit/sessions/light-result-pane.test.ts` (extend).
+      Acceptance:
+        - Component test (`renderToString`) with two claims (one with
+          a verdict, one without): output contains both claim texts,
+          a verdict pill for the first, and a "Verify" button for the
+          second.
+        - Component test: `claimsWithVerdicts: []` renders the
+          existing placeholder ("Claims will appear here…").
+        - Unit test: `getClaimVerdictAction` returns
+          `{ ok: true, verdict, evidence: [] }` on success and
+          `{ ok: false, error: 'not_found' }` when the claim is not
+          owned by the user.
+        - Manual via `pnpm dev`: complete a light session through
+          auto-review; observe the claims list rendered with "Pending
+          verify" pills; click "Verify" on one row; within a few
+          seconds the pill flips to the verdict color via the SSE
+          `claim_verdict` event.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `getClaimVerdictAction` returns
+      `{ verdict, evidence: [] }` until evidence rendering is added
+      in a future epic — the action shape is forward-compatible.
+      Decision needed: SSE-only refresh vs. `router.refresh()`.
+      Default (chosen): SSE event triggers a small action that
+      fetches just the changed claim's verdict, avoiding a full RSC
+      re-render on every verdict.
+
+<!-- PLANING_CHECKPOINT -->
 
 ---
 
