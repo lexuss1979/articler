@@ -70,6 +70,42 @@ Use these prefixes when assigning keys to new assertions. Reuse existing keys fo
 - audience_*   — assumptions about reader expertise, background, or goals
 - custom_*     — any other characteristic that does not fit the above`;
 
+const CROSS_TOPIC_INVARIANT_BLOCK = `## Cross-topic invariant
+
+An assertion is a stable preference of the author that holds across any future article they write under this profile. A subject-matter fact about a particular article is **not** an assertion. If the assertion text would be wrong or nonsensical applied to a different topic from the same author, it must not be stored.
+
+An assertion text must not name specific entities from the current Q&A that would be wrong applied to other topics. In doubt — emit nothing.`;
+
+const EXAMPLES_BLOCK = `## Examples
+
+scope:
+Bad:  { "key": "scope_ladder_safety", "category": "scope", "assertion": "user wants ladder safety section" }
+Good: { "key": "scope_includes_safety", "category": "scope", "assertion": "author tends to include safety considerations when relevant" }
+
+custom:
+Bad:  { "key": "custom_mustache_history", "category": "custom", "assertion": "user wants mustache history" }
+Good: { "key": "structure_historical_intro", "category": "structure", "assertion": "author opens articles with a short historical context" }
+
+tone:
+Bad:  { "key": "tone_dry_about_lasers", "category": "tone", "assertion": "user wants a dry tone for laser articles" }
+Good: { "key": "tone_dry_humour", "category": "tone", "assertion": "author favours dry humour throughout" }
+
+audience:
+Bad:  { "key": "audience_assumes_firefighters", "category": "audience", "assertion": "user assumes readers are firefighters" }
+Good: { "key": "audience_assumes_practitioners", "category": "audience", "assertion": "author writes for hands-on practitioners rather than novices" }`;
+
+const INSTRUCTIONS_BLOCK = `## Instructions
+
+For each Q&A pair, decide whether the answer:
+- **agree**: reaffirms an existing assertion → emit \`{ "kind": "agree", "key": "<existing_key>" }\`
+- **contradict**: explicitly negates an existing assertion → emit \`{ "kind": "contradict", "key": "<existing_key>" }\`
+- **new**: reveals a genuinely new writing preference not covered by any existing assertion → emit \`{ "kind": "new", "key": "<prefix_suffix>", "category": "<scope|tone|format|structure|audience|custom>", "assertion": "<concise factual statement>" }\`
+
+Emit at most 2 "new" items per call. Only emit "new" for cross-topic preferences not already captured. If unsure, emit nothing.
+
+Return ONLY valid JSON of the following shape, no prose, no fences:
+{ "delta": [ ... ] }`;
+
 function buildSystemPrompt(existingAssertions: ExistingAssertion[]): string {
   const assertionsBlock =
     existingAssertions.length > 0
@@ -85,21 +121,27 @@ function buildSystemPrompt(existingAssertions: ExistingAssertion[]): string {
 
 ${VOCAB_BLOCK}
 
+${CROSS_TOPIC_INVARIANT_BLOCK}
+
+${EXAMPLES_BLOCK}
+
 ## Existing assertions about this user
 
 ${assertionsBlock}
 
-## Instructions
+${INSTRUCTIONS_BLOCK}`;
+}
 
-For each Q&A pair, decide whether the answer:
-- **agree**: reaffirms an existing assertion → emit \`{ "kind": "agree", "key": "<existing_key>" }\`
-- **contradict**: explicitly negates an existing assertion → emit \`{ "kind": "contradict", "key": "<existing_key>" }\`
-- **new**: reveals a genuinely new writing preference not covered by any existing assertion → emit \`{ "kind": "new", "key": "<prefix_suffix>", "category": "<scope|tone|format|structure|audience|custom>", "assertion": "<concise factual statement>" }\`
-
-Emit "new" sparingly — only for traits not already captured. If no preference is revealed, emit nothing for that answer.
-
-Return ONLY valid JSON of the following shape, no prose, no fences:
-{ "delta": [ ... ] }`;
+function capNewItems(delta: ClassifyAnswersOutput['delta']): ClassifyAnswersOutput['delta'] {
+  let kept = 0;
+  return delta.filter((item) => {
+    if (item.kind !== 'new') return true;
+    if (kept < 2) {
+      kept++;
+      return true;
+    }
+    return false;
+  });
 }
 
 export const classifyAnswers: Stage<ClassifyAnswersInput, ClassifyAnswersOutput> = {
@@ -123,8 +165,10 @@ export const classifyAnswers: Stage<ClassifyAnswersInput, ClassifyAnswersOutput>
       class: 'fast',
     });
 
-    await ctx.emit('task_completed', { stage: 'classify_answers', count: result.delta.length });
+    const capped: ClassifyAnswersOutput = { delta: capNewItems(result.delta) };
 
-    return result;
+    await ctx.emit('task_completed', { stage: 'classify_answers', count: capped.delta.length });
+
+    return capped;
   },
 };

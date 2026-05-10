@@ -3434,6 +3434,469 @@ even if a hero retry mechanism is added later.
       displays it. This avoids duplicating the cap logic in two
       places.
 
+## Epic L-10 — Topic-leakage prevention in profile assertions
+
+**Status: planned**
+
+**Goal:** Profile assertions no longer carry subject-matter facts from
+past articles into future ones. The `profile_assertions` table holds
+only cross-topic writing-style preferences. The `clarify-brief` stage
+never asks confirmation questions that reference topics from prior
+sessions on the same profile.
+
+**Background — observed leak.** A user wrote two light-mode articles
+under one profile: one about firefighter mustaches, one about
+firefighter ladders. Starting a third on firefighter equipment, the
+clarify-brief questions asked the user to confirm whether mustaches and
+ladders should be covered. Inspection of the profile shows
+`classify-answers` produced assertions like `scope_ladder_safety`
+("user wants ladder safety section") and `custom_mustache_history`
+("user wants the history of mustaches") — subject-matter facts mis-
+encoded as cross-topic preferences. `clarify-brief` then injects every
+assertion regardless of relevance, so the leak surfaces as questions.
+
+**Core invariant added by this epic** (asserted in prompts and code
+comments, both stages and the bulk-audit script):
+
+> An assertion is a stable preference of the author that holds across
+> any future article they write under this profile. A subject-matter
+> fact about a particular article is **not** an assertion. If the
+> assertion text would be wrong or nonsensical applied to a different
+> topic from the same author, it must not be stored.
+
+**Strategy:** layered defence — producer-side (classify-answers),
+consumer-side (clarify-brief), and one-off cleanup. Each layer
+independently catches the same class of leak so a regression in one
+does not silently re-introduce the bug.
+
+*Producer side.* `classify-answers` prompt is rewritten to forbid
+topic-bound assertions: explicit invariant + paired good/bad few-shot
+examples + cap of 2 `new` deltas per call. A second pass
+`validate-assertion-generality` (fast model) re-checks every proposed
+`new` delta in isolation and drops those that fail the cross-topic
+test. A deterministic noun-overlap guard rejects any new assertion
+whose text contains a salient noun from the current brief
+(`topic + goal + notes`) that does not appear in the profile's general
+fields (`audience`, `style`, `format`, `extraPrompt`). The three guards
+compose: prompt-level → LLM gate → deterministic check.
+
+*Consumer side.* `clarify-brief` filters loaded assertions before
+injecting them into the system prompt:
+1. confidence floor — only assertions with `confidence ≥ 0.6` are
+   passed through, so a freshly-written low-evidence assertion (default
+   `confidence = 0.5`) cannot influence the next session's questions
+   until at least one agreement has corroborated it;
+2. relevance gate — assertions whose noun set conflicts with the
+   current brief's noun set (i.e. they reference specific entities
+   absent from the current topic) are dropped.
+The system prompt is also strengthened with an anti-leakage clause
+forbidding the model from treating any assertion as a fact about the
+current topic.
+
+*Cleanup.* A "Reset session-learned assertions" button in the profile
+edit page deletes all rows with `source = 'session'` while preserving
+`source = 'examples'`. A one-off bulk-audit script runs the cross-topic
+validator against every existing `source = 'session'` row and either
+auto-deletes or marks as topic-bound for manual review.
+
+**Non-goals:**
+- Embedding-based relevance ranking. The deterministic noun-overlap
+  guard plus the LLM generality gate are sufficient for the observed
+  leak; embeddings can be added later if we see false negatives.
+- Schema migration to remove the `scope` category from existing rows.
+  The category enum stays unchanged; the prompt and validator teach
+  the classifier to use `scope_*` for *coverage patterns*, not subject
+  matter. Bad existing rows are pruned by the bulk audit (T-L10-7),
+  not by a backfill.
+- Touching `analyze-examples` (Epic L-2) or the "examples" assertion
+  source. Examples-sourced assertions are user-seeded and out of scope
+  here.
+
+### Tasks
+
+- [x] T-L10-1: Tighten `classify-answers` prompt + cap new deltas
+      Goal: Rewrite `buildSystemPrompt` in
+      `src/server/pipeline/stages/classify-answers.ts` to enforce the
+      cross-topic invariant. Concretely:
+        - Add a new section `## Cross-topic invariant` immediately
+          after `## Key vocabulary` containing the exact wording from
+          the epic's "Core invariant" block, plus the explicit rule:
+          *"An assertion text must not name specific entities from the
+          current Q&A that would be wrong applied to other topics. In
+          doubt — emit nothing."*
+        - Add a `## Examples` section with at least 4 paired good/bad
+          examples covering each leakable category. Mandatory pairs:
+          `scope` (bad: `scope_ladder_safety` "user wants ladder
+          safety section" / good: `scope_includes_safety` "author
+          tends to include safety considerations when relevant");
+          `custom` (bad: `custom_mustache_history` "user wants
+          mustache history" / good: `structure_historical_intro`
+          "author opens articles with a short historical context");
+          plus one `tone` and one `audience` example.
+        - Replace the instruction line "Emit \"new\" sparingly — only
+          for traits not already captured." with "Emit at most 2
+          \"new\" items per call. Only emit \"new\" for cross-topic
+          preferences not already captured. If unsure, emit nothing."
+        - In `classifyAnswers.run`, after parsing the model output,
+          deterministically truncate `delta` so that **at most 2
+          items have `kind === 'new'`** (preserve order; truncation
+          drops trailing `new` items only — `agree`/`contradict`
+          items are kept). This is a defence in depth in case the
+          model ignores the prompt-level cap.
+      Touches: `src/server/pipeline/stages/classify-answers.ts`,
+      `tests/unit/pipeline/classify-answers.test.ts` (extend),
+      `tests/eval/fixtures/clarify_brief/*.json` (no change — fixtures
+      are for clarify, not classify).
+      Acceptance:
+        - Unit test: feed the stage a Q&A about ladder safety with
+          empty `existingAssertions` and a stub LLM that returns
+          `{ delta: [{ kind: 'new', key: 'scope_ladder_safety',
+          category: 'scope', assertion: 'user wants ladder safety
+          section' }] }`. The stage returns the model's delta
+          unchanged (truncation is content-agnostic — it caps count,
+          not text). The new assertion will be filtered downstream by
+          T-L10-2 / T-L10-3, not here.
+        - Unit test: stub LLM returns `delta` with 4 `new` items and
+          1 `agree`. After truncation, the result contains the 2
+          first `new` items + the 1 `agree` (3 total, in original
+          order with trailing `new` items dropped).
+        - Unit test: stub LLM returns 2 `agree` + 3 `new`. Result
+          contains 2 `agree` + 2 `new`.
+        - Snapshot test: `buildSystemPrompt([])` output contains the
+          string "Cross-topic invariant" and at least 4 lines starting
+          with "Bad:" / "Good:" pairs.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: The prompt change is non-trivial — write the full new
+      prompt as a single template literal at module scope (not
+      inlined in the function) to make the snapshot test stable. The
+      truncation rule is "drop trailing `new`s after the second one"
+      so that early `new`s win — order in the model output reflects
+      its own confidence ranking.
+
+- [ ] T-L10-2: `validate-assertion-generality` LLM gate
+      Goal: New stage
+      `src/server/pipeline/stages/validate-assertion-generality.ts`
+      (`modelClass: 'fast'`). Input schema:
+      ```ts
+      { items: Array<{ key: string; category: string; assertion: string }> }
+      ```
+      Output schema:
+      ```ts
+      { results: Array<{ key: string; passes: boolean; reason: string }> }
+      ```
+      For each item, the system prompt asks: *"Would this assertion
+      still hold if this author writes a future article on a
+      completely different topic? Answer `passes: true` only if the
+      statement is about the author's general writing preferences
+      (style, structure, tone, audience treatment, coverage pattern).
+      Answer `passes: false` if it references a specific subject,
+      entity, named thing, or is otherwise tied to a particular
+      article's topic."* Include 4 inline examples (same pairs as
+      T-L10-1 prompt, marked with their expected verdicts).
+      Wire into `src/server/pipeline/run-classify-answers.ts`:
+      between the `classifyAnswers` call and the per-item loop, when
+      any `delta` items have `kind === 'new'`, call
+      `validateAssertionGenerality.run({ items: <new items only> })`,
+      then drop any new items whose `passes !== true`. Increment a
+      `dropped` counter and include it in the return type:
+      `{ applied: number; skipped: number; droppedAsTopicBound: number }`.
+      `agree` / `contradict` items pass through without validation.
+      Touches: `src/server/pipeline/stages/validate-assertion-generality.ts`
+      (new), `src/server/pipeline/run-classify-answers.ts` (extend),
+      `tests/unit/pipeline/validate-assertion-generality.test.ts`
+      (new), `tests/unit/pipeline/run-classify-answers.test.ts`
+      (extend), every existing caller of `runClassifyAnswers` for the
+      return-type change.
+      Acceptance:
+        - Unit test: stub LLM returns `passes: true` for an
+          obviously-cross-topic input (`structure_historical_intro`)
+          and `passes: false` for a topic-bound one
+          (`scope_ladder_safety`). Stage returns both verdicts in the
+          same order as input.
+        - Unit test: `runClassifyAnswers` with 1 `new` item that
+          fails validation → `applied = 0`, `droppedAsTopicBound =
+          1`; `upsertAssertion` not called.
+        - Unit test: `runClassifyAnswers` with 1 `new` item that
+          passes validation + 1 `agree` → both apply normally.
+        - Unit test: `runClassifyAnswers` with 0 `new` items skips
+          the validator entirely (assert it is not called).
+        - Callers of `runClassifyAnswers` (grep for it) destructure
+          the return type without breakage; type-check passes.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: The `LLMContext` invariant from "Background & design
+      decisions" applies — wrap the validator call in `withStageCtx`
+      so logging + budget enforcement work. The validator is a single
+      LLM call regardless of `items.length` (batched into one prompt)
+      to keep cost bounded; cap `items.length` at 2 (already enforced
+      by T-L10-1's truncation) so prompt size is trivially bounded.
+
+- [ ] T-L10-3: Deterministic brief-noun overlap guard
+      Goal: New module
+      `src/server/profiles/topic-noun-guard.ts` exporting:
+      - `extractSalientNouns(text: string): Set<string>` — lower-
+        cases the text, splits on non-letter characters, drops a
+        small embedded stopword list (English + Russian common
+        words; ~150 entries — write inline, no external dep), drops
+        tokens shorter than 4 characters, returns the resulting set.
+      - `assertionLeaksTopic({ assertion, brief, profileGeneralText
+        }: { assertion: string; brief: { topic: string; goal: string;
+        notes: string }; profileGeneralText: string }): boolean` —
+        returns `true` iff `extractSalientNouns(assertion)` shares
+        any token with `extractSalientNouns(brief.topic + ' ' +
+        brief.goal + ' ' + brief.notes)` that does **not** appear in
+        `extractSalientNouns(profileGeneralText)`. In English: if the
+        assertion mentions a brief-specific word that is not part of
+        the profile's general identity.
+      Wire into `runClassifyAnswers`: after the LLM-gate filter from
+      T-L10-2, call `assertionLeaksTopic` for each remaining `new`
+      item; drop those that leak. Increment the same
+      `droppedAsTopicBound` counter. Pass the brief by adding
+      `brief: { topic; goal; notes }` to `RunClassifyAnswersInput`
+      and update every caller (grep for `runClassifyAnswers`) to
+      thread it through.
+      Touches: `src/server/profiles/topic-noun-guard.ts` (new),
+      `src/server/pipeline/run-classify-answers.ts` (extend signature
+      + filter), every caller of `runClassifyAnswers` (likely
+      `src/server/pipeline/runner.ts` and the briefing-stage glue —
+      grep first), `tests/unit/profiles/topic-noun-guard.test.ts`
+      (new), `tests/unit/pipeline/run-classify-answers.test.ts`
+      (extend).
+      Acceptance:
+        - Unit test: `extractSalientNouns('Firefighter ladders are
+          tall')` returns a set containing `firefighter`, `ladders`,
+          `tall` (and no stopwords like `are`).
+        - Unit test: `assertionLeaksTopic` with assertion="user wants
+          ladder safety section", brief.topic="firefighter
+          equipment", profileGeneralText="firefighter blog for
+          practitioners" → `true` (`ladder` is in assertion but not
+          in brief and not in profile).
+        - Unit test: same with brief.topic="ladder safety standards"
+          → `false` (`ladder` overlaps with current brief — assertion
+          is allowed for *this* topic).
+        - Unit test: assertion="author opens with historical
+          context", any brief, any profile → `false` (no specific
+          nouns conflict).
+        - Unit test: assertion="user is a firefighter", brief.topic
+          ="ladders", profileGeneralText="firefighter blog" →
+          `false` (`firefighter` is in profile general text — it's
+          part of the author's stable identity, not topic-bound).
+        - Integration test on `runClassifyAnswers`: LLM returns 1
+          `new` item that passes T-L10-2's gate but contains a
+          brief-specific noun → dropped, `droppedAsTopicBound = 1`,
+          `upsertAssertion` not called.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: The Russian + English stopword list is intentionally
+      embedded inline — adding a stemming dependency (`natural`,
+      `lunr`) is out of scope and brittle for Russian morphology. The
+      4-char minimum drops most short function words even if the
+      stopword list misses something. False positives (over-blocking
+      legitimate assertions) are tolerable — the user can always
+      re-supply the same answer in a future session and the
+      assertion will eventually accumulate via `agree`. False
+      negatives (under-blocking) are caught by T-L10-2 and the
+      consumer-side filter T-L10-4.
+
+- [ ] T-L10-4: Confidence floor + relevance filter for `clarify-brief`
+      Goal: Modify `src/server/pipeline/stages/clarify-brief.ts` to
+      filter `knownAssertions` before injecting them into the system
+      prompt:
+      1. Drop any assertion with `confidence < 0.6`.
+      2. For each surviving assertion, call
+         `assertionLeaksTopic({ assertion: a.assertion, brief: input.brief,
+         profileGeneralText: <derive from input.profile> })` (from
+         T-L10-3) and drop those that leak.
+      The filter is applied inside `clarifyBrief.run` before the
+      `assertionsBlock` is built. Add a new constant
+      `CLARIFY_INJECT_MIN_CONFIDENCE = 0.6` to
+      `src/server/profiles/assertion-policy.ts` (the policy module is
+      the right home for thresholds) and import it into
+      `clarify-brief.ts`. The existing `SKIP_CONFIDENCE = 0.85`
+      stays unchanged — it's the threshold for *suppressing the
+      question entirely*; the new constant is the threshold for
+      *injecting the assertion into the prompt at all*.
+      Compute `profileGeneralText` as `[profile.audience, profile.style,
+      profile.format, profile.extraPrompt].filter(Boolean).join(' ')`.
+      Touches: `src/server/pipeline/stages/clarify-brief.ts`,
+      `src/server/profiles/assertion-policy.ts` (export new constant),
+      `tests/unit/pipeline/clarify-brief.test.ts` (extend),
+      `tests/unit/profiles/assertion-policy.test.ts` (extend — assert
+      the new constant value).
+      Acceptance:
+        - Unit test: `knownAssertions = [{ confidence: 0.5, ... },
+          { confidence: 0.6, ... }, { confidence: 0.85, ... }]`. Stub
+          LLM call asserts the system prompt contains only the latter
+          two assertions (the 0.5 one is dropped). All three have
+          generic, non-leaking assertion text so the relevance filter
+          does not also kick in.
+        - Unit test: `knownAssertions` includes one with
+          `confidence: 0.9` but text "user wants ladder safety
+          section" while `brief.topic` is "firefighter equipment".
+          Stub LLM call asserts the system prompt does **not**
+          contain that assertion text.
+        - Unit test: empty `knownAssertions` → unchanged behaviour
+          (no `Known assertions` block in prompt).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `clarifyBrief.run` already accepts `knownAssertions`
+      pre-fetched by its caller (grep for callers — likely
+      `runner.ts` briefing branch). Filter inside the stage rather
+      than at the call site so the invariant is enforced for any
+      future caller. The relevance check is `O(n_assertions ×
+      tokens)` — fine for the typical n < 30 we see in practice.
+
+- [ ] T-L10-5: Anti-leakage clause in `clarify-brief` system prompt
+      Goal: Edit the system prompt in
+      `src/server/pipeline/stages/clarify-brief.ts`. When the
+      filtered `assertions` array (from T-L10-4) is non-empty, the
+      `assertionsBlock` already starts with the line "Known
+      assertions about this user:". Add the following lines
+      immediately *after* the per-assertion bullet list and *before*
+      the existing skip/bias instructions:
+      ```
+      Critical: assertions describe stable preferences of the author.
+      They are NOT facts about the current topic. Never ask the
+      author to confirm whether a topic from a different article
+      should be covered here. If an assertion appears to reference a
+      subject unrelated to the current brief, ignore it entirely.
+      ```
+      Keep the existing skip/bias instructions immediately after.
+      Touches: `src/server/pipeline/stages/clarify-brief.ts`,
+      `tests/unit/pipeline/clarify-brief.test.ts` (extend),
+      `tests/eval/fixtures/clarify_brief/*.json` (no functional
+      change — fixtures driven by golden outputs may need a refresh
+      run; document whether to regenerate).
+      Acceptance:
+        - Unit test: with non-empty `knownAssertions` (post-filter),
+          the system prompt passed to the LLM contains the literal
+          substring "Critical: assertions describe stable
+          preferences" exactly once.
+        - Unit test: with empty `knownAssertions`, the system prompt
+          does **not** contain the anti-leakage clause (no
+          `assertionsBlock` at all).
+        - Eval fixture (`tests/eval/fixtures/clarify_brief/*`) — if
+          golden outputs change after this prompt edit, regenerate
+          per the existing eval workflow (check
+          `tests/eval/README.md` if present, or the CI eval script).
+          Document any regeneration in the commit message.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: This is a prompt-only change; no code structural change.
+      Combined with T-L10-4's filter, the LLM should never see a
+      leaking assertion in the first place — the prompt clause is
+      belt-and-braces.
+
+- [ ] T-L10-6: "Reset session-learned assertions" button + repo helper
+      Goal: New repo function in
+      `src/server/profiles/profile-assertions-repo.ts`:
+      ```ts
+      export async function deleteAssertionsBySource(
+        profileId: number,
+        source: string,
+      ): Promise<number>  // returns deleted row count
+      ```
+      Implemented as a single `DELETE FROM profile_assertions WHERE
+      profile_id = ? AND source = ?` returning `result.length`.
+      New server action in
+      `src/app/(app)/profiles/actions.ts`:
+      ```ts
+      export async function resetSessionAssertionsAction(
+        formData: FormData,
+      ): Promise<void>
+      ```
+      Reads `profileId` from `formData`, requires the user, verifies
+      profile ownership via `getProfile(user.id, profileId)`, calls
+      `deleteAssertionsBySource(profileId, 'session')`, then
+      `revalidatePath` for the edit page.
+      UI change in
+      `src/app/(app)/profiles/[id]/edit/assertions-panel.tsx`:
+      - Add a count badge above the section header: "N session-
+        learned, M from examples" derived from `assertions` prop.
+      - Add a "Reset session-learned" button on the right side of
+        the header. Clicking submits the form with `profileId` to
+        `resetSessionAssertionsAction`. The button is disabled when
+        no `source = 'session'` rows exist.
+      - Wrap the button click in a `confirm()` dialog: "Delete all
+        N assertions learned from sessions? Examples-sourced
+        assertions are kept."
+      Touches: `src/server/profiles/profile-assertions-repo.ts`,
+      `src/app/(app)/profiles/actions.ts`,
+      `src/app/(app)/profiles/[id]/edit/assertions-panel.tsx`,
+      `tests/integration/profiles/assertions-repo.test.ts` (extend),
+      `tests/unit/profiles/reset-session-assertions-action.test.ts`
+      (new), `tests/unit/profiles/assertions-panel.test.ts` (new
+      or extend if exists).
+      Acceptance:
+        - Integration test: insert 2 assertions with `source =
+          'session'` and 1 with `source = 'examples'` for one
+          profile, plus 1 `session` for a different profile. Call
+          `deleteAssertionsBySource(profileId, 'session')`. Returns
+          `2`. Verify only the 1 examples row remains for the
+          profile and the other profile's row is untouched.
+        - Unit test: `resetSessionAssertionsAction` with mismatched
+          ownership (profile doesn't belong to `user.id`) is a no-op
+          (asserts `deleteAssertionsBySource` not called).
+        - Unit test: happy path — action calls
+          `deleteAssertionsBySource(profileId, 'session')` and
+          `revalidatePath`.
+        - Component test (`renderToString`): with 2 session + 1
+          examples assertions, the panel header contains "2
+          session-learned, 1 from examples" and the reset button is
+          enabled. With 0 session assertions, the button is
+          disabled.
+        - Manual via `pnpm dev`: open `/profiles/<id>/edit`, click
+          "Reset session-learned", confirm dialog, observe panel
+          updates with examples assertions still present.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: This is the user's escape hatch from the current
+      contaminated state — implementable in isolation from T-L10-1
+      through T-L10-5 and useful even before they ship. Deliberately
+      does **not** touch `replaceAssertionsBySource` (which exists
+      for examples-flow re-runs) — different intent, different
+      callers.
+
+- [ ] T-L10-7: Bulk-audit script for existing assertions
+      Goal: New script `scripts/audit-assertions.mjs`. CLI:
+      `node scripts/audit-assertions.mjs --profile <profileId>
+      [--apply]` (also supports `--all` to iterate every profile in
+      the system).
+      Behaviour per profile:
+      1. Read every assertion with `source = 'session'` via the
+         repo.
+      2. Run `validateAssertionGenerality` (T-L10-2 stage) over
+         them in batches of 5.
+      3. Print a report grouped by verdict:
+         - `passes: true` — kept (no action).
+         - `passes: false` — flagged. Print the assertion key,
+           text, and validator's `reason`.
+      4. If `--apply` flag is passed, delete every flagged row
+         (via `deleteAssertion` to also revoke individually). Without
+         `--apply`, the script is read-only (dry run).
+      The script is invoked manually after deploying T-L10-1
+      through T-L10-6 to clean historical contamination. Document
+      this in the script's `--help` output.
+      Touches: `scripts/audit-assertions.mjs` (new),
+      `tests/unit/scripts/audit-assertions.test.ts` (new — exercise
+      the script's pure logic by importing the helper functions; the
+      DB calls are mocked).
+      Acceptance:
+        - Unit test: with mocked validator returning
+          `[{ passes: true }, { passes: false, reason: 'topic-
+          bound' }]` for a profile with 2 assertions, dry-run mode
+          prints exactly 1 flagged row to stdout and does not call
+          `deleteAssertion`.
+        - Unit test: with `--apply`, `deleteAssertion` is called
+          once with the flagged row's id.
+        - Manual: run `node scripts/audit-assertions.mjs --profile
+          <id>` against a dev DB seeded with one good and one
+          topic-bound assertion. Verify the output flags the latter
+          and the row count is unchanged. Run with `--apply` —
+          verify the row is gone.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: This is a one-off cleanup tool, not a recurring cron.
+      We do not auto-run it on a schedule because the producer-side
+      guards (T-L10-1/2/3) should make it unnecessary going forward;
+      audit is a backfill for the data created before the guards
+      shipped. The script must NOT delete `source = 'examples'` rows
+      under any flag.
+
 <!-- PLANING_CHECKPOINT -->
 
 ---
