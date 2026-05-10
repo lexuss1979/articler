@@ -2353,7 +2353,7 @@ draft).
       `runFactCheck` is **not** in scope; revisit only if duplication
       exceeds ~30 lines after this task lands.
 
-- [ ] T-L7-5: Server actions `verifyClaimAction` and `verifyAllClaimsAction`
+- [x] T-L7-5: Server actions `verifyClaimAction` and `verifyAllClaimsAction`
       Goal: In `src/app/(app)/sessions/[id]/actions.ts`:
       1. Add
          `export async function verifyClaimAction(sessionId: number,

@@ -19,7 +19,8 @@ import type { ZodIssue } from 'zod';
 import { startRunner, resolveUserInput, cancelPendingInput } from '../../../../server/pipeline/runner';
 import { regenerateSection } from '../../../../server/pipeline/regenerate-section';
 import { runReview } from '../../../../server/pipeline/run-review';
-import { runFactCheck } from '../../../../server/pipeline/run-fact-check';
+import { runFactCheck, verifyExistingClaim } from '../../../../server/pipeline/run-fact-check';
+import { BudgetExceededError } from '../../../../server/llm/budget-guard';
 import { applyRevisions } from '../../../../server/pipeline/apply-revisions';
 import { runDecoration } from '../../../../server/pipeline/run-decoration';
 import { applyDecoration } from '../../../../server/pipeline/apply-decoration';
@@ -54,6 +55,7 @@ import { setSuggestionStatus } from '../../../../server/sessions/decoration-repo
 import {
   setClaimStatus,
   getClaimWithLatestVerdict,
+  listSessionClaimsWithVerdicts,
 } from '../../../../server/sessions/claims-repo';
 import {
   setSourceStatus,
@@ -683,4 +685,72 @@ export async function revertToPreReviewAction(
   await updateSessionDraft(user.id, sessionId, session.draftMdPreReview);
   revalidatePath('/sessions/' + sessionId);
   return { ok: true };
+}
+
+export async function verifyClaimAction(
+  sessionId: number,
+  claimId: number,
+  force?: boolean,
+): Promise<{ ok: true; verdict: string } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const result = await verifyExistingClaim({ sessionId, userId: user.id, claimId, force: !!force });
+  if (result.ok) revalidatePath('/sessions/' + sessionId);
+  return result;
+}
+
+async function mapWithConcurrency<T, U>(
+  items: T[],
+  n: number,
+  fn: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results: U[] = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return results;
+}
+
+export async function verifyAllClaimsAction(sessionId: number): Promise<{
+  ok: true;
+  verifiedCount: number;
+  failedCount: number;
+  budgetExceeded: boolean;
+}> {
+  const user = await requireUser();
+  const claimsWithVerdicts = await listSessionClaimsWithVerdicts(user.id, sessionId);
+
+  const eligible = claimsWithVerdicts.filter(
+    ({ claim, verdict }) =>
+      verdict == null && claim.checkWorthiness !== 'low' && claim.status === 'open',
+  );
+
+  let verifiedCount = 0;
+  let failedCount = 0;
+  let budgetExceeded = false;
+
+  await mapWithConcurrency(eligible, 3, async ({ claim }) => {
+    if (budgetExceeded) return;
+    try {
+      const result = await verifyExistingClaim({ sessionId, userId: user.id, claimId: claim.id });
+      if (result.ok) {
+        verifiedCount++;
+      } else {
+        failedCount++;
+      }
+    } catch (err) {
+      if (err instanceof BudgetExceededError) {
+        budgetExceeded = true;
+      } else {
+        failedCount++;
+      }
+    }
+  });
+
+  revalidatePath('/sessions/' + sessionId);
+  return { ok: true, verifiedCount, failedCount, budgetExceeded };
 }
