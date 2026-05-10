@@ -125,7 +125,7 @@ describe('clarifyBrief stage — knownAssertions', () => {
     const ctx = makeCtx();
     await clarifyBrief.run({
       brief,
-      profile,
+      profile: { ...profile, extraPrompt: 'avoids clickbait language' },
       knownAssertions: [
         { key: 'tone_clickbait', category: 'tone', assertion: 'avoids clickbait', confidence: 0.9, evidenceCount: 5 },
       ],
@@ -136,6 +136,51 @@ describe('clarifyBrief stage — knownAssertions', () => {
     expect(system).toContain('avoids clickbait');
     expect(system).toContain('0.85');
     expect(system).toContain('3');
+  });
+
+  it('drops assertions below the confidence floor while keeping ones at or above it', async () => {
+    mockRouteJsonChat.mockResolvedValue(mockResult);
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    await clarifyBrief.run({
+      brief,
+      profile,
+      knownAssertions: [
+        { key: 'style_low', category: 'style', assertion: 'wants simple intro', confidence: 0.5, evidenceCount: 1 },
+        { key: 'style_mid', category: 'style', assertion: 'uses common opening', confidence: 0.6, evidenceCount: 2 },
+        { key: 'style_high', category: 'style', assertion: 'opens with historical context', confidence: 0.85, evidenceCount: 4 },
+      ],
+    }, ctx);
+    const system: string = mockRouteJsonChat.mock.calls[0][0].system;
+    expect(system).not.toContain('style_low');
+    expect(system).not.toContain('wants simple intro');
+    expect(system).toContain('style_mid');
+    expect(system).toContain('uses common opening');
+    expect(system).toContain('style_high');
+    expect(system).toContain('opens with historical context');
+  });
+
+  it('drops a high-confidence assertion whose nouns leak from a prior topic', async () => {
+    mockRouteJsonChat.mockResolvedValue(mockResult);
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    await clarifyBrief.run({
+      brief: { topic: 'firefighter equipment', goal: '', notes: '', sourceArticles: [] },
+      profile,
+      knownAssertions: [
+        {
+          key: 'scope_ladder_safety',
+          category: 'scope',
+          assertion: 'user wants ladder safety section',
+          confidence: 0.9,
+          evidenceCount: 5,
+        },
+      ],
+    }, ctx);
+    const system: string = mockRouteJsonChat.mock.calls[0][0].system;
+    expect(system).not.toContain('user wants ladder safety section');
+    expect(system).not.toContain('scope_ladder_safety');
+    expect(system).not.toContain('Known assertions');
   });
 });
 

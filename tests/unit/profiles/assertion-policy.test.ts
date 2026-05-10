@@ -3,6 +3,7 @@ import {
   applyAgreement,
   applyContradiction,
   applyDecay,
+  CLARIFY_INJECT_MIN_CONFIDENCE,
   shouldSkipQuestion,
 } from '../../../src/server/profiles/assertion-policy';
 
@@ -52,6 +53,12 @@ describe('applyDecay', () => {
     const now = new Date('2030-01-01T00:00:00Z');
     const updatedAt = new Date('2020-01-01T00:00:00Z'); // ~3650 days
     expect(applyDecay(0.5, updatedAt, now)).toBe(0);
+  });
+});
+
+describe('CLARIFY_INJECT_MIN_CONFIDENCE', () => {
+  it('is 0.6 — the minimum confidence to inject an assertion into clarify-brief', () => {
+    expect(CLARIFY_INJECT_MIN_CONFIDENCE).toBe(0.6);
   });
 });
 

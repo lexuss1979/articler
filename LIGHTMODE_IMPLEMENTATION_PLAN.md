@@ -3696,7 +3696,7 @@ auto-deletes or marks as topic-bound for manual review.
       negatives (under-blocking) are caught by T-L10-2 and the
       consumer-side filter T-L10-4.
 
-- [ ] T-L10-4: Confidence floor + relevance filter for `clarify-brief`
+- [x] T-L10-4: Confidence floor + relevance filter for `clarify-brief`
       Goal: Modify `src/server/pipeline/stages/clarify-brief.ts` to
       filter `knownAssertions` before injecting them into the system
       prompt:

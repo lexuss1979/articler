@@ -5,6 +5,7 @@ export const AGREEMENT_DELTA = 0.10;
 export const CONTRADICTION_DELTA = 0.25;
 export const DECAY_PER_30D = 0.02;
 export const INITIAL_CONFIDENCE = 0.5;
+export const CLARIFY_INJECT_MIN_CONFIDENCE = 0.6;
 
 export function applyAgreement(c: number): number {
   return Math.min(1.0, c + AGREEMENT_DELTA);

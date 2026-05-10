@@ -4,6 +4,8 @@ import type { BriefInput } from '../../sessions/brief';
 import type { Stage } from '../stage';
 import type { profiles } from '../../db/schema';
 import type { InferSelectModel } from 'drizzle-orm';
+import { CLARIFY_INJECT_MIN_CONFIDENCE } from '../../profiles/assertion-policy';
+import { assertionLeaksTopic } from '../../profiles/topic-noun-guard';
 
 type ProfileRow = InferSelectModel<typeof profiles>;
 
@@ -64,7 +66,29 @@ export const clarifyBrief: Stage<
   async run(input, ctx) {
     await ctx.emit('task_started', { stage: 'clarify_brief' });
 
-    const assertions = input.knownAssertions ?? [];
+    const rawAssertions = input.knownAssertions ?? [];
+    const profileGeneralText = [
+      input.profile.audience,
+      input.profile.style,
+      input.profile.format,
+      input.profile.extraPrompt,
+    ]
+      .filter((s) => typeof s === 'string' && s.length > 0)
+      .join(' ');
+    const assertions = rawAssertions
+      .filter((a) => a.confidence >= CLARIFY_INJECT_MIN_CONFIDENCE)
+      .filter(
+        (a) =>
+          !assertionLeaksTopic({
+            assertion: a.assertion,
+            brief: {
+              topic: input.brief.topic,
+              goal: input.brief.goal,
+              notes: input.brief.notes,
+            },
+            profileGeneralText,
+          }),
+      );
 
     const assertionsBlock =
       assertions.length > 0
