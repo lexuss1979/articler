@@ -2,6 +2,7 @@
   "name": "articler",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.0.9",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -37,11 +38,6 @@
     "undici": "^8.2.0",
     "unified": "^11.0.5",
     "zod": "^4.4.1"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "argon2"
-    ]
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

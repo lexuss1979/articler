@@ -1,11 +1,11 @@
 FROM node:22-bookworm-slim AS base
-RUN npm install -g pnpm
+RUN npm install -g pnpm@11.0.9
 
 FROM base AS deps
 WORKDIR /app
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true
 
 FROM base AS builder
 WORKDIR /app
