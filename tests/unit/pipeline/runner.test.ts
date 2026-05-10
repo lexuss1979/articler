@@ -5,6 +5,13 @@ const mocks = vi.hoisted(() => ({
   updateSessionStateFn: vi.fn(),
   emitEventFn: vi.fn(),
   appendRunLogFn: vi.fn(),
+  dispatchBatchQueue: vi.fn().mockResolvedValue(undefined),
+  BudgetExceededError: class BudgetExceededError extends Error {
+    constructor(public scope: string, public spent: number, public cap: number) {
+      super('budget exceeded');
+      this.name = 'BudgetExceededError';
+    }
+  },
 }));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
@@ -49,6 +56,15 @@ vi.mock('../../../src/server/profiles/profile-assertions-repo', () => ({
 
 vi.mock('../../../src/server/pipeline/run-classify-answers', () => ({
   runClassifyAnswers: vi.fn().mockResolvedValue({ applied: 0, skipped: 0 }),
+}));
+
+vi.mock('../../../src/server/llm/budget-guard', () => ({
+  BudgetExceededError: mocks.BudgetExceededError,
+  assertBudget: vi.fn(),
+}));
+
+vi.mock('../../../src/server/batches/dispatcher', () => ({
+  dispatchBatchQueue: mocks.dispatchBatchQueue,
 }));
 
 afterEach(() => vi.clearAllMocks());
@@ -140,6 +156,74 @@ describe('startRunner', () => {
       stage: 'clarify_brief',
       task: 'clarify_brief',
     });
+  });
+
+  const validProfile = {
+    id: 1, userId: 5, name: 'p', format: 'long_read', style: 's', audience: 'a',
+    targetVolumeMin: 100, targetVolumeMax: 200, markupRules: {}, extraPrompt: '',
+    lightResearchSources: 1, lightMaxWords: 800, createdAt: new Date(),
+  };
+
+  it('catches BudgetExceededError, marks session failed, resolves without rethrow, calls dispatchBatchQueue', async () => {
+    mocks.getSessionFn.mockResolvedValue({
+      id: 50, userId: 5, state: 'planning',
+      brief: { topic: 't', goal: '', notes: '', sourceArticles: [] },
+      profileId: 1,
+    });
+    mocks.emitEventFn.mockResolvedValue({});
+    mocks.updateSessionStateFn.mockResolvedValue(null);
+    mocks.dispatchBatchQueue.mockResolvedValue(undefined);
+
+    const profileMod = await import('../../../src/server/profiles/repo');
+    vi.mocked(profileMod.getProfile).mockResolvedValue(validProfile);
+
+    const assertionsMod = await import('../../../src/server/profiles/profile-assertions-repo');
+    vi.mocked(assertionsMod.listAssertions).mockRejectedValue(
+      new mocks.BudgetExceededError('user', 1, 1),
+    );
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(50, 5);
+
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(5, 50, 'failed');
+    expect(mocks.emitEventFn).toHaveBeenCalledWith(50, 'state_changed', {
+      state: 'failed',
+      reason: 'budget_exceeded',
+    });
+    expect(mocks.dispatchBatchQueue).toHaveBeenCalledWith(5);
+  });
+
+  it('rethrows generic errors and still calls dispatchBatchQueue in finally', async () => {
+    mocks.getSessionFn.mockResolvedValue({
+      id: 51, userId: 5, state: 'planning',
+      brief: { topic: 't', goal: '', notes: '', sourceArticles: [] },
+      profileId: 1,
+    });
+    mocks.emitEventFn.mockResolvedValue({});
+    mocks.dispatchBatchQueue.mockResolvedValue(undefined);
+
+    const profileMod = await import('../../../src/server/profiles/repo');
+    vi.mocked(profileMod.getProfile).mockResolvedValue(validProfile);
+
+    const assertionsMod = await import('../../../src/server/profiles/profile-assertions-repo');
+    const genericError = new Error('generic failure');
+    vi.mocked(assertionsMod.listAssertions).mockRejectedValue(genericError);
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await expect(startRunner(51, 5)).rejects.toBe(genericError);
+    expect(mocks.dispatchBatchQueue).toHaveBeenCalledWith(5);
+  });
+
+  it('calls dispatchBatchQueue in finally on happy-path resolution', async () => {
+    mocks.getSessionFn.mockResolvedValue({
+      id: 52, userId: 5, state: 'done', brief: null, profileId: 1,
+    });
+    mocks.dispatchBatchQueue.mockResolvedValue(undefined);
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(52, 5);
+
+    expect(mocks.dispatchBatchQueue).toHaveBeenCalledWith(5);
   });
 });
 

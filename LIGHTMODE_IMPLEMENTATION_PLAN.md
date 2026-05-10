@@ -3239,7 +3239,7 @@ even if a hero retry mechanism is added later.
       one slot. If a hard cap is needed later, take a row-level
       `SELECT ... FOR UPDATE` on the user row inside a transaction.
 
-- [ ] T-L9-7: Wire dispatcher into runner completion +
+- [x] T-L9-7: Wire dispatcher into runner completion +
       `BudgetExceededError` graceful failure
       Goal: Edit `src/server/pipeline/runner.ts`'s `startRunner`:
       - Inside the existing `try { await runStage(...) }` block, add

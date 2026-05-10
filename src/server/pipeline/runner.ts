@@ -1,5 +1,7 @@
 import { z, type ZodSchema } from 'zod';
 import { emitEvent } from '../events/bus';
+import { dispatchBatchQueue } from '../batches/dispatcher';
+import { BudgetExceededError } from '../llm/budget-guard';
 import { appendRunLog } from '../logging/jsonl';
 import { routeChat, routeSearch, routeImage } from '../llm/router';
 import { withStageCtx } from './with-stage-ctx';
@@ -79,10 +81,20 @@ export async function startRunner(
   try {
     await runStage(sessionId, userId);
   } catch (err) {
+    if (err instanceof BudgetExceededError) {
+      await updateSessionState(userId, sessionId, 'failed');
+      await emitEvent(sessionId, 'state_changed', { state: 'failed', reason: 'budget_exceeded' });
+      return;
+    }
     console.error('[runner] crashed:', err instanceof Error ? err.message : err);
     throw err;
   } finally {
-    if (!internal) activeRunners.delete(sessionId);
+    if (!internal) {
+      activeRunners.delete(sessionId);
+      void dispatchBatchQueue(userId).catch((err) => {
+        console.error('[batch/dispatch] failed:', err);
+      });
+    }
   }
 }
 
