@@ -1997,7 +1997,7 @@ synthetic `critique_round` row to host the extracted claims; see L-7.)
       Do not add `draft-full`, `draftFull`, or any other new import
       not needed by this case.
 
-- [ ] T-L6-5: Revert action + UI wiring for "Revert to pre-review" button
+- [x] T-L6-5: Revert action + UI wiring for "Revert to pre-review" button
       Goal: Two changes:
       1. **Server action.** Add `revertToPreReviewAction(sessionId:
           number): Promise<{ ok: boolean; error?: string }>` in

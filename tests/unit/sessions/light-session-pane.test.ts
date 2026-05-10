@@ -5,6 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../../src/app/(app)/sessions/[id]/actions', () => ({
   submitBriefAction: vi.fn(),
   submitClarificationAction: vi.fn(),
+  revertToPreReviewAction: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
 }));
 
 import { LightSessionPane } from '../../../src/app/(app)/sessions/[id]/light-session-pane';

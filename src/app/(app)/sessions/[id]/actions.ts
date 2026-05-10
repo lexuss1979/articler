@@ -6,6 +6,7 @@ import { requireUser } from '../../../../server/auth/require-user';
 import {
   getSession,
   updateSessionBrief,
+  updateSessionDraft,
   updateSessionPlan,
   updateSessionState,
   updateSessionActiveCritics,
@@ -669,5 +670,17 @@ export async function finishExportAction(
   if (!session) return { ok: false, error: 'no_pending_export' };
   const resolved = resolveUserInput(sessionId, { action: 'finish' });
   if (!resolved) return { ok: false, error: 'no_pending_export' };
+  return { ok: true };
+}
+
+export async function revertToPreReviewAction(
+  sessionId: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const session = await getSession(user.id, sessionId);
+  if (!session) return { ok: false, error: 'not_found' };
+  if (session.draftMdPreReview == null) return { ok: false, error: 'no_snapshot' };
+  await updateSessionDraft(user.id, sessionId, session.draftMdPreReview);
+  revalidatePath('/sessions/' + sessionId);
   return { ok: true };
 }

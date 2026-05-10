@@ -1,6 +1,14 @@
 import * as React from 'react';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
+vi.mock('../../../src/app/(app)/sessions/[id]/actions', () => ({
+  revertToPreReviewAction: vi.fn(),
+}));
 
 import { LightResultPane } from '../../../src/app/(app)/sessions/[id]/light-result-pane';
 

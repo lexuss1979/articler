@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { revertToPreReviewAction } from './actions';
 
 const FORMATS = [
   { fmt: 'md', label: 'Markdown (.zip)' },
@@ -21,6 +23,8 @@ export function LightResultPane({
   draftMdPreReview: string | null;
 }) {
   const [copied, setCopied] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const router = useRouter();
 
   function handleCopy() {
     void navigator.clipboard.writeText(draftMd).then(() => {
@@ -59,11 +63,18 @@ export function LightResultPane({
 
         <button
           type="button"
-          disabled={draftMdPreReview == null}
+          disabled={draftMdPreReview == null || reverting}
           title={draftMdPreReview == null ? 'Pre-review snapshot not available' : undefined}
           className="border rounded px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40"
+          onClick={() => {
+            if (reverting) return;
+            setReverting(true);
+            void revertToPreReviewAction(sessionId).then((result) => {
+              if (result.ok) router.refresh();
+            }).finally(() => setReverting(false));
+          }}
         >
-          Revert to pre-review
+          {reverting ? 'Reverting…' : 'Revert to pre-review'}
         </button>
 
         {FORMATS.map(({ fmt, label }) => (
