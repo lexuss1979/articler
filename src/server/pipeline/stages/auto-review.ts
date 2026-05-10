@@ -59,7 +59,7 @@ function buildSystemPrompt(profile: ProfileRow): string {
     '',
     'Return ONLY valid JSON of shape { revisedMd: string, changes: [...] }, no prose, no fences.',
   ]
-    .filter((l) => l !== undefined)
+    .filter(Boolean)
     .join('\n');
 }
 
