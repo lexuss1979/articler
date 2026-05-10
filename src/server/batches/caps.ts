@@ -52,7 +52,11 @@ export async function assertBatchCaps(
   }
 
   const dailySessions = await getDailySessionCount(userId);
-  if (dailySessions + requested > BATCH_DAILY_SESSION_CAP) {
+  // requested=0: "at cap" means no slot for even one more (>=); requested>0: strict overflow (>)
+  const sessionsBreach = requested === 0
+    ? dailySessions >= BATCH_DAILY_SESSION_CAP
+    : dailySessions + requested > BATCH_DAILY_SESSION_CAP;
+  if (sessionsBreach) {
     return {
       ok: false,
       error: 'daily_session_cap_exceeded',
@@ -61,7 +65,10 @@ export async function assertBatchCaps(
   }
 
   const dailyImages = await getDailyImageCount(userId);
-  if (dailyImages + requested > BATCH_DAILY_IMAGE_CAP) {
+  const imagesBreach = requested === 0
+    ? dailyImages >= BATCH_DAILY_IMAGE_CAP
+    : dailyImages + requested > BATCH_DAILY_IMAGE_CAP;
+  if (imagesBreach) {
     return {
       ok: false,
       error: 'daily_image_cap_exceeded',

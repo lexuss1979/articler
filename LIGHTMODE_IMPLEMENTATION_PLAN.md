@@ -3173,7 +3173,7 @@ even if a hero retry mechanism is added later.
       state to `planning` and starts the runner, the existing
       `case 'planning'` branch finds a valid brief and proceeds.
 
-- [ ] T-L9-6: `dispatchBatchQueue` per-user dispatcher
+- [x] T-L9-6: `dispatchBatchQueue` per-user dispatcher
       Goal: New module `src/server/batches/dispatcher.ts` exporting
       `dispatchBatchQueue(userId): Promise<void>`. Behaviour:
       1. Per-user serialization: maintain a module-level
