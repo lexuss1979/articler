@@ -3029,7 +3029,7 @@ even if a hero retry mechanism is added later.
       it at batch creation would require allocating session IDs first
       and offers no useful guard since each session starts at $0 spend.
 
-- [ ] T-L9-3: Batches repo (CRUD + queue helpers)
+- [x] T-L9-3: Batches repo (CRUD + queue helpers)
       Goal: New module `src/server/batches/repo.ts` exporting:
       - `createBatchWithSessions(userId, profileId, topics: string[]):
         Promise<{ batchId: number; sessionIds: number[] }>` — in a
