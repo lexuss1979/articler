@@ -86,9 +86,12 @@ export function LightResultPane({
 
   async function handleVerifyAll() {
     setVerifyingAll(true);
-    const result = await verifyAllClaimsAction(sessionId);
-    if (result.budgetExceeded) setBudgetExceeded(true);
-    setVerifyingAll(false);
+    try {
+      const result = await verifyAllClaimsAction(sessionId);
+      if (result.budgetExceeded) setBudgetExceeded(true);
+    } finally {
+      setVerifyingAll(false);
+    }
   }
 
   const claimEntries = [...claimsMap.values()].sort((a, b) => a.claim.id - b.claim.id);
