@@ -2969,7 +2969,7 @@ even if a hero retry mechanism is added later.
       `schema.ts:57`). The `queued` state is a string literal handled
       in code only.
 
-- [ ] T-L9-2: Cap constants + count helpers + `assertBatchCaps`
+- [x] T-L9-2: Cap constants + count helpers + `assertBatchCaps`
       Goal: New module `src/server/batches/caps.ts` exporting:
       - Constants:
         ```ts
