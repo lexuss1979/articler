@@ -106,6 +106,13 @@
       "when": 1778348142802,
       "tag": "0014_nosy_hercules",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1778416463623,
+      "tag": "0015_many_juggernaut",
+      "breakpoints": true
     }
   ]
 }

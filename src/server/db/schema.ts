@@ -217,6 +217,30 @@ export const profileAssertions = pgTable(
   (t) => [uniqueIndex('profile_assertions_profile_id_key_idx').on(t.profileId, t.key)],
 );
 
+export const batches = pgTable('batches', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  profileId: integer('profile_id')
+    .notNull()
+    .references(() => profiles.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const batchSessions = pgTable(
+  'batch_sessions',
+  {
+    batchId: integer('batch_id')
+      .notNull()
+      .references(() => batches.id, { onDelete: 'cascade' }),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+  },
+  (t) => [uniqueIndex('batch_sessions_batch_session_idx').on(t.batchId, t.sessionId)],
+);
+
 export const runs = pgTable('runs', {
   id: serial('id').primaryKey(),
   sessionId: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),

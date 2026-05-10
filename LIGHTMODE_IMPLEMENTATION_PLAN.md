@@ -2857,13 +2857,11 @@ already provide.
       out of scope per epic intent; if hero generation fails, the
       user can still export.
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic L-9 — Batch session creation with rate limiting
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** A user can submit a list of topics (one per line, up to 50)
 and the system creates one light-mode session per topic. Sessions run
@@ -2907,3 +2905,535 @@ behaviour); the dispatcher catches it, marks the session
 `state='failed'` with a reason, emits an `artifact_updated` event on
 the batch endpoint, and continues with the next queued session rather
 than tearing down the whole batch.
+
+*State value:* the new `queued` value is added to the existing
+`sessions.state` text column (no schema change — column is
+unconstrained `text`). The runner's `runStage` switch returns early on
+`queued`, so a queued session does not consume runner concurrency until
+the dispatcher transitions it to `planning`. The session's `brief` is
+auto-populated at batch creation (`{ topic, goal: '', notes: '',
+sourceArticles: [] }`), so once dispatched, the runner's existing
+`planning` branch picks it up unchanged.
+
+*Image cap basis:* `BATCH_DAILY_IMAGE_CAP` is enforced by counting rows
+in the existing `runs` table where `user_id = X`, `model_class =
+'image'`, and `ts >= start_of_today`. Each light session generates 1
+hero image (per L-8), so this is the natural meter and stays accurate
+even if a hero retry mechanism is added later.
+
+### Tasks
+
+- [x] T-L9-1: Migration — `batches` + `batch_sessions` tables
+      Goal: Add two tables to `src/server/db/schema.ts`:
+      ```ts
+      export const batches = pgTable('batches', {
+        id: serial('id').primaryKey(),
+        userId: integer('user_id').notNull().references(() => users.id,
+          { onDelete: 'cascade' }),
+        profileId: integer('profile_id').notNull().references(
+          () => profiles.id, { onDelete: 'restrict' }),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+      });
+
+      export const batchSessions = pgTable(
+        'batch_sessions',
+        {
+          batchId: integer('batch_id').notNull().references(
+            () => batches.id, { onDelete: 'cascade' }),
+          sessionId: integer('session_id').notNull().references(
+            () => sessions.id, { onDelete: 'cascade' }),
+        },
+        (t) => [uniqueIndex('batch_sessions_batch_session_idx').on(
+          t.batchId, t.sessionId)],
+      );
+      ```
+      Generate a migration file via `pnpm drizzle-kit generate` (or
+      whatever the existing flow is — check `package.json` scripts).
+      Touches: `src/server/db/schema.ts`,
+      `drizzle/00XX_<name>.sql` (new — generated),
+      `drizzle/meta/00XX_snapshot.json` (new — generated),
+      `drizzle/meta/_journal.json` (updated by generator).
+      Acceptance:
+        - `pnpm drizzle-kit generate` produces a migration that creates
+          `batches` and `batch_sessions` with FK + index per the
+          schema. Inspect the generated SQL.
+        - `pnpm migrate` (or equivalent) runs cleanly against a fresh
+          dev DB.
+        - `psql -c "\d batches"` and `psql -c "\d batch_sessions"`
+          show the tables with the expected columns and constraints.
+        - `pnpm typecheck` passes (Drizzle types resolve for the new
+          tables).
+        - `pnpm lint && pnpm test` continue to pass.
+      Notes: No new value is added to the `sessions.state` enum
+      because `state` is a plain `text` column (verified in
+      `schema.ts:57`). The `queued` state is a string literal handled
+      in code only.
+
+- [ ] T-L9-2: Cap constants + count helpers + `assertBatchCaps`
+      Goal: New module `src/server/batches/caps.ts` exporting:
+      - Constants:
+        ```ts
+        export const BATCH_CONCURRENCY = Number(
+          process.env.BATCH_CONCURRENCY ?? 6);
+        export const BATCH_DAILY_SESSION_CAP = Number(
+          process.env.BATCH_DAILY_SESSION_CAP ?? 100);
+        export const BATCH_DAILY_IMAGE_CAP = Number(
+          process.env.BATCH_DAILY_IMAGE_CAP ?? 100);
+        ```
+        Each clamped to a positive integer; falls back to its default
+        if the env value parses to `NaN`, `<= 0`, or non-integer.
+      - `getDailySessionCount(userId): Promise<number>` — `count(*)`
+        from `sessions` where `user_id = userId` and
+        `created_at >= startOfTodayUtc()`. Use `start of UTC day` to
+        keep tests deterministic.
+      - `getDailyImageCount(userId): Promise<number>` — `count(*)`
+        from `runs` where `user_id = userId`, `model_class = 'image'`,
+        and `ts >= startOfTodayUtc()`.
+      - `assertBatchCaps(userId, requested): Promise<{ ok: true } |
+        { ok: false; error: 'monthly_usd_exceeded' |
+        'daily_session_cap_exceeded' | 'daily_image_cap_exceeded';
+        details: { current: number; cap: number; requested?: number }
+        }>`. Checks in order:
+        1. If `monthlyCapUsd != null` and `getUserCost(userId) >=
+           monthlyCapUsd` → `monthly_usd_exceeded`.
+        2. If `getDailySessionCount(userId) + requested >
+           BATCH_DAILY_SESSION_CAP` → `daily_session_cap_exceeded`.
+        3. If `getDailyImageCount(userId) + requested >
+           BATCH_DAILY_IMAGE_CAP` → `daily_image_cap_exceeded`.
+        Returns `{ ok: true }` on pass-through.
+      Touches: `src/server/batches/caps.ts` (new),
+      `tests/unit/batches/caps.test.ts` (new).
+      Acceptance:
+        - Unit test: env unset → constants resolve to defaults
+          `(6, 100, 100)`.
+        - Unit test: env set to invalid (`'foo'`, `'-1'`, `'0'`) →
+          falls back to default.
+        - Unit test: `getUserSettings` mocked with `monthlyCapUsd:
+          5`, `getUserCost` mocked → `5` → result is
+          `{ ok: false, error: 'monthly_usd_exceeded', details: {
+          current: 5, cap: 5 } }`.
+        - Unit test: monthly cap not breached, `getDailySessionCount`
+          mocked → `99`, requested `2` → result is `{ ok: false,
+          error: 'daily_session_cap_exceeded', details: { current:
+          99, cap: 100, requested: 2 } }`.
+        - Unit test: only image cap breached → result is
+          `{ ok: false, error: 'daily_image_cap_exceeded' }`.
+        - Unit test: under all caps → `{ ok: true }`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: Reuse `getUserCost` from
+      `src/server/logging/aggregate.ts` and `getUserSettings` from
+      `src/server/settings/budget.ts` rather than re-implementing the
+      USD lookup. Decision needed: include `session_cap_usd` in the
+      pre-flight? Default (chosen): no — `session_cap_usd` is enforced
+      per-session by `assertBudget` once an LLM call runs; pre-flighting
+      it at batch creation would require allocating session IDs first
+      and offers no useful guard since each session starts at $0 spend.
+
+- [ ] T-L9-3: Batches repo (CRUD + queue helpers)
+      Goal: New module `src/server/batches/repo.ts` exporting:
+      - `createBatchWithSessions(userId, profileId, topics: string[]):
+        Promise<{ batchId: number; sessionIds: number[] }>` — in a
+        single `db.transaction`:
+          1. Insert one `batches` row.
+          2. For each topic, insert one `sessions` row with
+             `userId`, `profileId`, `mode: 'light'`, `state:
+             'queued'`, `brief: { topic, goal: '', notes: '',
+             sourceArticles: [] }`.
+          3. Insert one `batch_sessions` row per (batchId, sessionId).
+        Verifies the profile is owned by the user (raises
+        `ProfileNotOwnedError` from `sessions/repo.ts` if not).
+      - `getBatchWithSessions(userId, batchId): Promise<
+        { batch: BatchRow; sessions: SessionRow[] } | null>` — joins
+        `batches` + `batch_sessions` + `sessions` filtered by
+        `userId`; preserves session insertion order (`ORDER BY
+        sessions.id ASC`).
+      - `findQueuedLightSessions(userId, limit: number): Promise<
+        SessionRow[]>` — `SELECT * FROM sessions WHERE user_id =
+        userId AND mode = 'light' AND state = 'queued' ORDER BY id
+        ASC LIMIT N`.
+      - `countActiveLightSessions(userId): Promise<number>` —
+        `SELECT count(*) FROM sessions WHERE user_id = userId AND
+        mode = 'light' AND state IN ('planning','research',
+        'drafting','review')`.
+      Touches: `src/server/batches/repo.ts` (new),
+      `tests/integration/batches/repo.test.ts` (new — uses real test DB
+      following the convention used by other `tests/integration/**`
+      tests).
+      Acceptance:
+        - Integration test: `createBatchWithSessions(userId, profileId,
+          ['t1','t2','t3'])` returns `{ batchId, sessionIds: [a, b, c]
+          }`. Verify each session row has `state='queued'`, `mode=
+          'light'`, `brief.topic` matching the input order.
+          `batch_sessions` has 3 rows linking the batch to the
+          sessions.
+        - Integration test: `createBatchWithSessions` with a profile
+          owned by a different user throws `ProfileNotOwnedError` and
+          rolls back — no rows inserted into `batches` or `sessions`.
+        - Integration test: `getBatchWithSessions(userId, batchId)`
+          returns the batch + sessions in insertion order; for an
+          unknown batchId or other-user batch returns `null`.
+        - Integration test: `findQueuedLightSessions` only returns
+          rows with `mode='light'` AND `state='queued'` AND
+          `user_id` matching, ordered by id ASC, respecting `limit`.
+        - Integration test: `countActiveLightSessions` counts only
+          `planning|research|drafting|review` sessions for the user
+          (insert one of each in-progress + one queued + one done +
+          one with mode='new'; expected count is 4).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: All inserts go through one transaction so a partial
+      failure leaves no orphan batch row.
+
+- [ ] T-L9-4: `createBatchAction` server action + topic parser
+      Goal: New module `src/app/(app)/sessions/batch/actions.ts`
+      exporting `createBatchAction(prevState, formData):
+      Promise<BatchActionState>`:
+      - Parse `formData.get('profileId')` → positive integer.
+      - Parse `formData.get('topics')` (textarea string): split by
+        `\n`, `.trim()` each line, drop empties, dedupe (case-
+        sensitive), cap at 50. If the resulting list is empty →
+        `{ ok: false, error: 'no_topics' }`. If post-split count > 50
+        → `{ ok: false, error: 'too_many_topics' }` (defensive even
+        though UI also limits).
+      - Call `assertBatchCaps(userId, topics.length)`. If not ok →
+        `{ ok: false, error: <cap error from helper>, details }`.
+      - Call `createBatchWithSessions`. Catch
+        `ProfileNotOwnedError` → `{ ok: false, error:
+        'profile_not_owned' }`.
+      - Fire-and-forget `void dispatchBatchQueue(userId).catch(...)`
+        so the first batch members start immediately
+        (T-L9-6 implements the dispatcher).
+      - `redirect('/sessions/batch/' + batchId)`.
+      Define `BatchActionState` as a discriminated union covering
+      every error case + `null` for "no submission yet".
+      Touches: `src/app/(app)/sessions/batch/actions.ts` (new),
+      `tests/unit/sessions/batch-action.test.ts` (new).
+      Acceptance:
+        - Unit test: empty textarea → `{ ok: false, error:
+          'no_topics' }`; `createBatchWithSessions` not called.
+        - Unit test: 51 distinct topics → `{ ok: false, error:
+          'too_many_topics' }`.
+        - Unit test: duplicates and blank lines collapse — input
+          `'a\n\nb\nb\n  \nc'` results in `topics = ['a', 'b', 'c']`
+          passed to `createBatchWithSessions`.
+        - Unit test: `assertBatchCaps` returns
+          `{ ok: false, error: 'monthly_usd_exceeded' }` →
+          action returns same error; `createBatchWithSessions` not
+          called.
+        - Unit test: happy path — `createBatchWithSessions` returns
+          `{ batchId: 7, sessionIds: [1,2,3] }`; action calls
+          `redirect('/sessions/batch/7')` (assert via
+          `next/navigation` mock). `dispatchBatchQueue` is called
+          with the userId.
+        - Unit test: `ProfileNotOwnedError` thrown by repo →
+          `{ ok: false, error: 'profile_not_owned' }`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: Mirror the existing `createSessionAction` mock conventions
+      (`tests/unit/sessions/start-review-action.test.ts` is a good
+      reference). `redirect` from `next/navigation` throws to abort
+      the action — assert via mock.
+
+- [ ] T-L9-5: Runner + light-session-pane handle `queued` state
+      Goal: Two coordinated changes:
+      1. `src/server/pipeline/runner.ts` — inside the `runStage`
+         switch, add a `case 'queued': return;` arm so the recovery
+         `void startRunner` calls in `page.tsx` and `actions.ts` are
+         no-ops for queued sessions. Place this case before
+         `default`.
+      2. `src/app/(app)/sessions/[id]/light-session-pane.tsx` — add
+         a branch:
+         ```tsx
+         if (state === 'queued') {
+           return (
+             <p className="text-sm text-gray-500">
+               Queued — waiting for a free slot to start.
+             </p>
+           );
+         }
+         ```
+         Place it before the existing `state === 'briefing'` branch
+         (the union match on light states should cover queued
+         explicitly).
+      Touches: `src/server/pipeline/runner.ts`,
+      `src/app/(app)/sessions/[id]/light-session-pane.tsx`,
+      `tests/unit/pipeline/runner.test.ts` (extend),
+      `tests/unit/sessions/light-session-pane.test.ts` (extend).
+      Acceptance:
+        - Unit test: `startRunner(sessionId, userId)` against a session
+          with `state='queued'` resolves cleanly without emitting any
+          events, calling any stage, or transitioning state. Use the
+          existing test harness in `runner.test.ts` (mock `getSession`
+          to return a queued session).
+        - Component test: `<LightSessionPane state="queued" />`
+          rendered via `renderToString` contains the text "Queued"
+          and does not render a `LightBriefForm` or `LightProgressBar`.
+        - Existing tests for both files continue to pass.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: A queued session's `brief` is already populated by
+      `createBatchWithSessions`, so when the dispatcher (T-L9-6) flips
+      state to `planning` and starts the runner, the existing
+      `case 'planning'` branch finds a valid brief and proceeds.
+
+- [ ] T-L9-6: `dispatchBatchQueue` per-user dispatcher
+      Goal: New module `src/server/batches/dispatcher.ts` exporting
+      `dispatchBatchQueue(userId): Promise<void>`. Behaviour:
+      1. Per-user serialization: maintain a module-level
+         `Map<number, Promise<void>>` of in-flight dispatches. If a
+         dispatch is already running for `userId`, await it and
+         return (coalesce concurrent calls).
+      2. Compute `slotsAvailable = max(0, BATCH_CONCURRENCY -
+         await countActiveLightSessions(userId))`. If 0, return.
+      3. `const queued = await findQueuedLightSessions(userId,
+         slotsAvailable)`.
+      4. For each queued session in order:
+         a. Re-check daily caps via `assertBatchCaps(userId, 0)` —
+            since the session itself doesn't add to the count yet
+            (it's already created), but the helper's check is
+            "current ≥ cap" semantics; pass `requested = 0` and
+            adjust the helper to treat `0` as "current must be
+            strictly < cap". Practically: if either daily cap is
+            already at/over its limit, mark the queued session
+            `state='failed'` with an `agent_message` reason
+            `'cap_exceeded:<error>'`, emit
+            `state_changed { state: 'failed', reason }`, and
+            continue the loop (do **not** fire the runner).
+         b. Otherwise: `await updateSessionState(userId, session.id,
+            'planning')` and `await emitEvent(session.id,
+            'state_changed', { state: 'planning' })`. Then
+            `void startRunner(session.id, userId).catch(...)` (do
+            not await — the dispatcher must return promptly).
+      5. Use a `try/finally` to clear the in-flight entry on exit.
+      Touches: `src/server/batches/dispatcher.ts` (new),
+      `src/server/batches/caps.ts` (extend — accept `requested = 0`
+      semantics; document this in code via the type),
+      `tests/unit/batches/dispatcher.test.ts` (new).
+      Acceptance:
+        - Unit test: `countActiveLightSessions` mocked → 6
+          (concurrency cap), `findQueuedLightSessions` mocked → []
+          would not even be called. Assert
+          `findQueuedLightSessions` not called and
+          `updateSessionState` not called.
+        - Unit test: `countActiveLightSessions` → 4,
+          `findQueuedLightSessions(userId, 2)` returns 2 queued
+          sessions; `assertBatchCaps` returns ok. Assert each session
+          gets `updateSessionState(userId, id, 'planning')` and
+          `emitEvent(id, 'state_changed', { state: 'planning' })`,
+          and `startRunner` is called twice.
+        - Unit test: concurrent `dispatchBatchQueue(7)` calls coalesce
+          — fire two simultaneously, assert
+          `findQueuedLightSessions` is called only once.
+        - Unit test: `assertBatchCaps` returns `{ ok: false, error:
+          'daily_image_cap_exceeded' }` for the second queued
+          session; that session is marked `failed` (assert
+          `updateSessionState(userId, id, 'failed')` and a
+          `state_changed { state: 'failed', reason:
+          'cap_exceeded:daily_image_cap_exceeded' }` event), but
+          `startRunner` is not called for it. Loop continues to
+          the next queued session if any.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: Decision needed: race window — between
+      `countActiveLightSessions` and the runner actually starting,
+      another caller could exceed the cap. Default (chosen): accept
+      this — `BATCH_CONCURRENCY` is a soft cap, and the per-user
+      coalescing lock plus the runner's own
+      `activeRunners.has(sessionId)` guard makes overshoot at most
+      one slot. If a hard cap is needed later, take a row-level
+      `SELECT ... FOR UPDATE` on the user row inside a transaction.
+
+- [ ] T-L9-7: Wire dispatcher into runner completion +
+      `BudgetExceededError` graceful failure
+      Goal: Edit `src/server/pipeline/runner.ts`'s `startRunner`:
+      - Inside the existing `try { await runStage(...) }` block, add
+        a separate `catch (err)` arm for `BudgetExceededError`:
+        ```ts
+        if (err instanceof BudgetExceededError) {
+          await updateSessionState(userId, sessionId, 'failed');
+          await emitEvent(sessionId, 'state_changed', {
+            state: 'failed', reason: 'budget_exceeded' });
+          return;
+        }
+        ```
+        (i.e., do **not** rethrow). Keep the existing generic catch
+        for other errors (log + rethrow).
+      - In the `finally`, after `activeRunners.delete(sessionId)`,
+        add `void dispatchBatchQueue(userId).catch((err) => {
+        console.error('[batch/dispatch] failed:', err); });`.
+      Imports: `BudgetExceededError` from `../llm/budget-guard`,
+      `dispatchBatchQueue` from `../batches/dispatcher`,
+      `updateSessionState` already imported, `emitEvent` already
+      imported via `../events/bus`.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner.test.ts` (extend).
+      Acceptance:
+        - Unit test: `runStage` throws `new BudgetExceededError(
+          'user', 1, 1)`. Assert `updateSessionState(userId, id,
+          'failed')` is called, a `state_changed { state: 'failed',
+          reason: 'budget_exceeded' }` event is emitted, the
+          `startRunner` promise resolves (no rethrow),
+          `activeRunners` no longer contains the sessionId, and
+          `dispatchBatchQueue` is called once with userId.
+        - Unit test: `runStage` throws a generic Error → existing
+          behaviour (log + rethrow) still applies; `dispatchBatchQueue`
+          is still called in `finally`.
+        - Unit test: happy-path `runStage` resolves →
+          `dispatchBatchQueue(userId)` is called in finally.
+        - All previously-passing runner tests continue to pass.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: This change benefits non-batch sessions too: a hand-
+      run light/full session that hits its monthly budget cap will
+      now land in `failed` rather than crashing the runner with an
+      uncaught error. The `failed` state value is new in the
+      sessions text column; UI must handle it (T-L9-9 batch cards
+      do; non-batch session pages will fall through to the existing
+      `Unexpected state: failed` message in `light-session-pane.tsx`,
+      acceptable for v1).
+
+- [ ] T-L9-8: SSE multiplex endpoint `/api/stream/batch/[batchId]`
+      Goal: New route
+      `src/app/api/stream/batch/[batchId]/route.ts` — same shape as
+      `/api/stream/[sessionId]/route.ts`, but multiplexed across all
+      member sessions of a batch:
+      1. `requireUser`. Parse `batchId`.
+      2. `const batch = await getBatchWithSessions(user.id, batchId)`;
+         if null → 404.
+      3. Fetch existing events for **all** member sessionIds in one
+         query: `db.select().from(events).where(inArray(
+         events.sessionId, sessionIds)).orderBy(asc(events.id))`.
+      4. Stream each as `event: <kind>\ndata: <json with sessionId
+         injected>\n\n` — include the sessionId in the SSE payload
+         (since events table doesn't carry batch context, the client
+         needs to know which session each event belongs to).
+         Concretely, format payload as `JSON.stringify({ sessionId:
+         e.sessionId, ...JSON.parse(JSON.stringify(e.payload)) })`.
+      5. Subscribe to each member sessionId via the existing
+         `subscribe(sessionId, listener)` from `events/bus`. Track
+         all unsubscribe handles; on `request.signal.abort`, call
+         each unsubscribe and close the controller.
+      Touches: `src/app/api/stream/batch/[batchId]/route.ts` (new),
+      `tests/unit/api/batch-stream-route.test.ts` (new).
+      Acceptance:
+        - Unit test: `getBatchWithSessions` mocked to return null →
+          response status 404.
+        - Unit test: batch with 2 member sessions; mock `db` to
+          return 3 stored events (2 from session A, 1 from
+          session B). Assert the response stream contains exactly 3
+          `event: <kind>` blocks, each `data:` payload is valid JSON
+          containing a `sessionId` field that matches the source
+          row.
+        - Unit test: `subscribe` is called once per member sessionId
+          (assert via mock count and arguments).
+        - Unit test: aborting `request.signal` triggers each
+          unsubscribe handler exactly once.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: The existing single-session endpoint's implementation
+      pattern (read all stored events, then subscribe live) is the
+      reference; do not deviate. Decision needed: cap on batch size
+      for streaming? Default (chosen): no — `BATCH_DAILY_SESSION_CAP
+      = 100` already bounds the multiplex fan-out at <=100 emitter
+      listeners per stream subscriber, well within the EE
+      `setMaxListeners(0)` already set in `events/bus.ts`.
+
+- [ ] T-L9-9: Batch detail page (server component + client cards)
+      Goal: Two new client/server files:
+      1. Server page `src/app/(app)/sessions/batch/[batchId]/page.tsx`
+         — `requireUser`, parse batchId, call `getBatchWithSessions`;
+         if null → `notFound()`. Render shell with `<h1>Batch
+         #<id></h1>` and a `<BatchCards batchId={...}
+         initialSessions={...} />` client child.
+      2. Client component `src/app/(app)/sessions/batch/[batchId]/
+         batch-cards.tsx`. Props: `{ batchId: number;
+         initialSessions: { id: number; topic: string; state:
+         string; draftMd: string | null }[] }`. Internal state:
+         `sessionsById: Map<number, { topic, state, draftMd }>`
+         seeded from `initialSessions`. Effect: open
+         `EventSource('/api/stream/batch/' + batchId)`, listen for
+         `state_changed` events (parse `{ sessionId, state }` from
+         the payload), update map; close on unmount. Render a card
+         per session: topic (from initialSessions), current state
+         (from map), and:
+         - If state is `queued`: show "Queued" badge.
+         - If state is `failed`: show red "Failed" badge plus the
+           reason if present in the latest event payload.
+         - If state is `done`: show a green "Done" badge plus a
+           200-char preview of `draftMd` (slice + ellipsis).
+         - Otherwise: show a "Running" badge with the current
+           state name.
+         Each card links to `/sessions/<id>`.
+      Touches: `src/app/(app)/sessions/batch/[batchId]/page.tsx`
+      (new),
+      `src/app/(app)/sessions/batch/[batchId]/batch-cards.tsx` (new),
+      `tests/unit/sessions/batch-cards.test.ts` (new).
+      Acceptance:
+        - Component test (`renderToString`) — `<BatchCards
+          initialSessions={[{ id:1, topic:'t1', state:'queued',
+          draftMd:null }, { id:2, topic:'t2', state:'done',
+          draftMd:'hello world '.repeat(40) }]}>` renders two
+          cards: card 1 contains "t1" + "Queued"; card 2 contains
+          "t2" + "Done" + a draftMd preview <= 200 chars + an `<a
+          href="/sessions/2">` link.
+        - Component test: a card for `state:'failed'` renders "Failed"
+          in red text.
+        - Component test: with `useSessionEvents`-equivalent mock
+          (or by directly seeding `sessionsById` via initial events
+          — match the convention used in T-L8-4 derived-from-events
+          tests), an injected event `{ sessionId: 1, state:
+          'planning' }` causes card 1 to show "Running" + state
+          label "planning".
+        - Manual via `pnpm dev`: create a 3-topic batch via the form
+          (T-L9-10) and load `/sessions/batch/<id>` — see three
+          cards transition queued → running → done as the dispatcher
+          processes them.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: Prefer deriving each card's live state from the events
+      array (compute on render) rather than `useEffect` + `useState`,
+      matching the T-L8-4 convention so SSR-based tests continue to
+      work in the `node` test env. The page server component fetches
+      the initial sessions; live updates come via SSE.
+
+- [ ] T-L9-10: Batch creation form page `/sessions/batch/new`
+      Goal: Two new files:
+      1. Server page `src/app/(app)/sessions/batch/new/page.tsx`
+         — `requireUser`, `listProfiles(user.id)`, render
+         `<BatchForm profiles={...} />`.
+      2. Client form `src/app/(app)/sessions/batch/new/batch-form.tsx`
+         — `useActionState` over `createBatchAction`. Fields:
+         - `<select name="profileId">` populated from `profiles`.
+         - `<textarea name="topics" rows={10} placeholder="One topic
+            per line, up to 50 lines" required />`.
+         - Submit button labelled "Create batch".
+         Render error banners for each `BatchActionState` error
+         variant (validation, cap-exceeded, profile_not_owned),
+         showing the user-facing message and (for cap errors) the
+         `details.current` / `details.cap` numbers.
+      Add a link to `/sessions/batch/new` from
+      `src/app/(app)/sessions/page.tsx` (a small "New batch"
+      button next to the existing "New session" button).
+      Touches: `src/app/(app)/sessions/batch/new/page.tsx` (new),
+      `src/app/(app)/sessions/batch/new/batch-form.tsx` (new),
+      `src/app/(app)/sessions/page.tsx` (small edit — add button).
+      Acceptance:
+        - Component test (`renderToString`) — `<BatchForm
+          profiles={[{ id:1, name:'p' }]} />` renders a textarea with
+          `name="topics"`, a profile select with one option, and a
+          submit button.
+        - Component test: state `{ ok: false, error:
+          'daily_session_cap_exceeded', details: { current: 99,
+          cap: 100, requested: 5 } }` causes the form to show a
+          red banner containing "daily session cap" and the numbers
+          99/100.
+        - Component test: state `{ ok: false, error: 'no_topics' }`
+          shows a red banner mentioning "no topics".
+        - Manual via `pnpm dev`: visit `/sessions/batch/new`, paste
+          three topics on three lines, pick a profile, submit — page
+          redirects to `/sessions/batch/<id>` and the dispatcher
+          starts the first batch members within ~1s.
+        - The `/sessions` page renders a "New batch" button linking
+          to `/sessions/batch/new`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: The form intentionally does not pre-validate against
+      caps client-side; the action returns the cap error and the form
+      displays it. This avoids duplicating the cap logic in two
+      places.
+
+<!-- PLANING_CHECKPOINT -->
+
+---
