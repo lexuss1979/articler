@@ -2539,13 +2539,11 @@ draft).
       fetches just the changed claim's verdict, avoiding a full RSC
       re-render on every verdict.
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic L-8 — Hero image for light mode
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** After claims extraction completes, the light mode pipeline
 generates exactly one hero image and attaches it to the session
@@ -2557,14 +2555,309 @@ fired from the same code path that emits the `state_changed → done`
 event for light sessions. It uses the existing image stages
 (`compose-image-prompt`, `prerender-images`), wrapped in
 `withStageCtx`, requesting exactly 1 candidate. Result is persisted to
-`sessions.images` as `{ hero: { url, prompt, localPath } }` (matching
-the existing image shape). Emits
-`artifact_updated { kind: 'hero_image', url }`. The UI placeholder
-slot in `LightResultPane` swaps in via SSE. Failures (budget cap, API
-error) are logged + emitted as
+`sessions.images` as a single hero `ImageSlot` with `chosenCandidateId`
+set (the existing `imageStateSchema` is `{ slots: ImageSlot[] }` — the
+parent intent's `{ hero: ... }` shorthand is resolved by storing one
+hero slot in `slots[]`, which keeps `apply-image.ts` semantics
+consistent and lets the markdown rendering helper `renderImageMarkdown`
+apply unchanged). Emits `artifact_updated { kind: 'hero_image', url,
+candidateId }`. The orchestrator also prepends the hero image markdown
+to `session.draftMd` so the existing HTML preview / export endpoints
+include it without further changes. The UI placeholder slot in
+`LightResultPane` swaps in via SSE. Failures (budget cap, API error)
+are logged + emitted as
 `artifact_updated { kind: 'hero_image_failed', reason }` and leave the
 placeholder in place — they do **not** prevent the user from
 exporting, since the article itself is already finalized.
+
+This epic depends on L-7 (claims extraction must finish before the
+runner emits `state_changed → done` for light sessions). It does **not**
+add new schema, stages, server actions for user-driven regeneration, or
+budget plumbing beyond what `withStageCtx` + the existing router
+already provide.
+
+### Tasks
+
+- [x] T-L8-1: `runLightHeroImage` orchestrator
+      Goal: New module
+      `src/server/pipeline/run-light-hero-image.ts` exporting
+      `runLightHeroImage({ sessionId, userId }):
+        Promise<
+          | { ok: true; candidateId: string; localPath: string }
+          | { ok: false; error: 'session_invalid' | 'no_plan'
+              | 'no_draft' | 'already_generated' | 'budget_exceeded'
+              | 'image_failed' }>`.
+      Behaviour:
+      1. `getSession(userId, sessionId)`. If null →
+         `{ ok: false, error: 'session_invalid' }`.
+      2. `planSchema.safeParse(session.plan)`. If invalid →
+         `{ ok: false, error: 'no_plan' }`.
+      3. If `session.draftMd == null || session.draftMd.length === 0` →
+         `{ ok: false, error: 'no_draft' }`.
+      4. `parseImageState(session.images)`. If any existing slot has
+         `kind === 'hero'` and a non-empty `chosenCandidateId`, return
+         `{ ok: false, error: 'already_generated' }` — idempotency
+         guard for crash-resume / accidental re-trigger.
+      5. `getProfile(userId, session.profileId)`. If null →
+         `{ ok: false, error: 'session_invalid' }`.
+      6. Build the synthetic hero slot:
+         `const slotId = 's_hero_' + sessionId + '_' + Date.now();`
+         `const slot = { id: slotId, kind: 'hero' as const,
+           brief: ('Hero image for: ' + plan.thesis +
+                   ' — target takeaway: ' + plan.targetTakeaway).slice(0, 990) };`
+      7. Build the standard `ctx` (same shape as `run-illustration.ts`:
+         `emit` forwards to `emitEvent`, `userInput` rejects, `log` no-op,
+         `llm` cast to `never`).
+      8. Call `await withStageCtx(composeImagePrompt, sessionId, userId,
+          () => composeImagePrompt.run({ profile, plan, slot,
+          surroundingMd: session.draftMd!.slice(0, 500) }, ctx))`. Wrap
+         in try/catch — on `BudgetExceededError`, emit
+         `artifact_updated { kind: 'hero_image_failed', reason:
+          'budget_exceeded' }` and return
+         `{ ok: false, error: 'budget_exceeded' }`. On any other error,
+         emit `artifact_updated { kind: 'hero_image_failed', reason:
+          'compose_failed' }` and return
+         `{ ok: false, error: 'image_failed' }`.
+      9. Call `await withStageCtx(prerenderImages, sessionId, userId,
+          () => prerenderImages.run({ sessionId, slotId, prompt, count:
+          1 }, ctx))`. Same try/catch pattern: `BudgetExceededError` →
+         emit `hero_image_failed { reason: 'budget_exceeded' }` +
+         return `{ ok: false, error: 'budget_exceeded' }`; other errors
+         → emit `hero_image_failed { reason: 'render_failed' }` +
+         return `{ ok: false, error: 'image_failed' }`.
+      10. `const candidate = candidates[0];` (always present — stage
+          throws if zero succeeded).
+      11. Persist the slot:
+          `const altText = plan.thesis.slice(0, 200);`
+          `const persisted = await setImageSlots(userId, sessionId,
+            [{ ...slot, altText, mode: 'generate', prompt, candidates:
+              [candidate], chosenCandidateId: candidate.id }]);`
+          If `persisted == null` → `{ ok: false, error:
+          'session_invalid' }`.
+      12. Prepend the hero markdown to `session.draftMd`:
+          `const heroMd = renderImageMarkdown(candidate, altText);`
+          `const currentDraft = session.draftMd ?? '';`
+          `if (!currentDraft.startsWith(heroMd))
+             { await updateSessionDraft(userId, sessionId, heroMd +
+              '\n\n' + currentDraft); }`
+      13. Emit `await emitEvent(sessionId, 'artifact_updated', { kind:
+           'hero_image', url: candidate.localPath, candidateId:
+           candidate.id })`.
+      14. Return `{ ok: true, candidateId: candidate.id, localPath:
+           candidate.localPath }`.
+      Touches: `src/server/pipeline/run-light-hero-image.ts` (new),
+      `tests/unit/pipeline/run-light-hero-image.test.ts` (new).
+      Acceptance:
+        - Unit test: `getSession` → null; result is
+          `{ ok: false, error: 'session_invalid' }`; `composeImagePrompt`
+          / `prerenderImages` are NOT called.
+        - Unit test: session whose `plan` fails `planSchema.safeParse`
+          → `{ ok: false, error: 'no_plan' }`.
+        - Unit test: session with empty `draftMd` →
+          `{ ok: false, error: 'no_draft' }`.
+        - Unit test: session whose existing `images` already contains a
+          hero slot with `chosenCandidateId` → `{ ok: false, error:
+          'already_generated' }`; no stages called.
+        - Unit test: full success — mock `getSession`, `getProfile`,
+          `composeImagePrompt.run` → an `ImagePrompt`, `prerenderImages.run`
+          → `{ candidates: [{ id: 'c_1', source: 'generated',
+          localPath: '/api/images/1/s/c_1.png', createdAt: 'x' }] }`,
+          `setImageSlots` → returns slots, `updateSessionDraft` → row.
+          Assert: `setImageSlots` called once with one slot whose
+          `chosenCandidateId === 'c_1'`, `mode === 'generate'`, `kind
+          === 'hero'`; `updateSessionDraft` called with a string
+          beginning with `![…](/api/images/1/s/c_1.png)\n\n`; an
+          `artifact_updated { kind: 'hero_image', url:
+          '/api/images/1/s/c_1.png', candidateId: 'c_1' }` event is
+          emitted; result is `{ ok: true, candidateId: 'c_1',
+          localPath: '/api/images/1/s/c_1.png' }`.
+        - Unit test: idempotent draft prepend — when `session.draftMd`
+          already starts with the rendered hero markdown,
+          `updateSessionDraft` is NOT called again (the success path
+          must still emit `hero_image` and return `ok: true`).
+        - Unit test: `composeImagePrompt.run` rejects with
+          `new BudgetExceededError('user', 1, 1)`. Assert: a
+          `hero_image_failed { reason: 'budget_exceeded' }` event is
+          emitted, `prerenderImages` is NOT called, result is
+          `{ ok: false, error: 'budget_exceeded' }`.
+        - Unit test: `prerenderImages.run` throws a non-budget Error.
+          Assert: a `hero_image_failed { reason: 'render_failed' }`
+          event is emitted; result is `{ ok: false, error:
+          'image_failed' }`; `setImageSlots` and `updateSessionDraft`
+          are NOT called.
+        - Unit test: asserts `composeImagePrompt` and `prerenderImages`
+          are each wrapped via `withStageCtx` (mock `withStageCtx` to
+          invoke its callback and assert call count == 2 with the
+          expected stage references).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `BudgetExceededError` is imported from
+      `../llm/budget-guard`. The synthetic slot uses `kind: 'hero'`,
+      which `imageSlotSchema.superRefine` accepts only when neither
+      `sectionId` nor `paragraphIndex` is set — both are omitted here,
+      so validation in `setImageSlots`' downstream consumers stays
+      green. Decision needed: hero image alt text source. Default
+      (chosen): `plan.thesis` truncated to 200 chars — short enough to
+      fit a single Markdown alt attribute, descriptive enough for a11y.
+      Decision needed: brief composition. Default (chosen): a literal
+      `'Hero image for: <thesis> — target takeaway: <takeaway>'`
+      template, capped at 990 chars to stay under
+      `imageSlotSchema.brief`'s 1000-char limit; this avoids paying
+      for a `proposeImageSlots` call whose `inlineSlots` we'd discard.
+
+- [ ] T-L8-2: Runner — fire-and-forget hero image after `done`
+      Goal: In `src/server/pipeline/runner.ts`'s `case 'review':`
+      light branch, AFTER `await emitEvent(... 'state_changed', {
+      state: 'done' })` and BEFORE the existing `return` (the closing
+      lines of the light review block, currently around lines
+      452–454), insert a fire-and-forget call:
+      ```
+      void runLightHeroImage({ sessionId, userId }).catch((err) => {
+        console.error('[runner/light/hero] failed:',
+          err instanceof Error ? err.message : err);
+      });
+      ```
+      Import `runLightHeroImage` alongside `runLightClaimsExtraction`
+      at the top of `runner.ts`. Do NOT `await` the call — the runner
+      must return immediately so the caller (the user's clarification
+      action, page load, etc.) is not blocked on image generation.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-review.test.ts` (extend).
+      Acceptance:
+        - Unit test: `session.mode = 'light'`, mocks for `runAutoReview`
+          / `runLightClaimsExtraction` succeed. Assert (in order):
+          `state_changed { state: 'done' }` is emitted, then
+          `runLightHeroImage` is called with `{ sessionId, userId }`;
+          the runner's promise resolves *without* awaiting the
+          `runLightHeroImage` mock (use a deferred-promise scaffold
+          that never resolves and assert the runner returns).
+        - Unit test: `runLightHeroImage` rejects asynchronously — the
+          runner's outer promise still resolves, and the rejection is
+          surfaced via `console.error` (spy).
+        - Unit test: `session.mode = 'light'` with `runAutoReview`
+          returning `{ ok: false }` (existing case) — `runLightHeroImage`
+          must NOT be called, and the runner returns early before the
+          `state_changed → done` block.
+        - Unit test: `session.mode = 'rewrite'` (existing case) —
+          `runLightHeroImage` must NOT be called.
+        - All previously-passing T-L7-3 / T-L6-4 review-branch tests
+          continue to pass.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: Fire-and-forget is intentional per epic intent ("dispatched
+      async after `done`"). The hero image task continues running on
+      the Node process; events stream over SSE to whichever client is
+      subscribed. No new orchestrator-level retry; failures are
+      visible to the user via the `hero_image_failed` event handled in
+      T-L8-4.
+
+- [ ] T-L8-3: Page wiring — load image state for light `done` sessions
+      Goal: In `src/app/(app)/sessions/[id]/page.tsx`, inside the
+      `if (session.mode === 'light')` branch (around lines 45–58),
+      when `session.state === 'done'`, also compute the parsed image
+      state and pass it down. Specifically:
+      1. After the existing `Promise.all` that fetches `[profile,
+          claims]`, also call
+         `const lightImageState = parseImageState(session.images);`
+         (synchronous — no extra `await`).
+      2. Add a new prop `initialImageState` to both
+         `LightSessionPane` (defaulting to
+         `{ slots: [] }`) and `LightResultPane`.
+      3. Threading: `LightSessionPane` forwards `initialImageState` to
+         `LightResultPane` only in the `state === 'done'` branch.
+      `parseImageState` already exists and is imported at the top of
+      `page.tsx`; use it directly.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`,
+      `src/app/(app)/sessions/[id]/light-session-pane.tsx`,
+      `src/app/(app)/sessions/[id]/light-result-pane.tsx` (only the
+      prop signature in this task — UI rendering lands in T-L8-4).
+      Acceptance:
+        - `pnpm typecheck` accepts the new prop on both panes (test by
+          referencing it in the `LightSessionPane` JSX).
+        - Existing tests for `LightResultPane` / `LightSessionPane`
+          continue to pass; the default `{ slots: [] }` keeps the
+          backward-compatible behaviour.
+        - Unit/component test: `LightSessionPane` rendered with
+          `state="done"` and a non-empty `initialImageState` passes
+          that prop through to `LightResultPane` (assert via render
+          + spy or shallow inspection).
+        - Manual via `pnpm dev`: load a light session in `done` state
+          with a populated `images` jsonb column; the page renders
+          without runtime error.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L8-4: `LightResultPane` — render hero image + SSE swap-in
+      Goal: Replace the placeholder `<div data-slot="hero-image">`
+      block in `src/app/(app)/sessions/[id]/light-result-pane.tsx`
+      (currently lines 104–106) with a stateful hero panel:
+      1. Receive `initialImageState: ImageState` prop (added in
+         T-L8-3) and seed local state:
+         ```
+         const initialHero = initialImageState.slots.find(
+           (s) => s.kind === 'hero' && s.chosenCandidateId,
+         );
+         const initialCandidate = initialHero
+           ? initialHero.candidates.find(
+               (c) => c.id === initialHero.chosenCandidateId,
+             ) ?? null
+           : null;
+         const [heroUrl, setHeroUrl] = useState<string | null>(
+           initialCandidate?.localPath ?? null,
+         );
+         const [heroFailed, setHeroFailed] = useState<string | null>(
+           null,
+         );
+         ```
+      2. Extend the existing `useEffect` over `events` to also handle
+         `artifact_updated` payloads with `kind === 'hero_image'`
+         (set `heroUrl = payload.url`; clear `heroFailed`) and
+         `kind === 'hero_image_failed'` (set `heroFailed =
+         payload.reason || 'unknown'`).
+      3. Render rules inside the `data-slot="hero-image"` block:
+         - If `heroUrl != null`: render
+           `<img src={heroUrl} alt="Hero" className="w-full
+            rounded" />` with no surrounding "generating…" text.
+         - Else if `heroFailed != null`: render a small red text
+           `Hero image failed (<reason>). You can still export.`
+         - Else: keep the existing "Hero image generating…" text.
+      Touches: `src/app/(app)/sessions/[id]/light-result-pane.tsx`,
+      `tests/unit/sessions/light-result-pane.test.ts` (extend).
+      Acceptance:
+        - Component test (`renderToString`) with `initialImageState`
+          containing a hero slot whose `chosenCandidateId` matches a
+          candidate `localPath: '/api/images/1/s/c_1.png'`: output
+          contains `<img` and `src="/api/images/1/s/c_1.png"`; no
+          "generating…" text.
+        - Component test with `initialImageState: { slots: [] }`:
+          output contains "Hero image generating…".
+        - Component test (using a manual SSE event injection via the
+          existing test harness pattern, or by directly calling the
+          hook's setter through a wrapper — match the convention used
+          in T-L7-8's tests): an `artifact_updated { kind:
+          'hero_image', url: '/api/images/1/s/c_x.png' }` event causes
+          the next render to contain `<img src="/api/images/1/s/c_x.png"`.
+        - Component test: an `artifact_updated { kind:
+          'hero_image_failed', reason: 'budget_exceeded' }` event
+          causes the next render to contain "Hero image failed
+          (budget_exceeded)".
+        - Existing tests for `LightResultPane` (claims panel,
+          revert-to-pre-review, copy markdown, exports) continue to
+          pass.
+        - Manual via `pnpm dev`: complete a light session through
+          auto-review; observe the placeholder; within ~30 seconds
+          observe the hero image swap in via SSE; reload — the image
+          stays (initial state seeded from server-side fetch).
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `ImageState` type is imported from
+      `../../../../server/sessions/images`. Decision needed: should
+      the rendered hero `<img>` link to a larger view? Default (chosen):
+      no — light mode is "no-touch", a click target adds nothing
+      because there is no candidate-selection UI. The image is also
+      embedded into `draftMd` (T-L8-1 step 12), so exports and the
+      preview iframe show it without further wiring. Decision needed:
+      do we expose a "regenerate hero" button? Default (chosen): no —
+      out of scope per epic intent; if hero generation fails, the
+      user can still export.
+
+<!-- PLANING_CHECKPOINT -->
 
 ---
 
