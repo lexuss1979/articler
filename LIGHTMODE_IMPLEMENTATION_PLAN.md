@@ -2409,7 +2409,7 @@ draft).
       'claim_verdict' }`), so the UI doesn't need them in the
       response.
 
-- [ ] T-L7-6: Page wiring — load claims for light-mode `done` state
+- [x] T-L7-6: Page wiring — load claims for light-mode `done` state
       Goal: In `src/app/(app)/sessions/[id]/page.tsx`, inside the
       `if (session.mode === 'light')` branch (around lines 45–77),
       when `session.state === 'done'`, also call

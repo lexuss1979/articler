@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { revertToPreReviewAction } from './actions';
+import type { ClaimWithVerdict } from './factcheck-tab';
 
 const FORMATS = [
   { fmt: 'md', label: 'Markdown (.zip)' },
@@ -16,11 +17,13 @@ export function LightResultPane({
   draftMd,
   previewHtml,
   draftMdPreReview,
+  claimsWithVerdicts = [],
 }: {
   sessionId: number;
   draftMd: string;
   previewHtml: string | null;
   draftMdPreReview: string | null;
+  claimsWithVerdicts?: ClaimWithVerdict[];
 }) {
   const [copied, setCopied] = useState(false);
   const [reverting, setReverting] = useState(false);

@@ -44,12 +44,17 @@ export default async function SessionPage({
 
   if (session.mode === 'light') {
     let lightPreviewHtml: string | null = null;
+    let lightClaimsWithVerdicts: Awaited<ReturnType<typeof listSessionClaimsWithVerdicts>> = [];
     if (session.state === 'done') {
-      const profile = await getProfile(user.id, session.profileId);
+      const [profile, claims] = await Promise.all([
+        getProfile(user.id, session.profileId),
+        listSessionClaimsWithVerdicts(user.id, id),
+      ]);
       if (profile) {
         const rules = parseMarkupRules(profile.markupRules);
         lightPreviewHtml = await renderHtmlArticle(session.draftMd ?? '', rules);
       }
+      lightClaimsWithVerdicts = claims;
     }
     return (
       <div className="flex h-full gap-4">
@@ -66,6 +71,7 @@ export default async function SessionPage({
               previewHtml={lightPreviewHtml}
               draftMdPreReview={session.draftMdPreReview ?? null}
               isRewrite={false}
+              claimsWithVerdicts={lightClaimsWithVerdicts}
             />
           </div>
         </div>
