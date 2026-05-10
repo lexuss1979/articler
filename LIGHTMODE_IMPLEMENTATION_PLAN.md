@@ -1674,7 +1674,7 @@ serve both modes.
       the server component which re-passes `state` as a prop. This
       avoids two competing sources of truth for the current state.
 
-- [ ] T-L5-5: Wire `LightSessionPane` into the session page server component
+- [x] T-L5-5: Wire `LightSessionPane` into the session page server component
       Goal: Update
       `src/app/(app)/sessions/[id]/page.tsx` so that when
       `session.mode === 'light'`, the workbench column renders

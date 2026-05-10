@@ -24,6 +24,7 @@ import { IllustrationPane } from './illustration-pane';
 import { ExportPane } from './export-pane';
 import { DevResetPanel } from './dev-reset-panel';
 import { SessionHeader } from './session-header';
+import { LightSessionPane } from './light-session-pane';
 
 export default async function SessionPage({
   params,
@@ -40,6 +41,40 @@ export default async function SessionPage({
   // Recover sessions whose in-memory pending userInput was wiped by a server
   // restart. No-op when a runner is already active or a pending input exists.
   void startRunner(id, user.id);
+
+  if (session.mode === 'light') {
+    let lightPreviewHtml: string | null = null;
+    if (session.state === 'done') {
+      const profile = await getProfile(user.id, session.profileId);
+      if (profile) {
+        const rules = parseMarkupRules(profile.markupRules);
+        lightPreviewHtml = await renderHtmlArticle(session.draftMd ?? '', rules);
+      }
+    }
+    return (
+      <div className="flex h-full gap-4">
+        <div className="flex-1 min-h-0 border rounded flex flex-col overflow-hidden">
+          <div className="shrink-0 px-4 py-3 border-b flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-gray-500">Light mode</h2>
+            <SessionHeader sessionId={id} />
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-4">
+            <LightSessionPane
+              sessionId={id}
+              state={session.state}
+              draftMd={session.draftMd ?? ''}
+              previewHtml={lightPreviewHtml}
+              draftMdPreReview={session.draftMdPreReview ?? null}
+              isRewrite={false}
+            />
+          </div>
+        </div>
+        <div className="w-72 shrink-0 flex flex-col border rounded overflow-hidden">
+          <ChatPane sessionId={id} />
+        </div>
+      </div>
+    );
+  }
 
   let researchSources = null;
   let researchPlan = null;
