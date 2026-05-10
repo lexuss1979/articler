@@ -3743,7 +3743,7 @@ auto-deletes or marks as topic-bound for manual review.
       future caller. The relevance check is `O(n_assertions ×
       tokens)` — fine for the typical n < 30 we see in practice.
 
-- [ ] T-L10-5: Anti-leakage clause in `clarify-brief` system prompt
+- [x] T-L10-5: Anti-leakage clause in `clarify-brief` system prompt
       Goal: Edit the system prompt in
       `src/server/pipeline/stages/clarify-brief.ts`. When the
       filtered `assertions` array (from T-L10-4) is non-empty, the

@@ -160,6 +160,32 @@ describe('clarifyBrief stage — knownAssertions', () => {
     expect(system).toContain('opens with historical context');
   });
 
+  it('includes the anti-leakage clause exactly once when assertions survive the filter', async () => {
+    mockRouteJsonChat.mockResolvedValue(mockResult);
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    await clarifyBrief.run({
+      brief,
+      profile: { ...profile, extraPrompt: 'avoids clickbait language' },
+      knownAssertions: [
+        { key: 'tone_clickbait', category: 'tone', assertion: 'avoids clickbait', confidence: 0.9, evidenceCount: 5 },
+      ],
+    }, ctx);
+    const system: string = mockRouteJsonChat.mock.calls[0][0].system;
+    const matches = system.match(/Critical: assertions describe stable preferences/g) ?? [];
+    expect(matches).toHaveLength(1);
+  });
+
+  it('omits the anti-leakage clause when no assertions are present', async () => {
+    mockRouteJsonChat.mockResolvedValue(mockResult);
+    const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');
+    const ctx = makeCtx();
+    await clarifyBrief.run({ brief, profile }, ctx);
+    const system: string = mockRouteJsonChat.mock.calls[0][0].system;
+    expect(system).not.toContain('Critical: assertions describe stable preferences');
+    expect(system).not.toContain('Known assertions');
+  });
+
   it('drops a high-confidence assertion whose nouns leak from a prior topic', async () => {
     mockRouteJsonChat.mockResolvedValue(mockResult);
     const { clarifyBrief } = await import('../../../src/server/pipeline/stages/clarify-brief');

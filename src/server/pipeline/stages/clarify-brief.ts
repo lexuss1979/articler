@@ -98,6 +98,7 @@ export const clarifyBrief: Stage<
               (a) =>
                 `  ${a.key} (${a.category}) — "${a.assertion}" [confidence ${a.confidence.toFixed(2)} × evidence ${a.evidenceCount}]`,
             ),
+            'Critical: assertions describe stable preferences of the author. They are NOT facts about the current topic. Never ask the author to confirm whether a topic from a different article should be covered here. If an assertion appears to reference a subject unrelated to the current brief, ignore it entirely.',
             'Skip a question entirely if its answer is already implied by an assertion with confidence ≥ 0.85 AND evidenceCount ≥ 3.',
             'For matching assertions below that threshold, bias the question wording toward confirming or contradicting the assertion.',
           ].join('\n')
