@@ -3287,7 +3287,7 @@ even if a hero retry mechanism is added later.
       `Unexpected state: failed` message in `light-session-pane.tsx`,
       acceptable for v1).
 
-- [ ] T-L9-8: SSE multiplex endpoint `/api/stream/batch/[batchId]`
+- [x] T-L9-8: SSE multiplex endpoint `/api/stream/batch/[batchId]`
       Goal: New route
       `src/app/api/stream/batch/[batchId]/route.ts` — same shape as
       `/api/stream/[sessionId]/route.ts`, but multiplexed across all
