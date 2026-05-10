@@ -22,6 +22,7 @@ import { draftSection } from './stages/draft-section';
 import { draftFull } from './stages/draft-full';
 import { runAutoReview } from './run-auto-review';
 import { runLightClaimsExtraction } from './run-light-claims-extraction';
+import { runLightHeroImage } from './run-light-hero-image';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -451,6 +452,9 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
 
         await updateSessionState(userId, sessionId, 'done');
         await ctx.emit('state_changed', { state: 'done' });
+        void runLightHeroImage({ sessionId, userId }).catch((err) => {
+          console.error('[runner/light/hero] failed:', err instanceof Error ? err.message : err);
+        });
         return;
       }
 

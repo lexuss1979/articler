@@ -2704,7 +2704,7 @@ already provide.
       `imageSlotSchema.brief`'s 1000-char limit; this avoids paying
       for a `proposeImageSlots` call whose `inlineSlots` we'd discard.
 
-- [ ] T-L8-2: Runner — fire-and-forget hero image after `done`
+- [x] T-L8-2: Runner — fire-and-forget hero image after `done`
       Goal: In `src/server/pipeline/runner.ts`'s `case 'review':`
       light branch, AFTER `await emitEvent(... 'state_changed', {
       state: 'done' })` and BEFORE the existing `return` (the closing

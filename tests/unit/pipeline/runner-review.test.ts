@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   appendRunLogFn: vi.fn(),
   runAutoReviewFn: vi.fn(),
   runLightClaimsExtractionFn: vi.fn(),
+  runLightHeroImageFn: vi.fn(),
 }));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
@@ -25,6 +26,10 @@ vi.mock('../../../src/server/pipeline/run-auto-review', () => ({
 
 vi.mock('../../../src/server/pipeline/run-light-claims-extraction', () => ({
   runLightClaimsExtraction: mocks.runLightClaimsExtractionFn,
+}));
+
+vi.mock('../../../src/server/pipeline/run-light-hero-image', () => ({
+  runLightHeroImage: mocks.runLightHeroImageFn,
 }));
 
 vi.mock('../../../src/server/profiles/repo', () => ({
@@ -87,6 +92,7 @@ function makeReviewSession() {
 
 beforeEach(() => {
   mocks.runLightClaimsExtractionFn.mockResolvedValue({ ok: true, roundId: 1, count: 0 });
+  mocks.runLightHeroImageFn.mockResolvedValue({ ok: true, candidateId: 'c_1', localPath: '/img/c_1.png' });
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -250,6 +256,99 @@ describe('startRunner — review state', () => {
     expect(emitted.some(([, k, p]) => k === 'agent_message' && (p as Record<string, unknown>).error === true)).toBe(true);
     expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 99, 'done');
     expect(emitted.some(([, k, p]) => k === 'state_changed' && (p as Record<string, unknown>).state === 'done')).toBe(true);
+  });
+
+  it('light mode: calls runLightHeroImage after state_changed done and does not await it', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'original', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({ ok: true, revisedMd: 'revised', changeCount: 1, changes: [] });
+
+    let resolveHero!: () => void;
+    const neverResolves = new Promise<{ ok: true; candidateId: string; localPath: string }>(
+      (res) => { resolveHero = () => res({ ok: true, candidateId: 'c_1', localPath: '/img/c_1.png' }); },
+    );
+    mocks.runLightHeroImageFn.mockReturnValue(neverResolves);
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    expect(mocks.runLightHeroImageFn).toHaveBeenCalledWith({ sessionId: 99, userId: 1 });
+
+    const emitted = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    const doneIdx = emitted.findIndex(([, k, p]) => k === 'state_changed' && (p as Record<string, unknown>).state === 'done');
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+
+    resolveHero();
+  });
+
+  it('light mode: runner resolves and logs error when runLightHeroImage rejects asynchronously', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'original', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({ ok: true, revisedMd: 'revised', changeCount: 1, changes: [] });
+    mocks.runLightHeroImageFn.mockRejectedValue(new Error('image boom'));
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[runner/light/hero]'),
+        'image boom',
+      );
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('light mode: runLightHeroImage NOT called when runAutoReview fails', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'draft', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({ ok: false, error: 'no_draft' });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    expect(mocks.runLightHeroImageFn).not.toHaveBeenCalled();
+  });
+
+  it('non-light (rewrite) mode: runLightHeroImage NOT called', async () => {
+    mocks.getSessionFn
+      .mockResolvedValueOnce(makeReviewSession())
+      .mockResolvedValue(null);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 10, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 10 });
+
+    const { startRunner, resolveUserInput } = await import('../../../src/server/pipeline/runner');
+    const runnerPromise = startRunner(10, 1);
+
+    await vi.waitFor(() => {
+      const calls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+      expect(calls.some(([, k]) => k === 'awaiting_user')).toBe(true);
+    });
+
+    resolveUserInput(10, { action: 'finish' });
+    await runnerPromise;
+
+    expect(mocks.runLightHeroImageFn).not.toHaveBeenCalled();
   });
 
   it('chains into a recursive startRunner so the decoration park activates immediately', async () => {
