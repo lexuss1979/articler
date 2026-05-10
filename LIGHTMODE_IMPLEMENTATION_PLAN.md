@@ -1770,13 +1770,11 @@ serve both modes.
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
 ---
 
 ## Epic L-6 — Light auto-review with pre-review snapshot
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** When a light session reaches the `review` state the runner
 automatically (a) snapshots the current draft into `draft_md_pre_review`,
@@ -1823,6 +1821,241 @@ Runner sequence in `review` state for `mode === 'light'`:
 No `critique_findings` rows are created by L-6 itself — auto-review is
 a direct rewrite, not a structured finding flow. (L-7 *does* create one
 synthetic `critique_round` row to host the extracted claims; see L-7.)
+
+### Tasks
+
+- [x] T-L6-1: `auto-review` stage (smart model)
+      Goal: New stage `autoReview: Stage<AutoReviewInput, AutoReviewOutput>`
+      in `src/server/pipeline/stages/auto-review.ts` with
+      `modelClass: 'smart'`. Input shape (zod-validated):
+      `{ profile: ProfileRow, draftMd: string }`.
+      Output shape (zod-validated):
+      `{ revisedMd: string, changes: Array<{ kind: z.enum(['humanize', 'clarify', 'cut']), before: string, after: string, note: z.string().optional() }> }`.
+      System prompt: instruct the model to act as a final human editor
+      — identify passages that sound AI-generated, are logically
+      unclear, or are redundant; rewrite the full article addressing
+      those issues; and emit a structured `changes` list describing
+      each edit (using `kind: 'humanize' | 'clarify' | 'cut'`). The
+      prompt must mention the profile's `style`, `audience`, and
+      `extraPrompt` so the rewrite stays on-profile. Instruct the
+      model to emit the complete revised article as `revisedMd` (not
+      a diff) so callers can directly replace `draft_md`. Use
+      `routeJsonChat({ class: 'smart', ... })` (same pattern as
+      `extract-claims.ts`). Emit `task_started { stage: 'auto_review' }`
+      then `task_completed { stage: 'auto_review', changeCount }`.
+      Touches: `src/server/pipeline/stages/auto-review.ts` (new),
+      `tests/unit/pipeline/auto-review.test.ts` (new).
+      Acceptance:
+        - Unit test mocks `routeJsonChat` to return a valid
+          `{ revisedMd, changes }` and asserts the stage returns those
+          values unchanged.
+        - Unit test asserts the stage emits exactly
+          `['task_started', 'task_completed']` with
+          `stage: 'auto_review'` and `changeCount = changes.length`
+          on the completion event.
+        - Unit test asserts `routeJsonChat` is called with
+          `class: 'smart'`.
+        - Unit test: `outputSchema.safeParse({ revisedMd: 'ok',
+           changes: [{ kind: 'invalid', before: 'x', after: 'y' }] })`
+          fails (invalid `kind` enum value).
+        - Unit test: `outputSchema.safeParse({ revisedMd: 'ok',
+           changes: [{ kind: 'humanize', before: 'x', after: 'y' }] })`
+          succeeds; `note` is optional and its absence is valid.
+        - Unit test: the captured system prompt string contains the
+          profile's `style`, `audience`, and `extraPrompt` fields so
+          the on-profile contract is exercised.
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: `revisedMd` is the complete replacement for `draft_md` —
+      the caller does no merging. The `before`/`after` strings are
+      short excerpts for the change summary UI; the model is instructed
+      to keep them under 200 chars each.
+
+- [ ] T-L6-2: Repo: `updateSessionDraftPreReview`
+      Goal: Add `updateSessionDraftPreReview(userId: number, id: number,
+       snapshotMd: string): Promise<SessionRow | null>` to
+      `src/server/sessions/repo.ts`. Implementation: `UPDATE sessions
+      SET draft_md_pre_review = ?, updated_at = now() WHERE id = ?
+      AND user_id = ?` — same shape as `updateSessionDraft`. This is
+      the only writer for `draft_md_pre_review`; the runner calls it
+      once, guarded by the "only if NULL" check (guard lives in the
+      runner, not here).
+      Touches: `src/server/sessions/repo.ts` (extend),
+      `tests/unit/sessions/update-draft-pre-review.test.ts` (new).
+      Acceptance:
+        - Unit test: `updateSessionDraftPreReview` (with mocked DB)
+          resolves to the updated row when the session exists and is
+          owned by the user; resolves to `null` when the session is
+          not found.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: the "only if NULL" snapshot guard belongs in the runner
+      (T-L6-3), not here. The `createCritiqueRound`/`listSessionRounds`
+      `kind` union is **not** widened in L-6 — auto-review creates no
+      critique-round row. Any widening needed for L-7's synthetic
+      claims-round belongs in L-7, under the kind L-7 actually uses.
+
+- [ ] T-L6-3: `runAutoReview` orchestrator
+      Goal: New module
+      `src/server/pipeline/run-auto-review.ts` exporting
+      `runAutoReview({ sessionId, userId }): Promise<
+        | { ok: true; revisedMd: string; changeCount: number;
+            changes: Array<{ kind: string; before: string; after: string; note?: string }> }
+        | { ok: false; error: 'session_invalid' | 'no_draft' }>`.
+      Behaviour:
+      1. Load session via `getSession(userId, sessionId)`. If null,
+         return `{ ok: false, error: 'session_invalid' }`.
+      2. If `session.draftMd` is null/empty, return
+         `{ ok: false, error: 'no_draft' }`.
+      3. Load `profile` via `getProfile(userId, session.profileId)`.
+         If null, return `{ ok: false, error: 'session_invalid' }`.
+      4. Build a minimal `ctx` (same pattern as `run-fact-check.ts`:
+         `emit` forwards to `emitEvent`, `userInput` rejects, `log`
+         is a no-op, `llm` is `{} as never`).
+      5. Call `withStageCtx(autoReview, sessionId, userId, () =>
+          autoReview.run({ profile, draftMd: session.draftMd! }, ctx))`.
+      6. Return `{ ok: true, revisedMd, changeCount: changes.length,
+          changes }`.
+      Touches: `src/server/pipeline/run-auto-review.ts` (new),
+      `tests/unit/pipeline/run-auto-review.test.ts` (new).
+      Acceptance:
+        - Unit test: mock `getSession` → null; asserts result is
+          `{ ok: false, error: 'session_invalid' }` and the stage is
+          not called.
+        - Unit test: mock `getSession` with `draftMd: null`; asserts
+          result is `{ ok: false, error: 'no_draft' }`.
+        - Unit test: mock `getProfile` → null; asserts
+          `{ ok: false, error: 'session_invalid' }`.
+        - Unit test: full success path — mock `getSession` with a
+          non-null `draftMd`, mock `getProfile` to return a profile,
+          mock `autoReview.run` to return
+          `{ revisedMd: 'r', changes: [{ kind: 'humanize', before: 'a', after: 'b' }] }`;
+          assert the orchestrator returns
+          `{ ok: true, revisedMd: 'r', changeCount: 1, changes: [...] }`.
+        - Unit test: asserts `withStageCtx` is called with the
+          `autoReview` stage, the session's `sessionId`, and `userId`
+          (verify by checking that the mocked `autoReview.run` is
+          called inside the stage-ctx wrapper — mock `withStageCtx` to
+          call its callback directly).
+        - `pnpm typecheck && pnpm test` exit 0.
+
+- [ ] T-L6-4: Runner — `review` light-mode branch with snapshot + auto-review
+      Goal: Replace the `if (session.mode === 'light') return;` early
+      exit in `case 'review':` in
+      `src/server/pipeline/runner.ts` with the full light-mode review
+      sequence:
+      1. **Snapshot guard.** If `session.draftMdPreReview == null`,
+         call `await updateSessionDraftPreReview(userId, sessionId,
+          session.draftMd!)`. Import `updateSessionDraftPreReview` from
+         `../sessions/repo`. If `session.draftMdPreReview` is already
+         set, skip — this preserves the first pre-review snapshot on
+         re-runs.
+      2. **Auto-review.** Call `await runAutoReview({ sessionId,
+          userId })`. If the result is `{ ok: false }`, emit
+         `agent_message { text: 'Auto-review failed: <error>', error: true }`
+         and `return` (do not advance state).
+      3. **Persist revised draft.** Call `await updateSessionDraft(
+          userId, sessionId, result.revisedMd)`.
+      4. **Emit change summary.** Emit `artifact_updated { kind:
+          'auto_review_applied', changeCount: result.changeCount,
+          changes: result.changes }`.
+      5. **Advance to `done`** temporarily: call
+         `await updateSessionState(userId, sessionId, 'done')` and
+         emit `state_changed { state: 'done' }`. (L-7 will insert
+         claims extraction between steps 4 and 5; for now `done` is
+         reached directly.)
+      Import `runAutoReview` from `./run-auto-review` and
+      `updateSessionDraftPreReview` from `../sessions/repo`.
+      The full-mode `case 'review':` body is unchanged.
+      Touches: `src/server/pipeline/runner.ts`,
+      `tests/unit/pipeline/runner-review.test.ts` (extend with
+      light-mode cases).
+      Acceptance:
+        - Unit test: `session.mode = 'light'`, `draftMdPreReview: null`,
+          `draftMd: 'original'`. Mock `runAutoReview` to return
+          `{ ok: true, revisedMd: 'revised', changeCount: 1,
+           changes: [] }`. Assert:
+          (a) `updateSessionDraftPreReview` is called with `'original'`;
+          (b) `updateSessionDraft` is called with `'revised'`;
+          (c) an `artifact_updated` event with
+              `kind: 'auto_review_applied'` and `changeCount: 1` is
+              emitted;
+          (d) `updateSessionState(..., 'done')` is called;
+          (e) a `state_changed { state: 'done' }` event is emitted.
+        - Unit test: `session.mode = 'light'`,
+          `draftMdPreReview: 'already_set'`. Assert
+          `updateSessionDraftPreReview` is NOT called (snapshot guard).
+        - Unit test: `session.mode = 'light'`, `runAutoReview` returns
+          `{ ok: false, error: 'no_draft' }`. Assert: an
+          `agent_message` with `error: true` is emitted;
+          `updateSessionState` is NOT called; the runner returns
+          without throwing.
+        - Existing full-mode review tests (T-L5 from
+          `runner-review.test.ts`) still pass without modification.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: import `updateSessionDraftPreReview` alongside the
+      existing session repo imports at the top of `runner.ts`. The
+      `runAutoReview` import goes with the other orchestrator imports.
+      Do not add `draft-full`, `draftFull`, or any other new import
+      not needed by this case.
+
+- [ ] T-L6-5: Revert action + UI wiring for "Revert to pre-review" button
+      Goal: Two changes:
+      1. **Server action.** Add `revertToPreReviewAction(sessionId:
+          number): Promise<{ ok: boolean; error?: string }>` in
+         `src/app/(app)/sessions/[id]/actions.ts`. It:
+         - `requireUser()`;
+         - loads the session via `getSession(user.id, sessionId)`; if
+           null return `{ ok: false, error: 'not_found' }`;
+         - if `session.draftMdPreReview == null` return
+           `{ ok: false, error: 'no_snapshot' }`;
+         - calls `updateSessionDraft(user.id, sessionId,
+            session.draftMdPreReview)` to restore the original text;
+         - calls `revalidatePath('/sessions/[id]', 'page')` with the
+           session id literal so the page re-fetches the restored
+           draft;
+         - returns `{ ok: true }`.
+      2. **UI wiring.** In
+         `src/app/(app)/sessions/[id]/light-result-pane.tsx`, add an
+         `onClick` handler to the existing "Revert to pre-review"
+         button that calls `revertToPreReviewAction(sessionId)` and
+         — on success — calls `router.refresh()` from
+         `useRouter()` (`next/navigation`). `revalidatePath` in the
+         action busts the RSC cache; `router.refresh()` triggers the
+         re-fetch from the client without a full page reload, so the
+         server component re-renders with the restored `draftMd` and
+         `previewHtml`. While the action is in-flight, disable the
+         button and change the label to "Reverting…".
+      Touches: `src/app/(app)/sessions/[id]/actions.ts` (extend),
+      `src/app/(app)/sessions/[id]/light-result-pane.tsx` (extend),
+      `tests/unit/sessions/revert-pre-review-action.test.ts` (new).
+      Acceptance:
+        - Unit test: `revertToPreReviewAction` with mocked
+          `getSession` returning null → `{ ok: false, error: 'not_found' }`;
+          `updateSessionDraft` is not called.
+        - Unit test: `getSession` returns a session with
+          `draftMdPreReview: null` → `{ ok: false, error: 'no_snapshot' }`;
+          `updateSessionDraft` is not called.
+        - Unit test: `getSession` returns a session with
+          `draftMdPreReview: 'original text'` → `updateSessionDraft`
+          is called with `'original text'` and the result is
+          `{ ok: true }`.
+        - Component test (extending
+          `tests/unit/sessions/light-result-pane.test.ts`):
+          `renderToString` with `draftMdPreReview: 'snap'` asserts the
+          revert button does NOT have the `disabled` attribute (already
+          covered by existing test from T-L5-3; re-confirm it still
+          passes after this task's change).
+        - Manual via `pnpm dev`: on a light session that has completed
+          auto-review, the "Revert to pre-review" button is enabled;
+          clicking it restores the pre-review markdown visibly in the
+          preview iframe after `router.refresh()` resolves.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: `revalidatePath` + `router.refresh()` is the canonical
+      Next pair — server invalidates the cache, client triggers the
+      RSC re-fetch. No `window.location.reload()` (full reload would
+      be a heavier dupe of the same effect). Intentionally simple —
+      no optimistic state management, no SSE needed.
+
+<!-- PLANING_CHECKPOINT -->
 
 ---
 
