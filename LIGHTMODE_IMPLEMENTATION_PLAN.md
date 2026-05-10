@@ -1937,7 +1937,7 @@ synthetic `critique_round` row to host the extracted claims; see L-7.)
           call its callback directly).
         - `pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L6-4: Runner — `review` light-mode branch with snapshot + auto-review
+- [x] T-L6-4: Runner — `review` light-mode branch with snapshot + auto-review
       Goal: Replace the `if (session.mode === 'light') return;` early
       exit in `case 'review':` in
       `src/server/pipeline/runner.ts` with the full light-mode review

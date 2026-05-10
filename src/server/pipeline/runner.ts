@@ -6,7 +6,7 @@ import { withStageCtx } from './with-stage-ctx';
 import { getProfile } from '../profiles/repo';
 import { briefSchema } from '../sessions/brief';
 import { planSchema } from '../sessions/plan';
-import { getSession, updateSessionDraft, updateSessionPlan, updateSessionState } from '../sessions/repo';
+import { getSession, updateSessionDraft, updateSessionDraftPreReview, updateSessionPlan, updateSessionState } from '../sessions/repo';
 import { insertSource, listSessionSources } from '../sessions/sources-repo';
 import { upsertSectionDraft, listSectionDrafts } from '../sessions/section-drafts-repo';
 import { listAssertions } from '../profiles/profile-assertions-repo';
@@ -20,6 +20,7 @@ import { webSearch } from './stages/web-search';
 import { summarizeSource } from './stages/summarize-source';
 import { draftSection } from './stages/draft-section';
 import { draftFull } from './stages/draft-full';
+import { runAutoReview } from './run-auto-review';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -414,7 +415,31 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
       break;
     }
     case 'review': {
-      if (session.mode === 'light') return;
+      if (session.mode === 'light') {
+        if (session.draftMdPreReview == null) {
+          await updateSessionDraftPreReview(userId, sessionId, session.draftMd!);
+        }
+
+        const autoReviewResult = await runAutoReview({ sessionId, userId });
+        if (!autoReviewResult.ok) {
+          await ctx.emit('agent_message', {
+            text: `Auto-review failed: ${autoReviewResult.error}`,
+            error: true,
+          });
+          return;
+        }
+
+        await updateSessionDraft(userId, sessionId, autoReviewResult.revisedMd);
+        await ctx.emit('artifact_updated', {
+          kind: 'auto_review_applied',
+          changeCount: autoReviewResult.changeCount,
+          changes: autoReviewResult.changes,
+        });
+
+        await updateSessionState(userId, sessionId, 'done');
+        await ctx.emit('state_changed', { state: 'done' });
+        return;
+      }
 
       await ctx.userInput('review_done', z.object({ action: z.literal('finish') }));
 

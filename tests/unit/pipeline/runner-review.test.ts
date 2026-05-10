@@ -3,15 +3,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getSessionFn: vi.fn(),
   updateSessionStateFn: vi.fn(),
+  updateSessionDraftFn: vi.fn(),
+  updateSessionDraftPreReviewFn: vi.fn(),
   emitEventFn: vi.fn(),
   appendRunLogFn: vi.fn(),
+  runAutoReviewFn: vi.fn(),
 }));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
   getSession: mocks.getSessionFn,
   updateSessionState: mocks.updateSessionStateFn,
   updateSessionPlan: vi.fn(),
-  updateSessionDraft: vi.fn(),
+  updateSessionDraft: mocks.updateSessionDraftFn,
+  updateSessionDraftPreReview: mocks.updateSessionDraftPreReviewFn,
+}));
+
+vi.mock('../../../src/server/pipeline/run-auto-review', () => ({
+  runAutoReview: mocks.runAutoReviewFn,
 }));
 
 vi.mock('../../../src/server/profiles/repo', () => ({
@@ -120,15 +128,67 @@ describe('startRunner — review state', () => {
     expect(stateChangedCalls.at(-1)?.[2]).toMatchObject({ state: 'decoration' });
   });
 
-  it('returns immediately without any userInput or state advance when mode is light', async () => {
-    mocks.getSessionFn.mockResolvedValue({ id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1, mode: 'light' });
+  it('light mode: snapshots draft, calls auto-review, persists revision, emits events, advances to done', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'original', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
     mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({
+      ok: true, revisedMd: 'revised', changeCount: 1, changes: [],
+    });
 
     const { startRunner } = await import('../../../src/server/pipeline/runner');
     await startRunner(99, 1);
 
-    const calls = mocks.emitEventFn.mock.calls as [number, string, unknown][];
-    expect(calls.every(([, k]) => k !== 'awaiting_user')).toBe(true);
+    expect(mocks.updateSessionDraftPreReviewFn).toHaveBeenCalledWith(1, 99, 'original');
+    expect(mocks.updateSessionDraftFn).toHaveBeenCalledWith(1, 99, 'revised');
+
+    const emitted = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    expect(emitted.some(([, k, p]) => k === 'artifact_updated' && (p as Record<string, unknown>).kind === 'auto_review_applied' && (p as Record<string, unknown>).changeCount === 1)).toBe(true);
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 99, 'done');
+    expect(emitted.some(([, k, p]) => k === 'state_changed' && (p as Record<string, unknown>).state === 'done')).toBe(true);
+    expect(emitted.every(([, k]) => k !== 'awaiting_user')).toBe(true);
+  });
+
+  it('light mode: skips snapshot if draftMdPreReview is already set', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'draft', draftMdPreReview: 'already_set',
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({
+      ok: true, revisedMd: 'revised', changeCount: 0, changes: [],
+    });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    expect(mocks.updateSessionDraftPreReviewFn).not.toHaveBeenCalled();
+  });
+
+  it('light mode: emits agent_message with error:true and does not advance state when auto-review fails', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'draft', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({ ok: false, error: 'no_draft' });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    const emitted = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    expect(emitted.some(([, k, p]) => k === 'agent_message' && (p as Record<string, unknown>).error === true)).toBe(true);
     expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
   });
 
