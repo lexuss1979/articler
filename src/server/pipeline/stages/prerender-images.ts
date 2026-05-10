@@ -7,6 +7,7 @@ import {
   type ImagePrompt,
 } from '../../sessions/images';
 import { saveImageFromB64, saveImageFromUrl } from '../../images/storage';
+import { routeImage } from '../../llm/router';
 import type { Stage } from '../stage';
 
 const inputSchema = z.object({
@@ -62,17 +63,23 @@ export const prerenderImages: Stage<
     const text = buildTextPrompt(prompt);
     const calls = Array.from({ length: count }, (_, i) => {
       const hint = VARIATION_HINTS[i % VARIATION_HINTS.length];
-      return ctx.llm.routeImage({ prompt: `${text} | variation: ${hint}` });
+      return routeImage({ prompt: `${text} | variation: ${hint}` });
     });
     const settled = await Promise.allSettled(calls);
 
     const candidates: ImageCandidate[] = [];
     for (let i = 0; i < settled.length; i++) {
       const settledCall = settled[i]!;
-      if (settledCall.status !== 'fulfilled') continue;
+      if (settledCall.status !== 'fulfilled') {
+        console.error('[prerender_images] routeImage rejected:', settledCall.reason);
+        continue;
+      }
       const response = settledCall.value;
       const first = response.data[0];
-      if (!first) continue;
+      if (!first) {
+        console.error('[prerender_images] response.data empty', { modelUsed: response.modelUsed });
+        continue;
+      }
       const candidateId = makeCandidateId(i);
       try {
         let saved: { localPath: string; absPath: string };
@@ -92,6 +99,7 @@ export const prerenderImages: Stage<
             url: first.url,
           });
         } else {
+          console.error('[prerender_images] no b64_json or url in response', { modelUsed: response.modelUsed });
           continue;
         }
         candidates.push({
@@ -101,7 +109,8 @@ export const prerenderImages: Stage<
           model: response.modelUsed,
           createdAt: new Date().toISOString(),
         });
-      } catch {
+      } catch (err) {
+        console.error('[prerender_images] saveImage failed:', err instanceof Error ? err.message : err);
         continue;
       }
     }
