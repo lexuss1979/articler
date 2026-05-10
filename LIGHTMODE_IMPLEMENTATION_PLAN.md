@@ -1557,7 +1557,7 @@ serve both modes.
       in-flight states rather than four siblings, to keep the
       state→view map in `LightSessionPane` (T-L5-4) trivial.
 
-- [ ] T-L5-3: `LightResultPane` — done-state article view with placeholder slots
+- [x] T-L5-3: `LightResultPane` — done-state article view with placeholder slots
       Goal: New client component
       `src/app/(app)/sessions/[id]/light-result-pane.tsx` exporting
       `LightResultPane({ sessionId, draftMd, previewHtml,
