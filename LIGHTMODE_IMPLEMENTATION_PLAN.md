@@ -1893,7 +1893,7 @@ synthetic `critique_round` row to host the extracted claims; see L-7.)
       critique-round row. Any widening needed for L-7's synthetic
       claims-round belongs in L-7, under the kind L-7 actually uses.
 
-- [ ] T-L6-3: `runAutoReview` orchestrator
+- [x] T-L6-3: `runAutoReview` orchestrator
       Goal: New module
       `src/server/pipeline/run-auto-review.ts` exporting
       `runAutoReview({ sessionId, userId }): Promise<
