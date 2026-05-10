@@ -22,7 +22,7 @@ function ownedRoundIds(userId: number) {
 export async function createCritiqueRound(
   userId: number,
   sessionId: number,
-  kind: 'critique' | 'factcheck',
+  kind: 'critique' | 'factcheck' | 'auto_review',
   draftHash: string,
 ) {
   const [owned] = await db
@@ -60,7 +60,7 @@ export async function insertFinding(
 export async function listSessionRounds(
   userId: number,
   sessionId: number,
-  kind?: 'critique' | 'factcheck',
+  kind?: 'critique' | 'factcheck' | 'auto_review',
 ) {
   const [owned] = await db
     .select({ id: sessions.id })

@@ -2149,7 +2149,7 @@ draft).
 
 ### Tasks
 
-- [ ] T-L7-1: Widen `critique-repo` round-kind union to include `'auto_review'`
+- [x] T-L7-1: Widen `critique-repo` round-kind union to include `'auto_review'`
       Goal: Update `createCritiqueRound`'s `kind` parameter type from
       `'critique' | 'factcheck'` to
       `'critique' | 'factcheck' | 'auto_review'` in

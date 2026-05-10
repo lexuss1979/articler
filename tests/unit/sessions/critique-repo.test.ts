@@ -125,6 +125,16 @@ describe('createCritiqueRound', () => {
     const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
     expect(calls.some(([col, val]) => col === sessions.userId && val === 7)).toBe(true);
   });
+
+  it('inserts a row with kind auto_review', async () => {
+    const { createCritiqueRound } = await import('../../../src/server/sessions/critique-repo');
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }]));
+    dbMocks.insertReturning.mockResolvedValueOnce([{ ...sampleRound, kind: 'auto_review' }]);
+    const result = await createCritiqueRound(1, 10, 'auto_review', 'h');
+    const values = (dbMocks.insertValues.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(values.kind).toBe('auto_review');
+    expect(result?.kind).toBe('auto_review');
+  });
 });
 
 describe('insertFinding', () => {
@@ -190,6 +200,16 @@ describe('listSessionRounds', () => {
     await listSessionRounds(1, 10, 'factcheck');
     const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
     expect(calls.some(([col, val]) => col === critiqueRounds.kind && val === 'factcheck')).toBe(true);
+  });
+
+  it('filters on auto_review kind when provided', async () => {
+    const { listSessionRounds } = await import('../../../src/server/sessions/critique-repo');
+    const { eq } = await import('drizzle-orm');
+    const { critiqueRounds } = await import('../../../src/server/db/schema');
+    dbMocks.selectWhere.mockReturnValueOnce(makeSelectResult([{ id: 10 }]));
+    await listSessionRounds(1, 10, 'auto_review');
+    const calls = (eq as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
+    expect(calls.some(([col, val]) => col === critiqueRounds.kind && val === 'auto_review')).toBe(true);
   });
 
   it('includes user-ownership predicate', async () => {
