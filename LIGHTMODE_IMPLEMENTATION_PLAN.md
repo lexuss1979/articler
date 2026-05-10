@@ -3332,7 +3332,7 @@ even if a hero retry mechanism is added later.
       listeners per stream subscriber, well within the EE
       `setMaxListeners(0)` already set in `events/bus.ts`.
 
-- [ ] T-L9-9: Batch detail page (server component + client cards)
+- [x] T-L9-9: Batch detail page (server component + client cards)
       Goal: Two new client/server files:
       1. Server page `src/app/(app)/sessions/batch/[batchId]/page.tsx`
          — `requireUser`, parse batchId, call `getBatchWithSessions`;
