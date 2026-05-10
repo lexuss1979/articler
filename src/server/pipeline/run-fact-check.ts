@@ -10,8 +10,10 @@ import {
   findClaimBySpanHash,
   insertClaimVerdict,
   insertClaimEvidence,
+  getClaimWithLatestVerdict,
 } from '../sessions/claims-repo';
 import { spanHash } from '../sessions/claims';
+import type { ClaimSpan, ClaimType, CheckWorthiness, Verdict } from '../sessions/claims';
 import { extractClaims } from './stages/extract-claims';
 import { verifyClaim } from './stages/verify-claim';
 import { adjudicateClaim } from './stages/adjudicate-claim';
@@ -122,4 +124,68 @@ export async function runFactCheck({
   });
 
   return { ok: true, roundId: round.id, claimCount, verdictCount };
+}
+
+export async function verifyExistingClaim({
+  sessionId,
+  userId,
+  claimId,
+  force = false,
+}: {
+  sessionId: number;
+  userId: number;
+  claimId: number;
+  force?: boolean;
+}): Promise<
+  | { ok: true; verdict: Verdict }
+  | { ok: false; error: 'claim_not_found' | 'session_invalid' | 'already_verified' }
+> {
+  const row = await getClaimWithLatestVerdict(userId, claimId);
+  if (!row) return { ok: false, error: 'claim_not_found' };
+  if (row.claim.sessionId !== sessionId) return { ok: false, error: 'claim_not_found' };
+  if (row.verdict != null && !force) return { ok: false, error: 'already_verified' };
+
+  const session = await getSession(userId, sessionId);
+  if (!session) return { ok: false, error: 'session_invalid' };
+
+  const acceptedSources = (await listSessionSources(userId, sessionId)).filter(
+    (s) => s.status === 'accepted',
+  );
+
+  const ctx = {
+    emit: (kind: Parameters<typeof emitEvent>[1], payload: unknown) =>
+      emitEvent(sessionId, kind, payload),
+    userInput: () => Promise.reject(new Error('userInput not available in verify context')),
+    log: { append: async () => {} },
+    llm: {} as never,
+  };
+
+  const claim = {
+    span: row.claim.span as ClaimSpan,
+    claimType: row.claim.claimType as ClaimType,
+    checkWorthiness: row.claim.checkWorthiness as CheckWorthiness,
+  };
+
+  const { evidence } = await withStageCtx(verifyClaim, sessionId, userId, () =>
+    verifyClaim.run({ claim, acceptedSources }, ctx),
+  );
+  const adjudication = await withStageCtx(adjudicateClaim, sessionId, userId, () =>
+    adjudicateClaim.run({ claim, evidence }, ctx),
+  );
+
+  const verdictRow = await insertClaimVerdict(userId, claimId, {
+    verdict: adjudication.verdict,
+    justification: adjudication.justification,
+  });
+  if (!verdictRow) return { ok: false, error: 'session_invalid' };
+
+  await insertClaimEvidence(userId, verdictRow.id, evidence);
+
+  await emitEvent(sessionId, 'artifact_updated', {
+    kind: 'claim_verdict',
+    claimId,
+    verdict: adjudication.verdict,
+  });
+
+  return { ok: true, verdict: adjudication.verdict };
 }

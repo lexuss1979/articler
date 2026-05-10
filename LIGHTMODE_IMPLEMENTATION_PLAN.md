@@ -2283,7 +2283,7 @@ draft).
       export the article. The `'no_draft'` path is unreachable here
       because L-6's auto-review step already enforced the precondition.
 
-- [ ] T-L7-4: `verifyExistingClaim` orchestrator (single-claim path)
+- [x] T-L7-4: `verifyExistingClaim` orchestrator (single-claim path)
       Goal: Add a new exported function in
       `src/server/pipeline/run-fact-check.ts`:
       `verifyExistingClaim({ sessionId, userId, claimId, force = false }):
