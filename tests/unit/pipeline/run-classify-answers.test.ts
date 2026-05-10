@@ -7,6 +7,7 @@ const mockRecordContradiction = vi.fn();
 const mockUpsertAssertion = vi.fn();
 const mockFindSimilarKey = vi.fn();
 const mockClassifyAnswersRun = vi.fn();
+const mockValidateAssertionGeneralityRun = vi.fn();
 
 vi.mock('../../../src/server/profiles/repo', () => ({
   getProfile: mockGetProfile,
@@ -21,6 +22,13 @@ vi.mock('../../../src/server/profiles/profile-assertions-repo', () => ({
 
 vi.mock('../../../src/server/pipeline/stages/classify-answers', () => ({
   classifyAnswers: { name: 'classify_answers', run: mockClassifyAnswersRun },
+}));
+
+vi.mock('../../../src/server/pipeline/stages/validate-assertion-generality', () => ({
+  validateAssertionGenerality: {
+    name: 'validate_assertion_generality',
+    run: mockValidateAssertionGeneralityRun,
+  },
 }));
 
 vi.mock('../../../src/server/pipeline/with-stage-ctx', () => ({
@@ -55,6 +63,7 @@ beforeEach(() => {
   mockListAssertions.mockResolvedValue([]);
   mockClassifyAnswersRun.mockResolvedValue({ delta: [] });
   mockFindSimilarKey.mockReturnValue(null);
+  mockValidateAssertionGeneralityRun.mockResolvedValue({ results: [] });
 });
 
 describe('runClassifyAnswers', () => {
@@ -76,7 +85,7 @@ describe('runClassifyAnswers', () => {
     );
     const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
     expect(mockRecordAgreement).toHaveBeenCalledWith(1, 'tone_formal');
-    expect(result).toEqual({ applied: 1, skipped: 0 });
+    expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
 
   it('calls recordContradiction for contradict delta item', async () => {
@@ -89,7 +98,7 @@ describe('runClassifyAnswers', () => {
     );
     const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
     expect(mockRecordContradiction).toHaveBeenCalledWith(1, 'tone_formal');
-    expect(result).toEqual({ applied: 1, skipped: 0 });
+    expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
 
   it('calls upsertAssertion for new item with no similar existing key', async () => {
@@ -102,6 +111,9 @@ describe('runClassifyAnswers', () => {
           assertion: 'Uses code blocks.',
         },
       ],
+    });
+    mockValidateAssertionGeneralityRun.mockResolvedValue({
+      results: [{ key: 'format_uses_code', passes: true, reason: 'general' }],
     });
     mockUpsertAssertion.mockResolvedValue({ id: 2 });
     const { runClassifyAnswers } = await import(
@@ -116,7 +128,7 @@ describe('runClassifyAnswers', () => {
       source: 'session',
     });
     expect(mockRecordAgreement).not.toHaveBeenCalled();
-    expect(result).toEqual({ applied: 1, skipped: 0 });
+    expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
 
   it('calls recordAgreement with matched key for new item with similar existing key', async () => {
@@ -139,6 +151,9 @@ describe('runClassifyAnswers', () => {
         },
       ],
     });
+    mockValidateAssertionGeneralityRun.mockResolvedValue({
+      results: [{ key: 'format_uses_code', passes: true, reason: 'general' }],
+    });
     mockFindSimilarKey.mockReturnValue({ key: 'code_blocks_format', similarity: 0.9 });
     mockRecordAgreement.mockResolvedValue({ id: 1 });
     const { runClassifyAnswers } = await import(
@@ -147,7 +162,7 @@ describe('runClassifyAnswers', () => {
     const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
     expect(mockRecordAgreement).toHaveBeenCalledWith(1, 'code_blocks_format');
     expect(mockUpsertAssertion).not.toHaveBeenCalled();
-    expect(result).toEqual({ applied: 1, skipped: 0 });
+    expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
 
   it('increments skipped when recordAgreement returns null for missing key', async () => {
@@ -159,6 +174,74 @@ describe('runClassifyAnswers', () => {
       '../../../src/server/pipeline/run-classify-answers'
     );
     const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
-    expect(result).toEqual({ applied: 0, skipped: 1 });
+    expect(result).toEqual({ applied: 0, skipped: 1, droppedAsTopicBound: 0 });
+  });
+
+  it('drops a new item that fails generality validation and never calls upsertAssertion', async () => {
+    mockClassifyAnswersRun.mockResolvedValue({
+      delta: [
+        {
+          kind: 'new',
+          key: 'scope_ladder_safety',
+          category: 'scope',
+          assertion: 'user wants ladder safety section',
+        },
+      ],
+    });
+    mockValidateAssertionGeneralityRun.mockResolvedValue({
+      results: [{ key: 'scope_ladder_safety', passes: false, reason: 'topic-bound' }],
+    });
+    const { runClassifyAnswers } = await import(
+      '../../../src/server/pipeline/run-classify-answers'
+    );
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    expect(mockUpsertAssertion).not.toHaveBeenCalled();
+    expect(mockRecordAgreement).not.toHaveBeenCalled();
+    expect(result).toEqual({ applied: 0, skipped: 0, droppedAsTopicBound: 1 });
+  });
+
+  it('applies a new item that passes validation alongside an agree item', async () => {
+    mockClassifyAnswersRun.mockResolvedValue({
+      delta: [
+        {
+          kind: 'new',
+          key: 'structure_historical_intro',
+          category: 'structure',
+          assertion: 'author opens with historical context',
+        },
+        { kind: 'agree', key: 'tone_formal' },
+      ],
+    });
+    mockValidateAssertionGeneralityRun.mockResolvedValue({
+      results: [
+        { key: 'structure_historical_intro', passes: true, reason: 'general' },
+      ],
+    });
+    mockUpsertAssertion.mockResolvedValue({ id: 3 });
+    mockRecordAgreement.mockResolvedValue({ id: 1, key: 'tone_formal' });
+
+    const { runClassifyAnswers } = await import(
+      '../../../src/server/pipeline/run-classify-answers'
+    );
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+
+    expect(mockUpsertAssertion).toHaveBeenCalledTimes(1);
+    expect(mockRecordAgreement).toHaveBeenCalledWith(1, 'tone_formal');
+    expect(result).toEqual({ applied: 2, skipped: 0, droppedAsTopicBound: 0 });
+  });
+
+  it('skips the validator entirely when there are no new items', async () => {
+    mockClassifyAnswersRun.mockResolvedValue({
+      delta: [{ kind: 'agree', key: 'tone_formal' }],
+    });
+    mockRecordAgreement.mockResolvedValue({ id: 1, key: 'tone_formal' });
+
+    const { runClassifyAnswers } = await import(
+      '../../../src/server/pipeline/run-classify-answers'
+    );
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+
+    expect(mockValidateAssertionGeneralityRun).not.toHaveBeenCalled();
+    expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
 });

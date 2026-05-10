@@ -55,7 +55,7 @@ vi.mock('../../../src/server/profiles/profile-assertions-repo', () => ({
 }));
 
 vi.mock('../../../src/server/pipeline/run-classify-answers', () => ({
-  runClassifyAnswers: vi.fn().mockResolvedValue({ applied: 0, skipped: 0 }),
+  runClassifyAnswers: vi.fn().mockResolvedValue({ applied: 0, skipped: 0, droppedAsTopicBound: 0 }),
 }));
 
 vi.mock('../../../src/server/llm/budget-guard', () => ({

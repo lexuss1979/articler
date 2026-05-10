@@ -6,6 +6,7 @@ import {
   upsertAssertion,
 } from '../profiles/profile-assertions-repo';
 import { classifyAnswers } from './stages/classify-answers';
+import { validateAssertionGenerality } from './stages/validate-assertion-generality';
 import { withStageCtx } from './with-stage-ctx';
 import { findSimilarKey } from '../profiles/key-similarity';
 
@@ -21,7 +22,11 @@ export async function runClassifyAnswers({
   sessionId,
   profileId,
   qa,
-}: RunClassifyAnswersInput): Promise<{ applied: number; skipped: number }> {
+}: RunClassifyAnswersInput): Promise<{
+  applied: number;
+  skipped: number;
+  droppedAsTopicBound: number;
+}> {
   const profile = await getProfile(userId, profileId);
   if (!profile) throw new Error('profile_not_found');
 
@@ -38,8 +43,34 @@ export async function runClassifyAnswers({
     classifyAnswers.run({ profile, qa, existingAssertions }, ctx),
   );
 
+  const newItems = delta.filter(
+    (d): d is Extract<typeof d, { kind: 'new' }> => d.kind === 'new',
+  );
+
+  let topicBoundKeys = new Set<string>();
+  if (newItems.length > 0) {
+    const { results } = await withStageCtx(
+      validateAssertionGenerality,
+      sessionId,
+      userId,
+      () =>
+        validateAssertionGenerality.run(
+          {
+            items: newItems.map(({ key, category, assertion }) => ({
+              key,
+              category,
+              assertion,
+            })),
+          },
+          ctx,
+        ),
+    );
+    topicBoundKeys = new Set(results.filter((r) => r.passes !== true).map((r) => r.key));
+  }
+
   let applied = 0;
   let skipped = 0;
+  let droppedAsTopicBound = 0;
 
   for (const item of delta) {
     if (item.kind === 'agree') {
@@ -51,6 +82,10 @@ export async function runClassifyAnswers({
       if (result === null) skipped++;
       else applied++;
     } else {
+      if (topicBoundKeys.has(item.key)) {
+        droppedAsTopicBound++;
+        continue;
+      }
       const match = findSimilarKey(item.key, existingAssertions.map((a) => a.key));
       if (match) {
         await recordAgreement(profileId, match.key);
@@ -68,5 +103,5 @@ export async function runClassifyAnswers({
     }
   }
 
-  return { applied, skipped };
+  return { applied, skipped, droppedAsTopicBound };
 }

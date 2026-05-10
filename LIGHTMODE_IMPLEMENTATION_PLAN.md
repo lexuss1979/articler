@@ -3573,7 +3573,7 @@ auto-deletes or marks as topic-bound for manual review.
       so that early `new`s win — order in the model output reflects
       its own confidence ranking.
 
-- [ ] T-L10-2: `validate-assertion-generality` LLM gate
+- [x] T-L10-2: `validate-assertion-generality` LLM gate
       Goal: New stage
       `src/server/pipeline/stages/validate-assertion-generality.ts`
       (`modelClass: 'fast'`). Input schema:

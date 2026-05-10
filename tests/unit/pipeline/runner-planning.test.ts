@@ -60,7 +60,7 @@ vi.mock('../../../src/server/pipeline/run-classify-answers', () => ({
 
 beforeEach(() => {
   mocks.listAssertionsFn.mockResolvedValue([]);
-  mocks.runClassifyAnswersFn.mockResolvedValue({ applied: 0, skipped: 0 });
+  mocks.runClassifyAnswersFn.mockResolvedValue({ applied: 0, skipped: 0, droppedAsTopicBound: 0 });
 });
 
 afterEach(() => vi.clearAllMocks());
