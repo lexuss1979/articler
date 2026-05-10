@@ -2240,7 +2240,7 @@ draft).
       let later verification skip duplicates without an extra dedup
       step here, mirroring full-mode `run-fact-check.ts`.
 
-- [ ] T-L7-3: Runner — invoke claims extraction inside light review branch
+- [x] T-L7-3: Runner — invoke claims extraction inside light review branch
       Goal: In `src/server/pipeline/runner.ts`'s `case 'review':`
       branch, between the existing `artifact_updated { kind:
       'auto_review_applied' }` emit (around lines 433–437) and the

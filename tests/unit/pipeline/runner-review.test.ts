@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getSessionFn: vi.fn(),
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   emitEventFn: vi.fn(),
   appendRunLogFn: vi.fn(),
   runAutoReviewFn: vi.fn(),
+  runLightClaimsExtractionFn: vi.fn(),
 }));
 
 vi.mock('../../../src/server/sessions/repo', () => ({
@@ -20,6 +21,10 @@ vi.mock('../../../src/server/sessions/repo', () => ({
 
 vi.mock('../../../src/server/pipeline/run-auto-review', () => ({
   runAutoReview: mocks.runAutoReviewFn,
+}));
+
+vi.mock('../../../src/server/pipeline/run-light-claims-extraction', () => ({
+  runLightClaimsExtraction: mocks.runLightClaimsExtractionFn,
 }));
 
 vi.mock('../../../src/server/profiles/repo', () => ({
@@ -79,6 +84,10 @@ vi.mock('../../../src/server/pipeline/stages/draft-section', () => ({
 function makeReviewSession() {
   return { id: 10, userId: 1, state: 'review', plan: null, brief: null, profileId: 1, mode: 'new' };
 }
+
+beforeEach(() => {
+  mocks.runLightClaimsExtractionFn.mockResolvedValue({ ok: true, roundId: 1, count: 0 });
+});
 
 afterEach(() => vi.clearAllMocks());
 
@@ -190,6 +199,57 @@ describe('startRunner — review state', () => {
     const emitted = mocks.emitEventFn.mock.calls as [number, string, unknown][];
     expect(emitted.some(([, k, p]) => k === 'agent_message' && (p as Record<string, unknown>).error === true)).toBe(true);
     expect(mocks.updateSessionStateFn).not.toHaveBeenCalled();
+  });
+
+  it('light mode: calls runLightClaimsExtraction with revisedMd, then emits state_changed done and calls updateSessionState done', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'original', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({
+      ok: true, revisedMd: 'r', changeCount: 1, changes: [],
+    });
+    mocks.runLightClaimsExtractionFn.mockResolvedValue({ ok: true, roundId: 7, count: 3 });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    expect(mocks.runLightClaimsExtractionFn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 99, userId: 1, revisedMd: 'r' }),
+    );
+
+    const emitted = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    expect(emitted.some(([, k, p]) => k === 'state_changed' && (p as Record<string, unknown>).state === 'done')).toBe(true);
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 99, 'done');
+  });
+
+  it('light mode: emits agent_message error when claims extraction fails, but still advances to done', async () => {
+    const lightSession = {
+      id: 99, userId: 1, state: 'review', plan: null, brief: null, profileId: 1,
+      mode: 'light', draftMd: 'original', draftMdPreReview: null,
+    };
+    mocks.getSessionFn.mockResolvedValue(lightSession);
+    mocks.emitEventFn.mockResolvedValue({ id: 1, sessionId: 99, kind: '', payload: {}, ts: new Date() });
+    mocks.updateSessionStateFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftFn.mockResolvedValue({ id: 99 });
+    mocks.updateSessionDraftPreReviewFn.mockResolvedValue({ id: 99 });
+    mocks.runAutoReviewFn.mockResolvedValue({
+      ok: true, revisedMd: 'r', changeCount: 0, changes: [],
+    });
+    mocks.runLightClaimsExtractionFn.mockResolvedValue({ ok: false, error: 'no_plan' });
+
+    const { startRunner } = await import('../../../src/server/pipeline/runner');
+    await startRunner(99, 1);
+
+    const emitted = mocks.emitEventFn.mock.calls as [number, string, unknown][];
+    expect(emitted.some(([, k, p]) => k === 'agent_message' && (p as Record<string, unknown>).error === true)).toBe(true);
+    expect(mocks.updateSessionStateFn).toHaveBeenCalledWith(1, 99, 'done');
+    expect(emitted.some(([, k, p]) => k === 'state_changed' && (p as Record<string, unknown>).state === 'done')).toBe(true);
   });
 
   it('chains into a recursive startRunner so the decoration park activates immediately', async () => {

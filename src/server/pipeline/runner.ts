@@ -21,6 +21,7 @@ import { summarizeSource } from './stages/summarize-source';
 import { draftSection } from './stages/draft-section';
 import { draftFull } from './stages/draft-full';
 import { runAutoReview } from './run-auto-review';
+import { runLightClaimsExtraction } from './run-light-claims-extraction';
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -435,6 +436,18 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
           changeCount: autoReviewResult.changeCount,
           changes: autoReviewResult.changes,
         });
+
+        const claimsResult = await runLightClaimsExtraction({
+          sessionId,
+          userId,
+          revisedMd: autoReviewResult.revisedMd,
+        });
+        if (claimsResult.ok === false) {
+          await ctx.emit('agent_message', {
+            text: `Claim extraction failed: ${claimsResult.error}`,
+            error: true,
+          });
+        }
 
         await updateSessionState(userId, sessionId, 'done');
         await ctx.emit('state_changed', { state: 'done' });
