@@ -754,3 +754,12 @@ export async function verifyAllClaimsAction(sessionId: number): Promise<{
   revalidatePath('/sessions/' + sessionId);
   return { ok: true, verifiedCount, failedCount, budgetExceeded };
 }
+
+export async function getClaimVerdictAction(sessionId: number, claimId: number) {
+  const user = await requireUser();
+  const row = await getClaimWithLatestVerdict(user.id, claimId);
+  if (!row || row.claim.sessionId !== sessionId) {
+    return { ok: false as const, error: 'not_found' as const };
+  }
+  return { ok: true as const, verdict: row.verdict, evidence: [] as [] };
+}

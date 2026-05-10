@@ -2476,7 +2476,7 @@ draft).
       Evidence rendering belongs to T-L7-8 / a follow-up — this card
       never receives evidence rows.
 
-- [ ] T-L7-8: Wire claims panel into `LightResultPane`
+- [x] T-L7-8: Wire claims panel into `LightResultPane`
       Goal: Replace the placeholder
       `<div data-slot="claims-panel">` block in
       `src/app/(app)/sessions/[id]/light-result-pane.tsx` with a real

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
   listSessionClaimsWithVerdicts: vi.fn(),
+  getClaimWithLatestVerdict: vi.fn(),
   verifyExistingClaim: vi.fn(),
   revalidatePath: vi.fn(),
 }));
@@ -10,8 +11,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/server/auth/require-user', () => ({ requireUser: mocks.requireUser }));
 vi.mock('../../../src/server/sessions/claims-repo', () => ({
   listSessionClaimsWithVerdicts: mocks.listSessionClaimsWithVerdicts,
+  getClaimWithLatestVerdict: mocks.getClaimWithLatestVerdict,
   setClaimStatus: vi.fn(),
-  getClaimWithLatestVerdict: vi.fn(),
   listSessionClaims: vi.fn(),
   findClaimBySpanHash: vi.fn(),
   insertClaim: vi.fn(),
@@ -192,5 +193,47 @@ describe('verifyAllClaimsAction', () => {
 
     expect(result).toEqual({ ok: true, verifiedCount: 1, failedCount: 1, budgetExceeded: false });
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/sessions/10');
+  });
+});
+
+describe('getClaimVerdictAction', () => {
+  const verdictRow = {
+    id: 5, claimId: 1, verdict: 'verified', justification: 'OK', createdAt: new Date(),
+  };
+
+  it('returns ok: true with verdict and empty evidence when claim is owned', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 7 });
+    mocks.getClaimWithLatestVerdict.mockResolvedValue({
+      claim: { id: 1, sessionId: 10 },
+      verdict: verdictRow,
+    });
+
+    const { getClaimVerdictAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await getClaimVerdictAction(10, 1);
+
+    expect(result).toMatchObject({ ok: true, verdict: verdictRow, evidence: [] });
+  });
+
+  it('returns ok: false with not_found when getClaimWithLatestVerdict returns null', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 7 });
+    mocks.getClaimWithLatestVerdict.mockResolvedValue(null);
+
+    const { getClaimVerdictAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await getClaimVerdictAction(10, 99);
+
+    expect(result).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('returns ok: false with not_found when claim belongs to a different session', async () => {
+    mocks.requireUser.mockResolvedValue({ id: 7 });
+    mocks.getClaimWithLatestVerdict.mockResolvedValue({
+      claim: { id: 1, sessionId: 999 },
+      verdict: null,
+    });
+
+    const { getClaimVerdictAction } = await import('../../../src/app/(app)/sessions/[id]/actions');
+    const result = await getClaimVerdictAction(10, 1);
+
+    expect(result).toEqual({ ok: false, error: 'not_found' });
   });
 });

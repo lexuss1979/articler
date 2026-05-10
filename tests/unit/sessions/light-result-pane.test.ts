@@ -8,9 +8,35 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('../../../src/app/(app)/sessions/[id]/actions', () => ({
   revertToPreReviewAction: vi.fn(),
+  getClaimVerdictAction: vi.fn(),
+  verifyClaimAction: vi.fn(),
+  verifyAllClaimsAction: vi.fn(),
+}));
+
+vi.mock('../../../src/app/(app)/sessions/[id]/use-session-events', () => ({
+  useSessionEvents: () => [],
 }));
 
 import { LightResultPane } from '../../../src/app/(app)/sessions/[id]/light-result-pane';
+
+function makeClaimWithVerdict(id: number, verdictStr: string | null = null) {
+  const claim = {
+    id,
+    sessionId: 10,
+    roundId: 99,
+    spanHash: `hash-${id}`,
+    claimText: `Claim text ${id}`,
+    claimType: 'statistic',
+    checkWorthiness: 'high',
+    span: { sectionId: 'full', charStart: 0, charEnd: 5, text: 'hello' },
+    status: 'open',
+    createdAt: new Date(),
+  };
+  const verdict = verdictStr
+    ? { id: 100 + id, claimId: id, verdict: verdictStr, justification: 'Some justification', createdAt: new Date() }
+    : null;
+  return { claim, verdict };
+}
 
 describe('<LightResultPane />', () => {
   it('renders hero-image slot, claims-panel slot, iframe, disabled revert button, and export links when previewHtml is set and draftMdPreReview is null', () => {
@@ -57,5 +83,40 @@ describe('<LightResultPane />', () => {
     );
     expect(html).toContain('Revert to pre-review');
     expect(html).not.toContain('disabled=""');
+  });
+
+  it('renders placeholder when claimsWithVerdicts is empty', () => {
+    const html = renderToString(
+      React.createElement(LightResultPane, {
+        sessionId: 42,
+        draftMd: '',
+        previewHtml: null,
+        draftMdPreReview: null,
+        claimsWithVerdicts: [],
+      }),
+    );
+    expect(html).toContain('Claims will appear here once extracted.');
+    expect(html).not.toContain('Claims to verify');
+  });
+
+  it('renders both claim texts, a verdict pill for the verified one, and Verify button for the pending one', () => {
+    const html = renderToString(
+      React.createElement(LightResultPane, {
+        sessionId: 42,
+        draftMd: '',
+        previewHtml: null,
+        draftMdPreReview: null,
+        claimsWithVerdicts: [
+          makeClaimWithVerdict(1, 'verified'),
+          makeClaimWithVerdict(2, null),
+        ],
+      }),
+    );
+    expect(html).toContain('Claim text 1');
+    expect(html).toContain('Claim text 2');
+    expect(html).toContain('bg-green-100');
+    expect(html).toContain('Verify');
+    expect(html).toContain('Claims to verify');
+    expect(html).toContain('Verify all');
   });
 });
