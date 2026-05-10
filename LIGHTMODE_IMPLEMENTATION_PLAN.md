@@ -1303,7 +1303,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       it in. Sources are passed through as a flat list rather than
       per-section because light mode does not split by section.
 
-- [ ] T-L4-7: Runner — `planning` light-mode branch
+- [x] T-L4-7: Runner — `planning` light-mode branch
       Goal: Inside `case 'planning':` in
       `src/server/pipeline/runner.ts`, fork on `session.mode === 'light'`
       after parsing `brief` / `profile` (i.e. share the existing
@@ -1359,7 +1359,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       reads here — those land in the `research` and `drafting`
       branches.
 
-- [ ] T-L4-8: Runner — `research` light-mode branch
+- [x] T-L4-8: Runner — `research` light-mode branch
       Goal: Inside `case 'research':` in
       `src/server/pipeline/runner.ts`, fork on `session.mode ===
        'light'` after parsing `plan` / `profile`. The light branch:
@@ -1407,7 +1407,7 @@ warning via `ctx.log.append` — *not* visible to the user).
       auto-accepts the top-N hits because the user has no review UI
       to act on per-source decisions in this flow.
 
-- [ ] T-L4-9: Runner — `drafting` light branch + post-review no-op branches
+- [x] T-L4-9: Runner — `drafting` light branch + post-review no-op branches
       Goal: Two changes in `src/server/pipeline/runner.ts`:
       1. **`case 'drafting':` light branch.** After parsing `plan` /
          `brief` / `profile`, if `session.mode === 'light'`:
@@ -1470,13 +1470,9 @@ warning via `ctx.log.append` — *not* visible to the user).
 
 ---
 
-<!-- PLANING_CHECKPOINT -->
-
----
-
 ## Epic L-5 — Light mode session page UI
 
-**Status: TBD**
+**Status: planned**
 
 **Goal:** When `session.mode === 'light'`, the session page renders a
 purpose-built single-pane view that replaces the multi-pane workbench:
@@ -1499,6 +1495,282 @@ present as placeholders so later epics only fill them in.
 The chat pane on the right continues to show the event stream as in
 standard mode. No new API routes — existing SSE and respond endpoints
 serve both modes.
+
+### Tasks
+
+- [x] T-L5-1: `LightBriefForm` — single-topic briefing input
+      Goal: New client component
+      `src/app/(app)/sessions/[id]/light-brief-form.tsx` rendering a
+      minimal one-field form: a labelled `<input name="topic" required
+       maxLength={200}>` and a submit button "Start writing". Uses the
+      same `useActionState`-driven pattern as the existing `BriefForm`
+      and dispatches the existing
+      `submitBriefAction(sessionId, formData)` exported from
+      `./actions`. Validation errors (`{ ok: false, error:
+       'validation', issues }`) render inline above the input. While
+      pending, the button shows "Starting…" and is disabled. The form
+      MUST NOT render goal / notes / sourceArticles fields — light
+      mode drops those entirely (`briefSchema` already defaults them
+      to empty values, so the action accepts a topic-only submission
+      cleanly per L-4-4 / L-4-5).
+      Touches: `src/app/(app)/sessions/[id]/light-brief-form.tsx`
+      (new), `tests/unit/sessions/light-brief-form.test.ts` (new).
+      Acceptance:
+        - Component test (mirror `tests/unit/sessions/export-pane.test.ts`
+          pattern: mock `./actions` with `vi.mock`,
+          `renderToString(React.createElement(LightBriefForm,
+           { sessionId: 7 }))`): asserts the rendered HTML contains
+          `name="topic"`, `required`, `maxLength="200"`, the button
+          label `Start writing`, and does NOT contain `name="goal"`,
+          `name="notes"`, or `sourceArticles`.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: action wiring is identical to `BriefForm` — copy the
+      `useActionState` boilerplate verbatim, just drop the extra
+      fields. No new server-side code in this task.
+
+- [ ] T-L5-2: `LightProgressBar` — compact stage indicator for in-flight states
+      Goal: New client component
+      `src/app/(app)/sessions/[id]/light-progress-bar.tsx` exporting
+      `LightProgressBar({ state }: { state: 'planning' | 'research'
+       | 'drafting' | 'review' })`. Renders a single horizontal row:
+      a small spinner (reuse the `<Spinner />` SVG markup from
+      `chat-pane.tsx` — duplicate the inline `<svg>` rather than
+      extracting a shared module to keep the change small) plus a
+      label per state pulled from a fixed map:
+      `{ planning: 'Planning…', research: 'Researching sources…',
+         drafting: 'Writing draft…', review: 'Reviewing draft…' }`.
+      No SSE subscription, no buttons. Pure presentational.
+      Touches:
+      `src/app/(app)/sessions/[id]/light-progress-bar.tsx` (new),
+      `tests/unit/sessions/light-progress-bar.test.ts` (new).
+      Acceptance:
+        - Component test (`renderToString` pattern):
+          `LightProgressBar({ state: 'research' })` renders
+          `Researching sources…` and the SVG `animate-spin` class.
+        - Component test: `state: 'drafting'` renders
+          `Writing draft…`.
+        - Component test: `state: 'review'` renders
+          `Reviewing draft…`.
+        - Component test: `state: 'planning'` renders `Planning…`.
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: deliberately a single component covering all four
+      in-flight states rather than four siblings, to keep the
+      state→view map in `LightSessionPane` (T-L5-4) trivial.
+
+- [ ] T-L5-3: `LightResultPane` — done-state article view with placeholder slots
+      Goal: New client component
+      `src/app/(app)/sessions/[id]/light-result-pane.tsx` exporting
+      `LightResultPane({ sessionId, draftMd, previewHtml,
+       draftMdPreReview }: { sessionId: number; draftMd: string;
+       previewHtml: string | null; draftMdPreReview: string | null })`.
+      Layout (top → bottom):
+      1. **Hero image slot** — a `<div data-slot="hero-image">` with
+         a fixed-aspect placeholder card containing the muted text
+         "Hero image generating…". L-8 will swap this in via SSE.
+         For L-5 it stays static — the data-slot attribute is the
+         contract for L-8 to query.
+      2. **Article preview** — when `previewHtml` is non-null, render
+         a sandboxed iframe identical to `ExportPane` (`title="Article
+          preview"`, `sandbox="allow-same-origin"`, `srcDoc={previewHtml}`,
+         `min-h-[60vh]`). When null, render the muted text "No article
+         yet".
+      3. **Action row** — three buttons inline:
+         - "Copy markdown" — `onClick` invokes
+           `navigator.clipboard.writeText(draftMd)`; on success, the
+           button label flips to "Copied!" for 1.5 s (use
+           `setTimeout`).
+         - "Revert to pre-review" — disabled when `draftMdPreReview
+            == null` with title attribute "Pre-review snapshot not
+           available". L-6 will activate this; for L-5 it's a slot.
+           No onClick handler in L-5.
+         - Four download links matching `ExportPane`'s export grid:
+           `Markdown (.zip)`, `HTML (.zip)`, `DOCX`, `PDF`, each
+           pointing to `/api/sessions/${sessionId}/export?format=<fmt>`
+           with `download` attr.
+      4. **Claims panel slot** — a `<div data-slot="claims-panel">`
+         rendering the muted text "Claims will appear here once
+         extracted." L-7 will swap this in.
+      Touches:
+      `src/app/(app)/sessions/[id]/light-result-pane.tsx` (new),
+      `tests/unit/sessions/light-result-pane.test.ts` (new).
+      Acceptance:
+        - Component test (`renderToString` pattern, mock `./actions`
+          if needed): with `previewHtml = '<p>hi</p>'`,
+          `draftMdPreReview = null`, asserts the HTML contains
+          `data-slot="hero-image"`, `data-slot="claims-panel"`, an
+          `<iframe` with `srcDoc=` and `title="Article preview"`,
+          a button labelled `Revert to pre-review` with the
+          `disabled` attribute present, and links with
+          `href="/api/sessions/42/export?format=md"` /
+          `format=pdf` etc.
+        - Component test: with `previewHtml = null`, asserts the
+          fallback `No article yet` text renders and no `<iframe`
+          is emitted.
+        - Component test: with `draftMdPreReview = 'old text'`,
+          asserts the revert button's `disabled` attribute is NOT
+          present (the L-6 hookup is out of scope here, but the
+          enable/disable contract must already be exercised).
+        - `pnpm typecheck && pnpm test` exit 0.
+      Notes: copy-to-clipboard fallback (`document.execCommand`) is
+      out of scope — modern browsers are assumed. The `data-slot`
+      attributes are the integration seams for L-7/L-8; do not
+      replace them with comments.
+
+- [ ] T-L5-4: `LightSessionPane` — top-level state→view orchestrator
+      Goal: New client component
+      `src/app/(app)/sessions/[id]/light-session-pane.tsx` exporting
+      `LightSessionPane({ sessionId, state, draftMd, previewHtml,
+       draftMdPreReview, isRewrite }: { sessionId: number; state:
+       SessionState; draftMd: string; previewHtml: string | null;
+       draftMdPreReview: string | null; isRewrite: false })`. The
+      `isRewrite: false` literal is intentional — light mode never
+      runs in rewrite mode (per L-4 the brief is topic-only; rewrite
+      input would be ignored). The component:
+      1. Subscribes to events via `useSessionEvents(sessionId)` ONLY
+         to detect clarification questions (the page itself
+         re-renders on `state_changed` thanks to the existing
+         `chat-pane.tsx` `router.refresh()` call).
+      2. Maintains local state `latestPrompt: string | null` and
+         `questions: ClarifyQuestion[]` derived from the event
+         stream the same way `PlanningPane` does today (lines 14-39
+         of `planning-pane.tsx`).
+      3. Renders by switch:
+         - `state === 'briefing'` → `<LightBriefForm sessionId={...} />`.
+         - `state === 'planning'` → if `latestPrompt === 'clarify'`
+           AND `questions.length > 0`, render `<ClarificationForm
+            questions={questions} sessionId={...} />` (re-uses the
+           existing component verbatim); else render
+           `<LightProgressBar state="planning" />`.
+         - `state === 'research'` / `'drafting'` / `'review'` →
+           `<LightProgressBar state={state} />`.
+         - `state === 'done'` → `<LightResultPane sessionId draftMd
+            previewHtml draftMdPreReview />`.
+         - Any other state (`decoration` / `illustration` /
+           `export` — should never occur in light mode per L-4-9 but
+           defend against it) → render the muted text
+           `Unexpected state: <state>`.
+      Touches:
+      `src/app/(app)/sessions/[id]/light-session-pane.tsx` (new),
+      `tests/unit/sessions/light-session-pane.test.ts` (new).
+      Acceptance:
+        - Component test (`renderToString` pattern with `useEffect`
+          / `EventSource` stubbed via the existing test harness —
+          since `useSessionEvents` calls `new EventSource` inside a
+          `useEffect`, server-rendered output starts with
+          `events = []`, which is exactly the initial state the test
+          needs): with `state = 'briefing'`, asserts the HTML
+          contains `name="topic"` (delegates to `LightBriefForm`).
+        - Component test: with `state = 'research'`, asserts
+          `Researching sources…` is rendered.
+        - Component test: with `state = 'done'`,
+          `previewHtml = '<p>x</p>'`,
+          `draftMdPreReview = null`, asserts `data-slot="hero-image"`
+          and a download link for `format=md` are both present.
+        - Component test: with `state = 'decoration'` (the defensive
+          branch), asserts `Unexpected state: decoration` renders.
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: do NOT subscribe to `state_changed` here — let the
+      page-level `router.refresh()` from `chat-pane.tsx` re-render
+      the server component which re-passes `state` as a prop. This
+      avoids two competing sources of truth for the current state.
+
+- [ ] T-L5-5: Wire `LightSessionPane` into the session page server component
+      Goal: Update
+      `src/app/(app)/sessions/[id]/page.tsx` so that when
+      `session.mode === 'light'`, the workbench column renders
+      `<LightSessionPane ... />` instead of the existing per-state
+      switch. Implementation outline:
+      1. Add an early branch immediately after the `if (!session)
+          notFound();` line:
+          ```ts
+          if (session.mode === 'light') {
+            let lightPreviewHtml: string | null = null;
+            if (session.state === 'done') {
+              const profile = await getProfile(user.id, session.profileId);
+              if (profile) {
+                const rules = parseMarkupRules(profile.markupRules);
+                lightPreviewHtml = await renderHtmlArticle(
+                  session.draftMd ?? '', rules,
+                );
+              }
+            }
+            return (
+              <div className="flex h-full gap-4">
+                <div className="flex-1 min-h-0 border rounded flex flex-col overflow-hidden">
+                  <div className="shrink-0 px-4 py-3 border-b flex items-center justify-between gap-3">
+                    <h2 className="text-sm font-medium text-gray-500">Light mode</h2>
+                    <SessionHeader sessionId={id} />
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                    <LightSessionPane
+                      sessionId={id}
+                      state={session.state}
+                      draftMd={session.draftMd ?? ''}
+                      previewHtml={lightPreviewHtml}
+                      draftMdPreReview={session.draftMdPreReview ?? null}
+                      isRewrite={false}
+                    />
+                  </div>
+                </div>
+                <div className="w-72 shrink-0 flex flex-col border rounded overflow-hidden">
+                  <ChatPane sessionId={id} />
+                </div>
+              </div>
+            );
+          }
+          ```
+      2. The full-mode rendering below this branch is **completely
+         unchanged**; light sessions never reach the heavy
+         per-state data loads (`researchSources`, `draftingPlan`,
+         `decorationData`, `illustrationData`, `reviewData`,
+         `exportPreviewHtml`).
+      3. Keep the `void startRunner(id, user.id);` recovery call
+         BEFORE the new branch so light sessions also benefit from
+         it. The DevResetPanel remains full-mode-only — do not
+         render it in the light branch.
+      Touches: `src/app/(app)/sessions/[id]/page.tsx`.
+      Acceptance:
+        - Manual smoke via `pnpm dev`: create a light-mode session
+          from `/sessions/new`. The session page renders the topic
+          form (no goal / notes / source articles fields). Submit
+          a topic. The chat pane streams `state_changed` events;
+          the workbench transitions through `Planning…` (then
+          clarification form when questions arrive) →
+          `Researching sources…` → `Writing draft…` →
+          `Reviewing draft…`. Because L-6/L-7 are not yet
+          implemented, the runner halts in `review` state per
+          L-4-9 — verify the workbench shows
+          `Reviewing draft…` and remains there (no error). For
+          this manual smoke, force-update the row to `state =
+          'done'` via SQL (`UPDATE sessions SET state = 'done'
+          WHERE id = ?`) and `pnpm dev` reload — the result pane
+          renders with the article iframe, copy button, four
+          export links, the disabled revert button, and the two
+          placeholder slots.
+        - Manual smoke: existing full-mode (`mode = 'new'` /
+          `'rewrite'`) sessions render exactly as before — this
+          is verifiable by opening any pre-existing session in the
+          DB and confirming `BriefForm` / `PlanningPane` / etc.
+          still appear.
+        - Existing tests for the full-mode page rendering
+          continue to pass (`pnpm test` runs all suites; no
+          test in `tests/unit/sessions/` exercises the page
+          component directly today, so the gate is "no regressions
+          in test count").
+        - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
+      Notes: this task is intentionally rendering-only. The actual
+      light runner already advances through states (L-4-7 → L-4-9);
+      L-5-5 just gives those state changes a face. After L-6 / L-7
+      land, the same `LightSessionPane` will continue to work
+      because they only mutate behaviour inside the runner and
+      add SSE events the existing components already render
+      (clarification questions are the only event the pane reads
+      directly; the result pane's slots are filled by L-7 / L-8 in
+      their own UI tasks).
+
+---
+
+<!-- PLANING_CHECKPOINT -->
 
 ---
 
