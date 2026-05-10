@@ -3783,7 +3783,7 @@ auto-deletes or marks as topic-bound for manual review.
       leaking assertion in the first place — the prompt clause is
       belt-and-braces.
 
-- [ ] T-L10-6: "Reset session-learned assertions" button + repo helper
+- [x] T-L10-6: "Reset session-learned assertions" button + repo helper
       Goal: New repo function in
       `src/server/profiles/profile-assertions-repo.ts`:
       ```ts

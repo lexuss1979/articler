@@ -8,6 +8,7 @@ import { db } from '../../../src/server/db/client';
 import { profileAssertions, profiles, users } from '../../../src/server/db/schema';
 import {
   deleteAssertion,
+  deleteAssertionsBySource,
   listAssertions,
   mergeDuplicateKey,
   recordAgreement,
@@ -400,6 +401,69 @@ describe.skipIf(!runIntegration)('profile-assertions-repo', () => {
       .from(profileAssertions)
       .where(and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.key, key)));
     expect(dbRows).toHaveLength(0);
+  });
+
+  it('deleteAssertionsBySource removes only matching-source rows for the given profile', async () => {
+    await db.delete(profileAssertions).where(eq(profileAssertions.profileId, profileId));
+
+    const [otherProfile] = await db
+      .insert(profiles)
+      .values({
+        userId,
+        name: 'Other Profile (delete-by-source)',
+        format: 'blog',
+        style: 'casual',
+        audience: 'general',
+        targetVolumeMin: 300,
+        targetVolumeMax: 700,
+      })
+      .returning({ id: profiles.id });
+
+    await upsertAssertion({
+      profileId,
+      key: 'session_a',
+      category: 'tone',
+      assertion: 'session a',
+      source: 'session',
+    });
+    await upsertAssertion({
+      profileId,
+      key: 'session_b',
+      category: 'tone',
+      assertion: 'session b',
+      source: 'session',
+    });
+    await upsertAssertion({
+      profileId,
+      key: 'examples_keep',
+      category: 'tone',
+      assertion: 'examples kept',
+      source: 'examples',
+    });
+    await upsertAssertion({
+      profileId: otherProfile.id,
+      key: 'session_other',
+      category: 'tone',
+      assertion: 'other profile session',
+      source: 'session',
+    });
+
+    const deleted = await deleteAssertionsBySource(profileId, 'session');
+    expect(deleted).toBe(2);
+
+    const remaining = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.profileId, profileId));
+    expect(remaining.map((r) => r.key)).toEqual(['examples_keep']);
+
+    const otherRemaining = await db
+      .select()
+      .from(profileAssertions)
+      .where(eq(profileAssertions.profileId, otherProfile.id));
+    expect(otherRemaining.map((r) => r.key)).toEqual(['session_other']);
+
+    await db.delete(profiles).where(eq(profiles.id, otherProfile.id));
   });
 });
 

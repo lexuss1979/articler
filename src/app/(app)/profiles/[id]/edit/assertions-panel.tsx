@@ -2,7 +2,7 @@
 
 import { useTransition } from 'react';
 import type { Assertion } from '../../../../../server/profiles/profile-assertions-repo';
-import { deleteAssertionAction } from '../../actions';
+import { deleteAssertionAction, resetSessionAssertionsAction } from '../../actions';
 
 type Props = {
   profileId: number;
@@ -31,7 +31,39 @@ function DeleteButton({
   );
 }
 
+function ResetSessionButton({
+  profileId,
+  sessionCount,
+}: {
+  profileId: number;
+  sessionCount: number;
+}) {
+  return (
+    <form action={resetSessionAssertionsAction}>
+      <input type="hidden" name="profileId" value={profileId} />
+      <button
+        type="submit"
+        disabled={sessionCount === 0}
+        onClick={(e) => {
+          if (
+            !window.confirm(
+              `Delete all ${sessionCount} assertions learned from sessions? Examples-sourced assertions are kept.`,
+            )
+          ) {
+            e.preventDefault();
+          }
+        }}
+        className="text-xs text-red-600 hover:underline disabled:opacity-40"
+      >
+        Reset session-learned
+      </button>
+    </form>
+  );
+}
+
 export function AssertionsPanel({ profileId, assertions }: Props) {
+  const sessionCount = assertions.filter((a) => a.source === 'session').length;
+  const examplesCount = assertions.filter((a) => a.source === 'examples').length;
   const grouped = assertions.reduce<Record<string, Assertion[]>>((acc, a) => {
     (acc[a.category] ??= []).push(a);
     return acc;
@@ -39,7 +71,15 @@ export function AssertionsPanel({ profileId, assertions }: Props) {
 
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Assertions</h2>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Assertions</h2>
+          <p className="text-xs text-muted-foreground">
+            {sessionCount} session-learned, {examplesCount} from examples
+          </p>
+        </div>
+        <ResetSessionButton profileId={profileId} sessionCount={sessionCount} />
+      </div>
       {assertions.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No assertions yet — they&apos;re learned from your sessions and examples.

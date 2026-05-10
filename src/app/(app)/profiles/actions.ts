@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireUser } from '../../../server/auth/require-user';
-import { deleteAssertion } from '../../../server/profiles/profile-assertions-repo';
+import { deleteAssertion, deleteAssertionsBySource } from '../../../server/profiles/profile-assertions-repo';
 import { createProfile, deleteProfile, getProfile, updateProfile } from '../../../server/profiles/repo';
 import { profileInputSchema } from '../../../server/profiles/schema';
 import { runAnalyzeExamples } from '../../../server/pipeline/run-analyze-examples';
@@ -119,6 +119,16 @@ export async function deleteAssertionAction(
   const profile = await getProfile(user.id, profileId);
   if (!profile) return;
   await deleteAssertion(profileId, assertionId);
+  revalidatePath(`/profiles/${profileId}/edit`, 'page');
+}
+
+export async function resetSessionAssertionsAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const profileId = Number(formData.get('profileId'));
+  if (!Number.isInteger(profileId) || profileId <= 0) return;
+  const profile = await getProfile(user.id, profileId);
+  if (!profile) return;
+  await deleteAssertionsBySource(profileId, 'session');
   revalidatePath(`/profiles/${profileId}/edit`, 'page');
 }
 

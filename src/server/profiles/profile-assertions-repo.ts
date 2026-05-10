@@ -161,6 +161,19 @@ export async function deleteAssertion(
   return result.length > 0;
 }
 
+export async function deleteAssertionsBySource(
+  profileId: number,
+  source: string,
+): Promise<number> {
+  const result = await db
+    .delete(profileAssertions)
+    .where(
+      and(eq(profileAssertions.profileId, profileId), eq(profileAssertions.source, source)),
+    )
+    .returning({ id: profileAssertions.id });
+  return result.length;
+}
+
 export async function replaceAssertions(
   profileId: number,
   items: Array<{ key: string; category: string; assertion: string; source: string }>,
