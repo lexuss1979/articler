@@ -56,6 +56,7 @@ const profile = {
 };
 
 const qa = [{ question: 'What tone?', answer: 'Casual.' }];
+const brief = { topic: 'Prompt caching with code blocks', goal: '', notes: '' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -73,7 +74,7 @@ describe('runClassifyAnswers', () => {
       '../../../src/server/pipeline/run-classify-answers'
     );
     await expect(
-      runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa }),
+      runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief }),
     ).rejects.toThrow('profile_not_found');
   });
 
@@ -83,7 +84,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
     expect(mockRecordAgreement).toHaveBeenCalledWith(1, 'tone_formal');
     expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
@@ -96,7 +97,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
     expect(mockRecordContradiction).toHaveBeenCalledWith(1, 'tone_formal');
     expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
   });
@@ -119,7 +120,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
     expect(mockUpsertAssertion).toHaveBeenCalledWith({
       profileId: 1,
       key: 'format_uses_code',
@@ -159,7 +160,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
     expect(mockRecordAgreement).toHaveBeenCalledWith(1, 'code_blocks_format');
     expect(mockUpsertAssertion).not.toHaveBeenCalled();
     expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
@@ -173,7 +174,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
     expect(result).toEqual({ applied: 0, skipped: 1, droppedAsTopicBound: 0 });
   });
 
@@ -194,7 +195,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
     expect(mockUpsertAssertion).not.toHaveBeenCalled();
     expect(mockRecordAgreement).not.toHaveBeenCalled();
     expect(result).toEqual({ applied: 0, skipped: 0, droppedAsTopicBound: 1 });
@@ -223,7 +224,7 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
 
     expect(mockUpsertAssertion).toHaveBeenCalledTimes(1);
     expect(mockRecordAgreement).toHaveBeenCalledWith(1, 'tone_formal');
@@ -239,9 +240,41 @@ describe('runClassifyAnswers', () => {
     const { runClassifyAnswers } = await import(
       '../../../src/server/pipeline/run-classify-answers'
     );
-    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa });
+    const result = await runClassifyAnswers({ userId: 42, sessionId: 1, profileId: 1, qa, brief });
 
     expect(mockValidateAssertionGeneralityRun).not.toHaveBeenCalled();
     expect(result).toEqual({ applied: 1, skipped: 0, droppedAsTopicBound: 0 });
+  });
+
+  it('drops a new item whose nouns leak (passes generality but fails noun-overlap guard)', async () => {
+    const narrowBrief = { topic: 'firefighter equipment', goal: '', notes: '' };
+    mockClassifyAnswersRun.mockResolvedValue({
+      delta: [
+        {
+          kind: 'new',
+          key: 'scope_includes_safety',
+          category: 'scope',
+          assertion: 'covers ladder considerations',
+        },
+      ],
+    });
+    mockValidateAssertionGeneralityRun.mockResolvedValue({
+      results: [{ key: 'scope_includes_safety', passes: true, reason: 'sounds general' }],
+    });
+
+    const { runClassifyAnswers } = await import(
+      '../../../src/server/pipeline/run-classify-answers'
+    );
+    const result = await runClassifyAnswers({
+      userId: 42,
+      sessionId: 1,
+      profileId: 1,
+      qa,
+      brief: narrowBrief,
+    });
+
+    expect(mockUpsertAssertion).not.toHaveBeenCalled();
+    expect(mockRecordAgreement).not.toHaveBeenCalled();
+    expect(result).toEqual({ applied: 0, skipped: 0, droppedAsTopicBound: 1 });
   });
 });

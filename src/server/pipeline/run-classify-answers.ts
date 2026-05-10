@@ -9,12 +9,14 @@ import { classifyAnswers } from './stages/classify-answers';
 import { validateAssertionGenerality } from './stages/validate-assertion-generality';
 import { withStageCtx } from './with-stage-ctx';
 import { findSimilarKey } from '../profiles/key-similarity';
+import { assertionLeaksTopic } from '../profiles/topic-noun-guard';
 
 export type RunClassifyAnswersInput = {
   userId: number;
   sessionId: number;
   profileId: number;
   qa: Array<{ question: string; answer: string }>;
+  brief: { topic: string; goal: string; notes: string };
 };
 
 export async function runClassifyAnswers({
@@ -22,6 +24,7 @@ export async function runClassifyAnswers({
   sessionId,
   profileId,
   qa,
+  brief,
 }: RunClassifyAnswersInput): Promise<{
   applied: number;
   skipped: number;
@@ -47,7 +50,7 @@ export async function runClassifyAnswers({
     (d): d is Extract<typeof d, { kind: 'new' }> => d.kind === 'new',
   );
 
-  let topicBoundKeys = new Set<string>();
+  const topicBoundKeys = new Set<string>();
   if (newItems.length > 0) {
     const { results } = await withStageCtx(
       validateAssertionGenerality,
@@ -65,7 +68,20 @@ export async function runClassifyAnswers({
           ctx,
         ),
     );
-    topicBoundKeys = new Set(results.filter((r) => r.passes !== true).map((r) => r.key));
+    for (const r of results) {
+      if (r.passes !== true) topicBoundKeys.add(r.key);
+    }
+  }
+
+  const profileGeneralText = [profile.audience, profile.style, profile.format, profile.extraPrompt]
+    .filter((s) => typeof s === 'string' && s.length > 0)
+    .join(' ');
+
+  for (const item of newItems) {
+    if (topicBoundKeys.has(item.key)) continue;
+    if (assertionLeaksTopic({ assertion: item.assertion, brief, profileGeneralText })) {
+      topicBoundKeys.add(item.key);
+    }
   }
 
   let applied = 0;

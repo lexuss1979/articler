@@ -3630,7 +3630,7 @@ auto-deletes or marks as topic-bound for manual review.
       to keep cost bounded; cap `items.length` at 2 (already enforced
       by T-L10-1's truncation) so prompt size is trivially bounded.
 
-- [ ] T-L10-3: Deterministic brief-noun overlap guard
+- [x] T-L10-3: Deterministic brief-noun overlap guard
       Goal: New module
       `src/server/profiles/topic-noun-guard.ts` exporting:
       - `extractSalientNouns(text: string): Set<string>` — lower-

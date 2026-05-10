@@ -137,7 +137,13 @@ async function runStage(sessionId: number, userId: number): Promise<void> {
 
       if (clarifications.length > 0) {
         try {
-          await runClassifyAnswers({ userId, sessionId, profileId: session.profileId, qa: clarifications });
+          await runClassifyAnswers({
+            userId,
+            sessionId,
+            profileId: session.profileId,
+            qa: clarifications,
+            brief: { topic: brief.topic, goal: brief.goal, notes: brief.notes },
+          });
         } catch (err) {
           console.warn('[planning] classify-answers enrichment failed:', err instanceof Error ? err.message : err);
         }
