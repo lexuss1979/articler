@@ -3389,7 +3389,7 @@ even if a hero retry mechanism is added later.
       work in the `node` test env. The page server component fetches
       the initial sessions; live updates come via SSE.
 
-- [ ] T-L9-10: Batch creation form page `/sessions/batch/new`
+- [x] T-L9-10: Batch creation form page `/sessions/batch/new`
       Goal: Two new files:
       1. Server page `src/app/(app)/sessions/batch/new/page.tsx`
          — `requireUser`, `listProfiles(user.id)`, render

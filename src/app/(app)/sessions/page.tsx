@@ -58,12 +58,20 @@ export default async function SessionsPage() {
     <div className="flex flex-col gap-6 max-w-4xl mx-auto h-full overflow-y-auto pr-1">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Sessions</h1>
-        <Link
-          href="/sessions/new"
-          className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
-        >
-          + New session
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/sessions/batch/new"
+            className="bg-gray-100 text-gray-800 px-4 py-2 rounded text-sm hover:bg-gray-200"
+          >
+            + New batch
+          </Link>
+          <Link
+            href="/sessions/new"
+            className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
+          >
+            + New session
+          </Link>
+        </div>
       </div>
 
       {rows.length === 0 ? (
