@@ -2174,7 +2174,7 @@ draft).
       changes to `bulkSetFindingStatus` / `setFindingStatus` —
       auto-review creates no findings.
 
-- [ ] T-L7-2: `runLightClaimsExtraction` orchestrator
+- [x] T-L7-2: `runLightClaimsExtraction` orchestrator
       Goal: New module
       `src/server/pipeline/run-light-claims-extraction.ts` exporting
       `runLightClaimsExtraction({ sessionId, userId, revisedMd }):
