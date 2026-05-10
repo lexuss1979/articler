@@ -3852,7 +3852,7 @@ auto-deletes or marks as topic-bound for manual review.
       for examples-flow re-runs) — different intent, different
       callers.
 
-- [ ] T-L10-7: Bulk-audit script for existing assertions
+- [x] T-L10-7: Bulk-audit script for existing assertions
       Goal: New script `scripts/audit-assertions.mjs`. CLI:
       `node scripts/audit-assertions.mjs --profile <profileId>
       [--apply]` (also supports `--all` to iterate every profile in
