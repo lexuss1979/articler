@@ -77,6 +77,15 @@ export async function updateSessionDraft(userId: number, id: number, draftMd: st
   return row ?? null;
 }
 
+export async function updateSessionDraftPreReview(userId: number, id: number, snapshotMd: string) {
+  const [row] = await db
+    .update(sessions)
+    .set({ draftMdPreReview: snapshotMd, updatedAt: new Date() })
+    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+    .returning();
+  return row ?? null;
+}
+
 export async function updateSessionActiveCritics(userId: number, id: number, activeCritics: ActiveCritics) {
   const [row] = await db
     .update(sessions)

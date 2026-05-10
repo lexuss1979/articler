@@ -1870,7 +1870,7 @@ synthetic `critique_round` row to host the extracted claims; see L-7.)
       short excerpts for the change summary UI; the model is instructed
       to keep them under 200 chars each.
 
-- [ ] T-L6-2: Repo: `updateSessionDraftPreReview`
+- [x] T-L6-2: Repo: `updateSessionDraftPreReview`
       Goal: Add `updateSessionDraftPreReview(userId: number, id: number,
        snapshotMd: string): Promise<SessionRow | null>` to
       `src/server/sessions/repo.ts`. Implementation: `UPDATE sessions
