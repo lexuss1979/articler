@@ -2439,7 +2439,7 @@ draft).
           `LightResultPane` (visual rendering lands in T-L7-8).
         - `pnpm lint && pnpm typecheck && pnpm test` exit 0.
 
-- [ ] T-L7-7: `LightClaimCard` presentational component
+- [x] T-L7-7: `LightClaimCard` presentational component
       Goal: New component
       `src/app/(app)/sessions/[id]/light-claim-card.tsx` that renders
       one claim row for the light-mode result panel.
