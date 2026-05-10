@@ -3083,7 +3083,7 @@ even if a hero retry mechanism is added later.
       Notes: All inserts go through one transaction so a partial
       failure leaves no orphan batch row.
 
-- [ ] T-L9-4: `createBatchAction` server action + topic parser
+- [x] T-L9-4: `createBatchAction` server action + topic parser
       Goal: New module `src/app/(app)/sessions/batch/actions.ts`
       exporting `createBatchAction(prevState, formData):
       Promise<BatchActionState>`:
